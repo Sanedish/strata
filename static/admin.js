@@ -78,17 +78,22 @@
       render(true);
     } catch (e) { A.logError = e.message; render(true); }
   }
+  // one tab per log the account may read (logs.read is an old grant that the server expands into the first two)
+  function logTabs() {
+    return [['runtime', 'Runtime', 'logs.runtime'], ['access', 'Website requests', 'logs.access'], ['activity', 'Account activity', 'audit.read']]
+      .filter(([, , cap]) => has(cap));
+  }
   function logToolbar() {
-    const tabs = [['runtime', 'Runtime'], ['access', 'Website requests']];
-    if (has('audit.read')) tabs.push(['activity', 'Account activity']);
+    const tabs = logTabs();
     return `<div class="admin-tabs">${tabs.map(([id, label]) => `<button class="${A.logSource === id ? 'on' : ''}" data-act="logSource" data-arg="${id}">${esc(label)}</button>`).join('')}</div>
       <div class="admin-toolbar"><input id="log-search" class="input" value="${esc(A.logSearch)}" placeholder="${A.logSource === 'runtime' ? 'Search process log' : A.logSource === 'access' ? 'Search paths, IPs, hosts, user agents' : 'Search events, IPs, targets'}" autocomplete="off">
       ${A.logSource === 'activity' ? `<input id="log-user" class="input" value="${esc(A.logUser)}" placeholder="Account"><input id="log-action" class="input" value="${esc(A.logAction)}" placeholder="Action">` : ''}
       <button class="btn btn-secondary" data-act="logSearch">${icon('search', 'sm')} Search</button><button class="btn btn-secondary" data-act="logRefresh">${icon('refresh-cw', 'sm')} Refresh</button></div>`;
   }
   function vLogs() {
-    if (!has('logs.read')) return adminErr('This account can’t see logs. Ask an administrator for access.');
-    if (A.logSource === 'activity' && !has('audit.read')) A.logSource = 'runtime';
+    const tabs = logTabs();
+    if (!tabs.length) return adminErr('This account can’t see logs. Ask an administrator for access.');
+    if (!tabs.some(([id]) => id === A.logSource)) A.logSource = tabs[0][0];
     if (!A.logs && !A.logError) loadLogs();
     const source = A.logs;
     let body = '';
