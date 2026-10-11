@@ -1,6 +1,6 @@
 # Strata roadmap
 
-Written 2026-10-11, updated the same day after Phase 1.
+Written 2026-10-11, updated the same day after Phase 1 and again after 2c, 2d and 2e.
 
 ## Done in this round
 
@@ -58,6 +58,14 @@ Still open from Phase 1:
 
 Other accounts still get e-mailed codes, so inviting people still needs Resend.
 
+## Found on the way, not fixed yet
+
+- `static/vendor/` (CodeMirror and the Lucide license) is caught by `vendor/` in `.gitignore`, so a fresh clone has no code editor. Anchor the pattern (`/vendor/`) and commit the folder.
+- In the drive editor (and wherever a form row pairs a preset select with a text field, like the rule editor's Cache-Control), the select takes the full width and squeezes the text field to a sliver, so you can't read the current value. `.form .input, .form select { width: 100% }` beats the row's flex layout; it was like this before 2d.
+- The app-code page's "Trust this browser for 30 days" checkbox does nothing: `auth.trust_token()` and `trust_ok()` exist but nothing calls them. Wire them up or drop the checkbox.
+- For an account that hasn't accepted the privacy note, `guard()` answers an API call with 428 and then writes a redirect into the same response.
+- On Linux, 33 Strata Media unit tests fail and 2 error, exactly the same tests on the original commit: mostly archive scanning and text extraction (`test_scan_*`), plus the sandbox and the bridge supervisor. A few depend on the network, so the count can vary by one or two.
+
 ## Phase 2: de-sloppify (UX)
 
 ### 2a. Break up the Settings page (biggest win)
@@ -86,20 +94,26 @@ The sidebar still overflows on a 900 px-tall screen. Merging related pages into 
 
 How: a small `hub(view, tabs)` helper renders a tab row and calls the existing view function for the selected tab. The tricky part is per-view polling keyed on `S.view` (`pollInsights`, `VIEW_REFRESH`, `VIEW_NEEDS`): it has to be keyed on the active tab instead. About half a day, with a click-through of every tab afterwards.
 
-### 2c. Scaling
-Interface scale defaults to **130 %**, then auto-fit shrinks it on smaller windows, so the same page looks different from one machine to the next. Proposal: default 100 %, keep the slider, and drop auto-fit (browser zoom already does this). **Needs your decision**, because it changes how your own dashboard looks.
+### 2c. Scaling: done
+The interface scale defaults to 100 %, the slider stays and auto-fit is gone: a chosen size applies on every window, like browser zoom (phones still always get 100 %). The old 130 % default was saved with every other preference, so browsers and synced accounts still on it move to 100 % once (`scale100` in the preferences).
 
-### 2d. Spacing and styles
-Styles live in three places (`styles.css`, `dashboard.css` and ~550 lines inline in `index.html`) plus dozens of `style="..."` attributes in the JS. Plan: move the inline block into `dashboard.css`, define spacing tokens (`--s1` 4px … `--s6` 32px), and replace one-off `style="width:180px"` and `gap:6px` values with classes. Do this page by page with before/after screenshots, so nothing shifts by accident.
+### 2d. Spacing and styles: done
+- The 517-line `<style>` block from `index.html` now opens `dashboard.css`, in the same cascade position. CodeMirror's stylesheets were linked twice; the pair that took effect is kept.
+- The views' 241 static `style="..."` attributes are helper classes in the last section of `dashboard.css`. They are nested under the elements the UI renders into, so they outrank class rules exactly as the inline styles did.
+- The spacing tokens already existed as `--space-1` … `--space-8` (4 to 32 px) in `styles.css`, so there is no second set. The helpers use them where the values match.
+- Still inline on purpose: values from data, `display` that JS toggles, styles inside row `attrs` strings, and the `.split` column templates, which `layout.js` reads back from the attribute to make panes resizable.
+- Checked with before/after snapshots of 65 states (every view, its tabs and the main dialogs) in light, dark and phone layouts, replaying the same recorded API answers: every element's computed style is identical. That caught one rule matching `span[style*="display:flex"]`, now `span:is(.d-flex, .hrow)`.
 
-### 2e. Copy pass, page by page
+Next, if wanted: the base CSS still uses literal px, and many values sit off the 4 px scale (6, 10, 14, 18 px). Moving them onto it changes how dense the dashboard looks, so it needs its own pass with screenshots and your sign-off.
+
+### 2e. Copy pass, page by page: done
 House style for every string:
 - Say what something does in under 8 words. Leave out the how ("chunked and resumable…") unless the user has to act on it.
 - No feature lists joined with " · ". No em-dash asides.
 - Error messages say what happened and what to do next: "Couldn't save: the file changed on disk. Reload to see it."
 - One name per thing: **Owner** (never "root" in the UI), **Administrator**, **Member**, **Moderator**.
 
-Biggest offenders by count: `control.js`, `storage.js`, `media.js`, then the Settings rows in `app.js`.
+Done for every view, the sign-in pages and the server messages that reach the UI: "root" is Owner wherever it shows, Blacklist is Blocklist, Polling interval is Refresh rate, and "storage area" is storage zone. Data separators like "3 active · 12 MB" stay. Two bugs fixed on the way: the password dialog asked for 10+ characters while the server needs 12, and the account profile showed the raw role ("root").
 
 ## Phase 3: customisation
 
