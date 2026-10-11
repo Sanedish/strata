@@ -36,16 +36,16 @@
   const SINCE = [['3600', '1 h'], ['21600', '6 h'], ['86400', '24 h'], ['604800', '7 d']];
   const NEG_MODES = [['auto', 'Auto'], ['edge', 'Edge'], ['redirect', 'Redirect'], ['off', 'Off']];
   const NEG_HELP = {
-    auto: 'Cloudflare edge rules when the API token may manage Transform Rules, otherwise origin redirects.',
-    edge: 'Cloudflare adds ?_v=avif|webp before its cache lookup: same URL, no extra round trip.',
-    redirect: 'The origin answers a tiny 302 to ?_v=avif|webp|orig: one extra round trip per image view.',
-    off: 'Only explicit ?fm= / ?_v= URLs get AVIF / WebP; canonical URLs serve the original.',
+    auto: 'Edge rules if the Cloudflare token allows them, otherwise redirects.',
+    edge: 'Cloudflare picks the format: no extra round trip.',
+    redirect: 'The origin redirects to the format: one extra round trip.',
+    off: 'Only ?fm= links get AVIF or WebP.',
   };
   const THRESHOLDS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
   const THRESHOLD_HELP = {
-    low: 'Hold on any finding, even private IPs, e-mail addresses or GPS tags: strictest, most false positives.',
-    medium: 'Hold on medium findings and above: passwords, public IPs, active content, unscannable files. Default.',
-    high: 'Hold only on high findings (tokens, private keys) and AV detections: unscannable files get published.',
+    low: 'Holds on any finding. Strictest, with the most false alarms.',
+    medium: 'Holds on medium findings and up, like passwords. The default.',
+    high: 'Holds only on keys, tokens and viruses. Unscannable files get published.',
   };
   const TOOLS = [
     ['ffmpeg', ['ffmpeg'], 'video jobs fail and ?_v=webm keeps redirecting to the original'],
@@ -185,7 +185,7 @@
   }
   function friendly(e) {
     const m = String((e && e.message) || e || 'error');
-    if (NOT_HOOKED.test(m)) return 'the media API is not reachable (/api/media/* answered 404: strata.py does not dispatch it yet)';
+    if (NOT_HOOKED.test(m)) return 'The media API isn’t reachable: this Strata doesn’t serve /api/media/ yet.';
     return m;
   }
   // A status of a switched-off pipeline: {"enabled": false, ...} (HOOKS-ui.md), or the same said another way.
@@ -508,7 +508,7 @@
   /* ------------------------------------------------------------------ sections */
 
   function topBar() {
-    const bits = [D.md.at ? 'updated ' + fmt.ago(D.md.at) : '', S.paused ? 'sampling paused' : 'refreshing every ' + POLL_MS / 1000 + ' s while this view is open',
+    const bits = [D.md.at ? 'updated ' + fmt.ago(D.md.at) : '', S.paused ? 'sampling paused' : 'refreshing every ' + POLL_MS / 1000 + ' s',
       first(ST().version, proc('media').version) ? 'media ' + txt(first(ST().version, proc('media').version), 30) : ''].filter(Boolean);
     const warn = txt(first(ST().error, ST().warning) ?? '', 300); // the bridge's own complaint (e.g. media.db unreadable)
     return `<div class="tbar md-full bb-0 bg-page"><span class="small dim">${esc(bits.join(' · '))}</span>
@@ -532,9 +532,9 @@
       !B.forced && B.state === 'open' && B.openFor !== null ? 'half-open in ' + fmt.dur(B.openFor) : '',
       B.since ? 'since ' + srvAgo(B.since) : ''].filter(Boolean).join(' · ');
     const mode = B.forced || 'auto';
-    const ctl = `<div class="seg-row md-ctl">${[['auto', 'Auto', 'Automatic: trips on CPU, memory, queue, wait time, errors or slow encodes'],
-      ['open', 'Open', 'Maintenance: skip all on-the-fly processing and serve originals'],
-      ['closed', 'Close', 'Ignore the trip conditions for a while (use with care)']].map(([k, l, t]) =>
+    const ctl = `<div class="seg-row md-ctl">${[['auto', 'Auto', 'Automatic: trips when the machine is busy'],
+      ['open', 'Open', 'Skip all processing and serve originals'],
+      ['closed', 'Close', 'Never trip, for a while (use with care)']].map(([k, l, t]) =>
       `<button class="${mode === k ? 'on' : ''}" data-act="mdBreaker" data-arg="${k}" title="${esc(t)}">${l}</button>`).join('')}</div>`;
     const cpuHot = mon.ewma !== null && mon.ewma >= B.cpuTrip;
     const wHot = B.waiters !== null && B.maxWaiters !== null && B.waiters >= B.maxWaiters;
@@ -580,12 +580,12 @@
   function capacityPanel() {
     const cap = capacity(), rows = cap.rows.slice().sort((a, b) => (b.level === 'upgrade') - (a.level === 'upgrade'));
     const up = rows.some((a) => a.level === 'upgrade');
-    const noteTxt = 'advisor checks CPU, memory, scan backlog, uplink and cache disk every 5 min' + (cap.ts ? ' · ' + srvAgo(cap.ts) : '');
+    const noteTxt = 'checked every 5 min' + (cap.ts ? ' · ' + srvAgo(cap.ts) : '');
     const body = rows.length ? rows.map((a) => `<div class="md-adv ${a.level === 'upgrade' ? 'up' : ''}">
         <span class="h800">${esc(a.resource)}</span><span><span class="acc ${a.level === 'upgrade' ? 'hot' : 'dim'}">${esc(a.level)}</span></span>
         <span><b>${esc(a.recommendation || '—')}</b>${a.evidence ? `<br><span class="small dim">${esc(a.evidence)}</span>` : ''}</span></div>`).join('')
-      : '<div class="small dim">No bottleneck: nothing needs more VM resources right now. When CPU, memory, the scan backlog, the uplink or the cache disk runs short, the advice shows up here (and as an alert) with its evidence.</div>';
-    return panelH(up ? 'Capacity · more resources needed' : 'Capacity', noteTxt, body, 'md-full md-short' + (up ? ' md-hi' : ''));
+      : '<div class="small dim">No bottleneck right now. Advice shows up here, and as an alert, when something runs short.</div>';
+    return panelH(up ? 'Capacity: needs more resources' : 'Capacity', noteTxt, body, 'md-full md-short' + (up ? ' md-hi' : ''));
   }
 
   function holdsPanel() {
@@ -622,7 +622,7 @@
     }
     // the inline "1fr 360px" is what layout.js looks for: it adds the drag grip and remembers the aside's width
     return `<section class="panel md-full md-short p-0">
-      <div class="ph ph-pad"><h5>Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
+      <div class="ph ph-pad"><h5>Holds</h5><span class="small dim ell">files the scan keeps off the CDN · right-click for actions</span></div>
       <div class="tbar">${pills}<div class="fill"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
         <input id="md_q" class="input" value="${esc(S.md.qRaw)}" placeholder="Filter paths…" autocomplete="off" spellcheck="false" aria-label="Filter held paths"></div>
       <div class="split ${n > 12 || sel ? 'md-tall' : ''}" style="grid-template-columns:${sel ? '1fr 360px' : '1fr'}">
@@ -631,7 +631,7 @@
   }
 
   function holdAside(h) {
-    const kv = [['Drive', driveName(h.mount)], ['State', h.state + (h.legacy ? ' · legacy (born before the cutover)' : '')],
+    const kv = [['Drive', driveName(h.mount)], ['State', h.state + (h.legacy ? ' (from before the cutover)' : '')],
       ['Severity', h.severity || '—'], ['Size', h.size === null ? '—' : fmt.bytes(h.size)], ['Scanned', srvDt(h.scanned)],
       ['Updated', srvDt(h.updated)], ['Reviewed by', txt(h.reviewedBy, 80) || '—'], ['Review note', txt(h.reviewNote, 400) || '—'],
       ...Object.entries(h.engines).map(([k, v]) => ['Engine · ' + k, txt(v, 200)])];
@@ -652,7 +652,7 @@
     const B = breaker(), mon = monitor();
     const hot = mon.ewma !== null && mon.ewma >= B.cpuTrip, memLow = mon.mem !== null && mon.mem < B.memMin;
     const spark = D.md.cpu.length > 1 ? `<div class="md-spark">${sparkSvg(D.md.cpu, { w: 240, h: 56, cls: '', max: 100,
-      stroke: hot ? 'var(--color-accent)' : 'var(--color-text)' })}</div><div class="small dim mx-0 mt-n4 mb-10">CPU EWMA while this view is open · trips at ${esc(B.cpuTrip)} %</div>` : '';
+      stroke: hot ? 'var(--color-accent)' : 'var(--color-text)' })}</div><div class="small dim mx-0 mt-n4 mb-10">CPU, smoothed · trips at ${esc(B.cpuTrip)} %</div>` : '';
     const body = spark +
       gauge('CPU · EWMA ~5 s', mon.ewma === null ? '—' : pct(mon.ewma), mon.ewma || 0, B.cpuTrip) +
       gauge('Memory', mon.mem === null ? '—' : fmt.bytes(mon.mem * MIB) + ' free' + (mon.memPct !== null ? ' · ' + pct(mon.memPct) + ' used' : ''),
@@ -664,7 +664,7 @@
         ['Forced until', B.until ? srvDt(B.until) : B.left !== null ? fmt.dur(B.left) + ' left' : B.forced ? 'set back to automatic' : '—'],
         ['Half-open in', !B.forced && B.state === 'open' && B.openFor !== null ? fmt.dur(B.openFor) : '—'], ['Trips', B.trips === null ? '—' : fmt.n(B.trips)],
         ['Cooldown', B.cooldown === null ? '—' : fmt.dur(B.cooldown)], ['Wait p90', B.waitP90 === null ? '—' : fmt.ms(B.waitP90)]]);
-    return panelH('Circuit breaker', 'when the VM is busy, on-the-fly work is skipped, logged with its kind and the original served', body);
+    return panelH('Circuit breaker', 'skips processing while the machine is busy', body);
   }
 
   function negotiationPanel() {
@@ -672,8 +672,8 @@
     const diff = !!(N.configured && N.effective && N.configured !== N.effective);
     let why = '';
     if (diff && N.configured === 'auto') {
-      why = N.effective === 'redirect' ? 'Auto fell back to origin redirects: the Cloudflare token cannot manage Transform Rules, or the rules are not verified yet.' : '';
-    } else if (diff) why = `“${txt(N.configured, 20)}” is not in effect${N.error ? ': ' + txt(N.error, 200) : ' yet: the bridge retries every 6 h and after every settings change.'}`;
+      why = N.effective === 'redirect' ? 'Auto uses redirects: the Cloudflare token can’t manage Transform Rules, or they aren’t verified yet.' : '';
+    } else if (diff) why = `“${txt(N.configured, 20)}” isn’t in effect${N.error ? ': ' + txt(N.error, 200) : ' yet. It’s retried every 6 h and after each settings change.'}`;
     let rules = parse(isObj(E) ? first(E.rules, E.refs, E.installed_rules) : Array.isArray(E) ? E : null);
     if (Array.isArray(rules)) rules = rules.map((r) => (isObj(r) ? [txt(first(r.ref, r.name, r.id) ?? '?', 60), r.ok === false || r.enabled === false ? 'missing' : 'installed'] : [txt(r, 60), 'installed']));
     else if (isObj(rules)) rules = Object.entries(rules).map(([k, v]) => [k, isObj(v) ? (v.ok === false || v.enabled === false ? 'missing' : 'installed') : yes(v) ? 'installed' : 'missing']);
@@ -694,7 +694,7 @@
       ${edgeErr ? `<div class="small hot mt-4">${esc(edgeErr)}</div>` : ''}
       <div class="cap mt-14">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
       ${needs.length ? `<p class="small mx-0 mt-8 mb-0">Add to the Cloudflare token (zone ${esc(INST.zone)}): <b>${esc(needs.join(', '))}</b></p>` : ''}`;
-    return panelH('Negotiation', 'AVIF / WebP for canonical image URLs', body);
+    return panelH('Negotiation', 'AVIF and WebP for normal image links', body);
   }
 
   function toolRows() { // -> html of the tool list ('' when the status reports no tools at all)
@@ -709,7 +709,7 @@
     return rows + (noAv ? '<p class="small hot mx-0 mt-10 mb-0">No antivirus engine: archives, PDFs, documents, executables and SVGs are held as unscannable.</p>' : '');
   }
   function toolsPanel() {
-    return panelH('Tools', 'missing tools degrade the pipeline, they never crash it · media/install.ps1 installs them',
+    return panelH('Tools', 'install missing ones with media/install.ps1',
       toolRows() || '<div class="small dim">Not reported yet.</div>');
   }
 
@@ -722,18 +722,18 @@
       label: (r) => r.k, value: (r) => r.c, fmtv: (r) => fmt.n(r.c) + ' · ' + pct(share(r.c, tot)), hot: (r) => HOT_STATES.has(r.k) && r.c > 0,
       attrs: (r) => (FILTER_OF[r.k] ? `data-act="mdHF" data-arg="${FILTER_OF[r.k]}" style="cursor:pointer"` : ''),
     });
-    return panelH('Verdicts', 'scan results per file · click a state to list it', `<div class="big-num">${fmt.n(tot)}</div>${tot ? bar : ''}${list}`);
+    return panelH('Verdicts', 'scan results · click one to list its files', `<div class="big-num">${fmt.n(tot)}</div>${tot ? bar : ''}${list}`);
   }
 
   function savingsPanel() {
     const s = savingsInfo(), saved = s.src !== null && s.bytes !== null ? s.src - s.bytes : null;
-    const body = !s.src ? '<div class="small dim">No variants yet. AVIF / WebP / WebM variants are counted here once they are encoded; originals are never modified.</div>'
-      : `<div class="big-num">${esc(pct(100 - share(s.bytes || 0, s.src)))}</div><div class="small dim">smaller than the originals they stand in for</div>
+    const body = !s.src ? '<div class="small dim">No variants yet. Originals are never changed.</div>'
+      : `<div class="big-num">${esc(pct(100 - share(s.bytes || 0, s.src)))}</div><div class="small dim">smaller than the originals</div>
         <div class="stackbar"><i title="variant bytes" style="flex:${Math.max(0, s.bytes || 0)};background:var(--color-text)"></i><i title="saved" style="flex:${Math.max(0, saved || 0)};background:var(--color-neutral-300)"></i></div>
         ${kvHtml([['Variants', fmt.bytes(s.bytes)], ['Sources', fmt.bytes(s.src)], ['Saved', saved === null ? '—' : fmt.bytes(saved)],
           ['Count', fmt.n(s.count)], ['Beneficial', s.beneficial === null ? '—' : fmt.n(s.beneficial)],
           ['Not worth it', s.beneficial === null || s.count === null ? '—' : fmt.n(Math.max(0, s.count - s.beneficial)) + ' (original served)']])}`;
-    return panelH('Savings', 'variant bytes vs source bytes · per stored variant', body);
+    return panelH('Savings', 'stored variants against their originals', body);
   }
 
   // image optimizer: what the origin actually did NOT have to send (bytes on the uplink), not just what is stored
@@ -743,9 +743,9 @@
     const orig = num(o.original_bytes), sent = num(o.served_bytes), saved = num(o.bytes_saved);
     const req = asObj(o.requests), hits = asObj(o.cache_hits), tp = asObj(o.tier_pass);
     const tier = (k) => { const t = asObj(tiers[k]); return t.count === undefined ? '—' : fmt.n(t.count) + ' · ' + fmt.bytes(t.bytes || 0); };
-    if (!Object.keys(o).length) return panelH('Image optimizer', 'bandwidth the origin did not have to send', '<div class="small dim">No data yet (media service not answering).</div>');
+    if (!Object.keys(o).length) return panelH('Image optimizer', 'bytes the origin didn’t have to send', '<div class="small dim">No data yet: the media service isn’t answering.</div>');
     const body = `<div class="big-num">${lsaved === null ? '—' : esc(fmt.bytes(lsaved))}</div>
-      <div class="small dim">not sent on the uplink thanks to AVIF / WebP variants${lserved ? ' · ' + esc(fmt.bytes(lserved)) + ' sent instead' : ''} (lifetime, per variant)</div>
+      <div class="small dim">saved on the uplink by AVIF and WebP${lserved ? ' · ' + esc(fmt.bytes(lserved)) + ' sent instead' : ''} (lifetime, per variant)</div>
       ${kvHtml([['Since start', orig ? fmt.bytes(saved || 0) + ' saved of ' + fmt.bytes(orig) + ' (' + pct(100 - share(sent || 0, orig)) + ')' : '—'],
         ['Answers', ['variant ' + fmt.n(req.variant || 0), 'original ' + fmt.n(req.original || 0), '304 ' + fmt.n(req.not_modified || 0), 'redirect ' + fmt.n(req.redirect || 0)].join(' · ')],
         ['Cache hits', ['persistent ' + fmt.n(hits.persistent || 0), 'ephemeral ' + fmt.n(hits.ephemeral || 0), 'misses ' + fmt.n(o.cache_misses || 0)].join(' · ')],
@@ -753,7 +753,7 @@
         ['Encodes', fmt.n(o.encodes || 0) + (o.encode_failures ? ' · ' + fmt.n(o.encode_failures) + ' failed' : '')],
         ['Promotions', fmt.n(o.promotions || 0) + ' up · ' + fmt.n(o.demotions || 0) + ' down' + (tp.ts ? ' · last pass ' + fmt.ago(tp.ts) : '')],
         ['Queue', fmt.n(o.queue_depth || 0) + ' deferred encodes']])}`;
-    return panelH('Image optimizer', 'bandwidth the origin did not have to send · Prometheus: media /_metrics', body);
+    return panelH('Image optimizer', 'bytes the origin didn’t have to send', body);
   }
 
   function settingsPanel() {
@@ -761,14 +761,14 @@
     const seg = (key, items) => `<div class="seg-row">${items.map(([v, l]) => `<button class="${String(val(key)) === v ? 'on' : ''}${key in d && d[key] === v ? ' md-draft' : ''}"
       data-act="mdSet" data-arg="${esc(key + ':' + v)}">${esc(l)}</button>`).join('')}</div>`;
     const dirty = Object.keys(d).length > 0, leg = val('gate_legacy');
-    const body = setRow('Format negotiation', NEG_HELP[val('negotiation')] || 'How canonical image URLs reach AVIF / WebP.', seg('negotiation', NEG_MODES)) +
-      setRow('Legacy files while pending', leg === '1' ? 'Files born before the cutover stay online until their first scan (held at once if flagged).'
-        : leg === '0' ? 'Legacy files answer 503 until scanned: safest, but old links fail for a while.' : 'Serve files born before the cutover before their first scan?',
+    const body = setRow('Format negotiation', NEG_HELP[val('negotiation')] || 'How image links get AVIF or WebP.', seg('negotiation', NEG_MODES)) +
+      setRow('Legacy files while pending', leg === '1' ? 'Older files stay online until their first scan.'
+        : leg === '0' ? 'Older files answer 503 until scanned. Safest, but old links fail for a while.' : 'Serve older files before their first scan?',
       seg('gate_legacy', [['1', 'Serve'], ['0', 'Block']])) +
-      setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
+      setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Lowest finding that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
       `<div class="act-row"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>Save & apply</button>
         ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot self-center">unsaved changes</span>' : ''}</div>`;
-    return panelH('Settings', 'saved to strata.json · Caddy config re-rendered and validated', body, 'md-set');
+    return panelH('Settings', 'saved to strata.json', body, 'md-set');
   }
 
   function jobsPanel() {
@@ -794,7 +794,7 @@
       { t: 'Drive', w: 80 }, { t: 'Path', w: 260 }, { t: 'Tries', w: 50, a: 'r' }, { t: 'Error kind', w: 110 }, { t: 'Error', w: 320 }], frows,
       { empty: 'No failed jobs.' })}</div>`;
     return `<section class="panel span2 md-short">
-      <div class="ph"><h5>Jobs</h5><span class="small dim ell">background worker queue · the scan lane never waits behind video</span>
+      <div class="ph"><h5>Jobs</h5><span class="small dim ell">background queue</span>
         ${totalFailed ? '<button class="pill" data-act="mdRetry" data-arg="">Retry all failed</button>' : ''}</div>
       ${table('md-jobs', labels, rows)}
       <div class="cap mx-0 mt-14 mb-4">Recently failed${F?.rows?.length ? ' · ' + fmt.n(F.rows.length) : ''}</div>${ftable}
@@ -825,9 +825,9 @@
     });
     const body = !E ? loading('Loading events…') : E.err ? `<div class="empty hot">${esc(E.err)}</div>`
       : table('md-events', [{ t: 'When', w: 110 }, { t: 'Kind', w: 180 }, { t: 'Level', w: 64 }, { t: 'Process', w: 64 }, { t: 'Drive', w: 80 },
-        { t: 'Path', w: 260 }, { t: 'Detail', w: 420 }], rows, { empty: 'No events in this window: nothing failed or was bypassed.' });
+        { t: 'Path', w: 260 }, { t: 'Detail', w: 420 }], rows, { empty: 'Nothing failed or was skipped in this window.' });
     return `<section class="panel md-full md-short p-0">
-      <div class="ph ph-pad"><h5>Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
+      <div class="ph ph-pad"><h5>Event log</h5><span class="small dim ell">failures and skips, newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
       <div class="tbar">${kindPills}<div class="fill"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
   }
 
@@ -852,9 +852,9 @@
   function policyPanel() {
     const P = D.md.policy;
     const btn = `<button class="pill" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>${D.md.policyBusy ? 'Checking…' : P ? 'Refresh' : 'Check now'}</button>`;
-    let body, noteTxt = 'what the file policy would refuse today, from the file index';
+    let body, noteTxt = 'what the file policy refuses, from the index';
     if (!P) body = loading(D.md.policyBusy ? 'Checking the file index…' : 'Not checked yet.');
-    else if (P.err && SWITCHED_OFF.test(P.err)) body = '<div class="small dim">The bridge does not preview the file policy while the pipeline is switched off.</div>';
+    else if (P.err && SWITCHED_OFF.test(P.err)) body = '<div class="small dim">No preview while Strata Media is off.</div>';
     else if (P.err) body = `<div class="small hot">${esc(P.err)}</div>`;
     else {
       const I = policyInfo(P.data);
@@ -870,7 +870,7 @@
           s.rescued ? 'allowed by a rule' : ''].filter(Boolean).join(' · '))}</span></div>`).join('');
       body = `<div class="md-cols">
         <div><div class="cap">By reason</div>${bl(reasonRows, (r) => short(r.k), (r) => REASON_SHORT[r.k] === '404', (r) => reasonLabel(r.k))}
-          <p class="small dim mx-0 mt-8 mb-0">deny wins over safe · an allow access rule makes an exception (and still passes the scan gate)</p></div>
+          <p class="small dim mx-0 mt-8 mb-0">Deny wins over safe. An allow rule makes an exception.</p></div>
         <div><div class="cap">By extension</div><div class="md-list" data-scroll="md-pext">${bl(I.exts.slice(0, 80),
           (r) => (/^[a-z0-9]+$/i.test(r.k) ? '.' + r.k : r.k) + (r.r ? ' · ' + (REASON_SHORT[r.r] || r.r) : ''), (r) => REASON_SHORT[r.r] === '404')}</div></div>
         <div><div class="cap">Sample paths${I.samples.length ? ' · ' + fmt.n(I.samples.length) : ''}</div><div class="md-list" data-scroll="md-psamp">${samples
@@ -885,19 +885,15 @@
     const why = disabled ? txt(first(s.reason, s.message, D.md.offMsg) ?? '', 300) : '';
     const tools = disabled ? toolRows() : '';
     const lead = disabled
-      ? `<p>The media pipeline is switched off: <code>media.enabled</code> is <code>false</code> in <code>strata.json</code>, the kill switch
-        it keeps until deployment. Nothing is transcoded, scanned or held back, <code>media.py</code> and the worker are not running, and
-        Caddy serves every file exactly as before.</p>${why && !SWITCHED_OFF.test(why) ? `<p class="dim">${esc(why)}</p>` : ''}`
-      : `<p>This Strata does not answer <code>/api/media/*</code> yet: the media bridge (<code>media_bridge.py</code>) is not hooked into
-        <code>strata.py</code>. Nothing about serving has changed.</p>`;
+      ? `<p>Strata Media is off: <code>media.enabled</code> is <code>false</code> in <code>strata.json</code>. Caddy serves every file as before.</p>${why && !SWITCHED_OFF.test(why) ? `<p class="dim">${esc(why)}</p>` : ''}`
+      : `<p>This Strata doesn’t serve <code>/api/media/*</code> yet. Serving is unchanged.</p>`;
     return `<div class="md-off" data-scroll="md-off"><div class="setup">
       <div class="cap">Strata Media</div><h5>Not deployed</h5>${lead}
-      <p>Once deployed, this page shows the circuit breaker and its maintenance switch, AVIF / WebP / WebM savings, what the scan gate
-        holds back (release, keep held, rescan), the background jobs, the event log and capacity advice.</p>
+      <p>Once it’s on, this page shows its health, its savings and the files it holds back.</p>
       <ol>
-        <li>Run <code>media\\install.ps1</code> (ffmpeg, 7-Zip, Tesseract, pypdfium2). Missing tools only degrade the pipeline.</li>
+        <li>Run <code>media\\install.ps1</code> (ffmpeg, 7-Zip, Tesseract, pypdfium2). Missing ones only limit what it can do.</li>
         <li>Switch it on with <code>media.enabled = true</code> (see <code>media\\README.md</code>). Strata then starts the media service
-          and the worker, and renders the file policy, media routes and scan gate into Caddy, validated before the reload.</li>
+          and its worker.</li>
         <li>The switch-on time becomes the <i>cutover</i>: older files stay online while their first scan runs.</li>
       </ol>
       ${tools ? `<div class="cap mt-14">Tools on this machine</div>${tools}` : ''}
@@ -913,8 +909,7 @@
       if (!D.md.st) {
         if (!D.md.err) return loading('Asking the media bridge…');
         return `<div class="setup"><h5 class="hot">Media status unavailable</h5><p>${esc(D.md.err)}</p>
-          <p>This view reads <code>/api/media/*</code> from Strata's media bridge (<code>media_bridge.py</code>). While the bridge is
-          starting or restarting there is nothing to show yet.</p>
+          <p>The media service may still be starting. Try again in a moment.</p>
           <button class="btn btn-secondary" data-act="mdRefresh">Retry now</button></div>`;
       }
       // every section renders on its own: one odd field costs that section, not the whole view (or app.js polling)
@@ -922,7 +917,7 @@
       return `<div class="ins mdv" data-scroll="md">${[topBar, kpisHealth, kpisPipeline, capacityPanel, holdsPanel, breakerPanel, negotiationPanel, toolsPanel,
         verdictPanel, optimizerPanel, savingsPanel, settingsPanel, jobsPanel, eventCountsPanel, eventsPanel, policyPanel].map(safe).join('')}</div>`;
     } catch (e) {
-      return `<div class="setup"><h5 class="hot">The media view could not render</h5><p>${esc(e && e.message)}</p></div>`;
+      return `<div class="setup"><h5 class="hot">The media view couldn’t load</h5><p>${esc(e && e.message)}</p></div>`;
     }
   }
 
@@ -956,7 +951,7 @@
         ok: 'Release', input: '', text: `${where} will be served again and may be cached by Cloudflare. Findings: ${fs}. Audit note (required): why is it safe?` });
       if (v === null || v === undefined) return;
       const msg = String(v).trim();
-      if (msg.length < 3) { note('Not released: an audit note is required'); return; }
+      if (msg.length < 3) { note('Not released: add a note saying why it’s safe'); return; }
       await act('/api/media/release', { mount: h.mount, path: h.path, note: msg }, 'Released ' + h.path);
     } else if (kind === 'hold') {
       const v = await ask({ kicker: 'Keep held', title: 'Keep this file off the CDN?', ok: 'Keep held', input: '',
@@ -965,7 +960,7 @@
       await act('/api/media/hold', { mount: h.mount, path: h.path, note: String(v).trim() }, 'Held ' + h.path);
     } else if (kind === 'rescan') {
       const ok = await ask({ kicker: 'Rescan', title: 'Scan this file again?', ok: 'Rescan',
-        text: `${where} is queued for a fresh scan with the current tools and hold threshold.` });
+        text: `${where} gets scanned again with the current settings.` });
       if (!ok) return;
       await act('/api/media/rescan', { mount: h.mount, path: h.path }, 'Rescan queued for ' + h.path);
     }
@@ -1009,13 +1004,13 @@
       let seconds = 0;
       if (state === 'auto') {
         const ok = await ask({ kicker: 'Circuit breaker', title: 'Back to automatic?', ok: 'Automatic',
-          text: 'The breaker trips again on high CPU, low memory, long queues or wait times, errors and slow encodes.' });
+          text: 'The breaker trips again when the machine is busy.' });
         if (!ok) return;
       } else {
         const v = await ask({ kicker: 'Circuit breaker', title: state === 'open' ? 'Force the breaker open?' : 'Force the breaker closed?', danger: state === 'closed',
           ok: state === 'open' ? 'Force open' : 'Force closed', input: '15',
-          text: (state === 'open' ? 'All on-the-fly processing is skipped (originals are served, each bypass is logged). '
-            : 'The breaker ignores CPU, memory and queue pressure: encodes can then slow down Caddy and cloudflared. ') +
+          text: (state === 'open' ? 'Processing is skipped and originals are served. '
+            : 'The breaker ignores load, so encodes can slow down Caddy and the tunnel. ') +
             'For how many minutes (1–1440)? It returns to automatic afterwards.' });
         if (v === null || v === undefined) return;
         const min = parseFloat(String(v).replace(',', '.'));
@@ -1049,7 +1044,7 @@
         if ((SEV[d.hold_threshold] || 0) > (SEV[cur.hold_threshold] || 2)) warn.push('fewer files are held back' + (d.hold_threshold === 'high' ? ', unscannable ones get published' : ''));
       }
       const ok = await ask({ kicker: 'Media settings', title: 'Save and apply?', ok: 'Save & apply', danger: warn.length > 0,
-        text: lines.join(' · ') + '. Saved to strata.json; the Caddy config is re-rendered and validated before it is applied.' +
+        text: lines.join(' · ') + '. Caddy checks the new config before using it.' +
           (warn.length ? ' Note: ' + warn.join('; ') + '.' : '') });
       if (!ok) return;
       try {
@@ -1074,7 +1069,7 @@
 
   /* ------------------------------------------------------------------ registration */
 
-  VIEWS.media = ['Media', 'Edge processing · circuit breaker · scan holds · jobs · capacity advice', 'image'];
+  VIEWS.media = ['Media', 'Image formats and file scanning', 'image'];
   if (!NAV_C.includes('media')) NAV_C.push('media');
   STATIC_VIEWS.add('media');      // form controls: only redrawn by render(true), i.e. by this module
   VIEWFN.media = vMedia;

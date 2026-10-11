@@ -165,7 +165,7 @@ function crumbs(parts, act = 'fgo') {
   const root = activeZoneRoot(S.fpath, S.fmount).path;
   const base = root.split('/').filter(Boolean), tail = parts.slice(base.length);
   let current = root;
-  return `<span class="crumbs"><button data-act="${act}" data-arg="${esc(root)}" title="Assigned storage area">${esc(mountName(S.fmount))}${root !== '/' ? ' · ' + esc(root) : ''}</button>` +
+  return `<span class="crumbs"><button data-act="${act}" data-arg="${esc(root)}" title="Your storage zone">${esc(mountName(S.fmount))}${root !== '/' ? ' · ' + esc(root) : ''}</button>` +
     tail.map((p) => { current = joinPath(current, p); return `<span class="dim">/</span><button data-act="${act}" data-arg="${esc(current)}" data-dropdir="${esc(current)}">${esc(p)}</button>`; }).join('') + '</span>';
 }
 function vFiles() {
@@ -179,8 +179,8 @@ function vFiles() {
     <div class="ftopbar-controls">
       <input id="fsearch" class="input fs-125 px-8 py-4 min-w-130 max-w-200" placeholder="Search this drive…" value="${esc(S.fq)}" autocomplete="off" spellcheck="false">
       <button class="pill ${S.smartSort ? 'on' : ''}" data-act="fsmart" title="${esc(S.smartSort
-        ? 'On: uploads into a folder are sorted by type (css/, js/, ' + (smartCfg().assets || 'assets') + '/<type>/); dropped folders are offered a split with links rewritten'
-        : 'Off: uploads land exactly where you drop them')}${esc(home ? ' · uploads at the drive root go to ' + home.path + '/<type>/' : '')}">Smart-Sort${S.smartSort ? ' ✓' : ''}</button>
+        ? 'On: uploads are sorted into type folders'
+        : 'Off: uploads land where you drop them')}${esc(home ? '. Uploads to the drive root go to ' + home.path + '/<type>/' : '')}">Smart-Sort${S.smartSort ? ' ✓' : ''}</button>
       <button class="pill ${S.fgrid ? '' : 'on'}" data-act="fgrid" data-arg="0" title="List">List</button><button class="pill ${S.fgrid ? 'on' : ''}" data-act="fgrid" data-arg="1" title="Thumbnails">Grid</button>
       ${S.ftab === 'files' ? `<button class="pill ${S.ftree ? 'on' : ''}" data-act="ftree" title="Toggle folder navigation">${icon('folder-open', 'sm')} Folders</button>` : ''}
       ${fullDriveZone(S.fmount) && (fcan('files.restore', '/') || fcan('files.purge', '/')) ? `<button class="pill ${S.ftab === 'trash' ? 'on' : ''}" data-act="ftab" data-arg="${S.ftab === 'trash' ? 'files' : 'trash'}">Trash</button>` : ''}
@@ -237,10 +237,10 @@ function listBody() {
   }
   const F = D.files;
   const summary = `${fmt.n(F.total ?? (F.dirs.length + F.files.length))} items · ${fmt.bytes(F.total_bytes ?? (F.files.reduce((a, f) => a + f.size, 0) + F.dirs.reduce((a, d) => a + (d.size || 0), 0)))}`;
-  return `<div class="tbar px-18 py-5"><span class="small dim">${esc(summary)} · click selects, Ctrl/Shift for more, double-click opens, drag onto a folder to move (Ctrl = copy), drop files from your PC anywhere</span></div>` +
+  return `<div class="tbar px-18 py-5"><span class="small dim">${esc(summary)} · drag onto a folder to move it, hold Ctrl to copy</span></div>` +
     table('files', [{ t: 'Name', w: 260, sort: 'name' }, { t: 'Size', w: 80, a: 'r', sort: 'size' }, { t: 'Modified', w: 105, sort: 'mtime' }, { t: 'Type', w: 55 },
       { t: 'Access', w: 65 }, { t: 'Hits 30 d', w: 70, a: 'r', sort: 'hits' }, { t: 'Sent 30 d', w: 75, a: 'r', sort: 'sent' }, { t: '', w: 120 }], rows,
-    { sort: S.sort.files, desc: S.sortDir.files !== 1, empty: 'Empty folder — drop files here or use Upload.' }) + filePager();
+    { sort: S.sort.files, desc: S.sortDir.files !== 1, empty: 'Empty folder. Drop files here or use Upload.' }) + filePager();
 }
 function gridBody() {
   const { dirs, files: fl } = sortedEntries();
@@ -263,7 +263,7 @@ function searchBody() {
     cls: 'click', attrs: `data-act="fgo" data-arg="${esc(d.path)}"` }))
     .concat((R.files || []).map((f) => ({ cells: [hcell(`<span class="fico ${esc(f.cat)}"></span>${esc(f.path)}`), cell(fmt.bytes(f.size), 'r'), cell(fmt.dt(f.mtime), 'dim')],
       cls: 'click', attrs: `data-act="freveal" data-arg="${esc(f.path)}" data-menu="fpath" data-arg2="${esc(f.path)}"` })));
-  return `<div class="tbar px-18 py-5"><span class="small dim">${fmt.n((R.files || []).length)} files and ${fmt.n((R.dirs || []).length)} folders matching “${esc(S.fq)}” below ${esc(S.fpath)} (from the index) · click to reveal</span>
+  return `<div class="tbar px-18 py-5"><span class="small dim">${fmt.n((R.files || []).length)} files and ${fmt.n((R.dirs || []).length)} folders matching “${esc(S.fq)}” in ${esc(S.fpath)}</span>
     <div class="fill"></div><button class="pill" data-act="fsearchclear">Clear search</button></div>` +
     table('fsearch', [{ t: 'Path', w: 520 }, { t: 'Size', w: 90, a: 'r' }, { t: 'Modified', w: 120 }], rows, { empty: 'Nothing found.' });
 }
@@ -277,7 +277,7 @@ function cdnNote(c) {
 function purgeWarning(c) {
   if (!c || !c.pending || c.ok !== false) return '';
   return `<div class="tbar"><span class="small hot">⚠ ${fmt.n(c.pending)} Cloudflare purge${c.pending === 1 ? '' : 's'} waiting since ${esc(fmt.dt(c.oldest))}: ${esc(c.error || 'purge failed')}.
-    Until they go through, deleted files can still be served from Cloudflare’s cache. Queued purges are sent automatically once the token works (restart Strata after editing strata.json).</span>
+    Until they go through, Cloudflare can still serve deleted files. Fix the API token in strata.json and restart Strata: queued purges then go out.</span>
     <div class="fill"></div><button class="pill" data-act="cfPurgeRetry">Retry now</button></div>`;
 }
 function trashBody() {
@@ -286,7 +286,7 @@ function trashBody() {
     cells: [hcell(`<span class="fico ${i.dir ? 'dir' : ''}"></span>${esc(i.path)}`), cell(i.dir ? fmt.bytes(i.size) + ' (folder)' : fmt.bytes(i.size), 'r dim'), cell(fmt.dt(i.ts), 'dim'), cell(i.user || '', 'dim'),
       cell(i.versions && i.versions.length ? i.versions.length + ' with history' : '', 'dim'), hcell(`<button class="pill" data-act="frestore" data-arg="${esc(i.batch + '|' + i.path)}">Restore</button>`)],
   }));
-  return `<div class="tbar"><span class="h800 fs-13">Trash · ${esc(mountName(S.fmount))}</span><span class="small dim">${T ? fmt.n(T.items.length) + ' items · ' + esc(fmt.bytes(T.bytes)) : ''} · their URLs answer 403 until restored, and 404 once the trash is emptied</span>
+  return `<div class="tbar"><span class="h800 fs-13">Trash · ${esc(mountName(S.fmount))}</span><span class="small dim">${T ? fmt.n(T.items.length) + ' items · ' + esc(fmt.bytes(T.bytes)) + '. ' : ''}Their URLs answer 403 until restored.</span>
     <div class="fill"></div><button class="pill danger" data-act="femptytrash" ${T && T.items.length ? '' : 'disabled'}>Empty trash</button></div>` + purgeWarning(T?.cdn) +
     (T ? table('trash', [{ t: 'Original path', w: 420 }, { t: 'Size', w: 120, a: 'r' }, { t: 'Deleted', w: 120 }, { t: 'By', w: 90 }, { t: 'History', w: 110 }, { t: '', w: 90 }], rows, { empty: 'The trash is empty.' }) : loading());
 }
@@ -301,7 +301,7 @@ function fileInspector(f) {
   else if (['html', 'htm'].includes(ext) && f.size <= 8 * MiB) prev = `<iframe class="html-preview" title="${esc(f.name)} preview" sandbox="" referrerpolicy="no-referrer" src="${esc(rawUrl(S.fmount, path))}"></iframe>`;
   else if (f.text && P && P.text != null) prev = `<div class="code-preview"><div class="code-preview-head"><span>${esc(ext || 'text')} preview</span><span>${P.text.length > 4000 ? 'first 4,000 characters' : 'text preview'}</span></div><pre><code>${esc(P.text.slice(0, 4000))}${P.text.length > 4000 ? '…' : ''}</code></pre></div>`;
   else if (f.text && P && P.error) prev = `<div class="preview-empty">${esc(P.error)}</div>`;
-  else if (f.text && f.size > 2 * MiB) prev = '<div class="preview-empty">Inline text previews are limited to 2 MiB.</div>';
+  else if (f.text && f.size > 2 * MiB) prev = '<div class="preview-empty">No preview for text files over 2 MiB.</div>';
   else if (f.text) prev = '<div class="preview-empty">Loading preview…</div>';
   const I = D.info && D.info.path === path ? D.info : null;
   const kv = (pairs) => `<div class="kv">${pairs.filter(Boolean).map(([k, v]) => `<span>${esc(k)}</span><span>${v && v.html ? v.html : esc(v ?? '—')}</span>`).join('')}</div>`;
@@ -311,11 +311,11 @@ function fileInspector(f) {
     const V = D.vers && D.vers.path === path ? D.vers : null;
     body = !V ? loading('Loading versions…') : `<div class="kv cols-1-auto"><span><b>current</b> · ${esc(fmt.bytes(V.current?.size))} · ${esc(fmt.dt(V.current?.mtime))}</span><span></span>
       ${(V.versions || []).map((v) => `<span>v${v.n} · ${esc(fmt.bytes(v.size))} · ${esc(fmt.dt(v.created))} <span class="dim">${esc(v.note || '')}</span></span>
-        <span><button class="link" data-act="fvdl" data-arg="${v.n}">download</button> · <button class="link" data-act="fvcopy" data-arg="${esc(v.url)}">link</button> · <button class="link" data-act="fvrestore" data-arg="${v.n}">restore</button> · <button class="link" data-act="fvdel" data-arg="${v.n}">delete</button></span>`).join('') || '<span class="dim">No earlier versions. Replacing or editing the file keeps the old one here.</span><span></span>'}
+        <span><button class="link" data-act="fvdl" data-arg="${v.n}">download</button> · <button class="link" data-act="fvcopy" data-arg="${esc(v.url)}">link</button> · <button class="link" data-act="fvrestore" data-arg="${v.n}">restore</button> · <button class="link" data-act="fvdel" data-arg="${v.n}">delete</button></span>`).join('') || '<span class="dim">No earlier versions yet. Replacing or editing the file keeps one.</span><span></span>'}
       </div><div class="small dim px-16 pt-0 pb-12">Public link to an old version: add <code>?ver=N</code> to the file URL.</div>`;
   } else if (tab === 'access') {
     const rs = I ? I.access.rules : f.rules || [];
-    body = `<div class="kv"><span>State</span><span>${esc(f.access === 'public' ? 'public — served to anyone' : (ACCESS[f.access] || [f.access])[0])}</span>
+    body = `<div class="kv"><span>State</span><span>${esc(f.access === 'public' ? 'public: served to anyone' : (ACCESS[f.access] || [f.access])[0])}</span>
       ${rs.map((r) => `<span>Rule</span><span>${esc(r.name)} <span class="dim">(${esc(r.action)})</span></span>`).join('')}</div>
       <div class="act-row px-16 pt-0 pb-14">
         <button class="btn btn-secondary" data-act="fquickrule" data-arg="hide">Hide</button>
@@ -327,7 +327,7 @@ function fileInspector(f) {
   } else if (tab === 'links') {
     const ls = I ? I.links : [];
     body = `<div class="kv">${ls.map((l) => `<span>/l/${esc(l.code)}</span><span>${fmt.n(l.clicks)} clicks${l.max_clicks ? ' of ' + l.max_clicks : ''}${l.expires ? ' · until ' + esc(fmt.dt(l.expires)) : ''}</span>`).join('') || '<span class="dim">No short links yet.</span><span></span>'}</div>
-      <div class="act-row px-16 pt-0 pb-14"><button class="btn btn-primary" data-act="fshare">New link / modifiers…</button></div>`;
+      <div class="act-row px-16 pt-0 pb-14"><button class="btn btn-primary" data-act="fshare">New link…</button></div>`;
   } else {
     const img = I && I.image && !I.image.error ? `${I.image.width} × ${I.image.height} ${I.image.format || ''}${I.image.frames > 1 ? ' · ' + I.image.frames + ' frames' : ''}` : null;
     const daily = I && I.daily && I.daily.length ? { html: `<span class="bars-mini">${I.daily.map((d) => `<i title="${esc(d.d)}: ${d.c}" style="height:${Math.max(8, share(d.c, Math.max(...I.daily.map((x) => x.c)))).toFixed(0)}%"></i>`).join('')}</span>` } : 'no hits in 30 days';
@@ -337,7 +337,7 @@ function fileInspector(f) {
       ['SHA-256', I && I.sha256 ? I.sha256 : { html: '<button class="link" data-act="fhash">compute</button>' }],
       I && I.duplicates && I.duplicates.length && ['Duplicates', I.duplicates.join(', ')],
       ['Brotli', f.variants && f.variants.br ? fmt.bytes(f.variants.br) + ' (−' + fmt.pct(100 - share(f.variants.br, f.size)) + ')' : 'none'],
-      ['Caching', f.access !== 'public' ? 'private, no-store (protected)' : 'browsers revalidate · Cloudflare 1 year, purged on change']]);
+      ['Caching', f.access !== 'public' ? 'private, no-store (protected)' : 'browsers revalidate, Cloudflare 1 year (purged on change)']]);
   }
   return `<aside class="aside finspector" data-scroll="finspector-all">
     <div class="insp-head">
@@ -368,17 +368,17 @@ OVERLAYS.push(() => {
   const P = S.fpreview;
   if (!P) return '';
   const f = fileByName(P.name), path = P.path;
-  if (!f) return `<div class="file-preview-overlay" data-act="fpreviewClose"><div class="file-preview-dialog" data-act="noop"><div class="file-preview-head"><b>${esc(P.name)}</b><button class="icbtn" data-act="fpreviewClose" aria-label="Close preview">${icon('x')}</button></div><div class="preview-empty">This item is no longer in the current folder.</div></div></div>`;
+  if (!f) return `<div class="file-preview-overlay" data-act="fpreviewClose"><div class="file-preview-dialog" data-act="noop"><div class="file-preview-head"><b>${esc(P.name)}</b><button class="icbtn" data-act="fpreviewClose" aria-label="Close preview">${icon('x')}</button></div><div class="preview-empty">This file is no longer in this folder.</div></div></div>`;
   const ext = (f.name.split('.').pop() || '').toLowerCase();
   let content;
   if (f.cat === 'image') content = `<img src="${esc(f.size < 6 * MiB ? rawUrl(S.fmount, path) : thumbUrl(S.fmount, path, 1600))}" alt="${esc(f.name)}">`;
   else if (f.cat === 'video') content = `<video src="${esc(rawUrl(S.fmount, path))}" controls autoplay></video>`;
   else if (f.cat === 'audio') content = `<audio src="${esc(rawUrl(S.fmount, path))}" controls autoplay></audio>`;
   else if (['html', 'htm'].includes(ext) && f.size <= 8 * MiB) content = `<iframe title="${esc(f.name)} preview" sandbox="" referrerpolicy="no-referrer" src="${esc(rawUrl(S.fmount, path))}"></iframe>`;
-  else if (f.text && D.filePreview?.path === path && D.filePreview.text != null) content = `<pre><code>${esc(D.filePreview.text.slice(0, 100000))}${D.filePreview.text.length > 100000 ? '\n… preview limited to 100,000 characters' : ''}</code></pre>`;
+  else if (f.text && D.filePreview?.path === path && D.filePreview.text != null) content = `<pre><code>${esc(D.filePreview.text.slice(0, 100000))}${D.filePreview.text.length > 100000 ? '\n… (first 100,000 characters)' : ''}</code></pre>`;
   else if (f.text && D.filePreview?.path === path && D.filePreview.loading) content = '<div class="preview-empty">Loading text preview…</div>';
   else if (f.text && D.filePreview?.path === path && D.filePreview.error) content = `<div class="preview-empty">${esc(D.filePreview.error)}</div>`;
-  else content = `<div class="preview-empty">No in-dashboard preview for this file type. Use Open to view it in a new tab.</div>`;
+  else content = `<div class="preview-empty">No preview for this file type. Open it in a new tab.</div>`;
   return `<div class="file-preview-overlay" data-act="fpreviewClose"><div class="file-preview-dialog" role="dialog" aria-modal="true" aria-label="Preview ${esc(f.name)}" data-act="noop">
     <div class="file-preview-head"><div class="ell"><b>${esc(f.name)}</b><span class="small dim">${esc(fmt.bytes(f.size))}</span></div><div class="act-row"><button class="btn btn-secondary" data-act="fpreviewOpen">Open in new tab</button><button class="icbtn" data-act="fpreviewClose" aria-label="Close preview">${icon('x')}</button></div></div>
     <div class="file-preview-content">${content}</div></div></div>`;
@@ -474,8 +474,8 @@ function folderTree() {
   return `<aside class="aside ftree"><div class="ph"><h5>Folders</h5><button class="pill" data-act="fgo" data-arg="${esc(root)}">Root</button></div>
     <div class="ftree-scroll" data-scroll="ftree"><div class="ftree-row root ${S.fpath === root ? 'on' : ''}">
       <button class="ftree-toggle" data-act="ftoggle" data-arg="${esc(root)}" aria-label="${rootOpen ? 'Collapse' : 'Expand'} root">${icon(rootOpen ? 'chevron-down' : 'chevron-right', 'sm')}</button>
-      <button class="ftree-name ${S.fpath === root ? 'on' : ''}" data-act="fgo" data-arg="${esc(root)}" data-dropdir="${esc(root)}" title="Assigned storage zone">${icon('hard-drive', 'sm')}<span class="ell">${esc(mountName(S.fmount))}${root !== '/' ? ' · ' + esc(root) : ''}</span></button>
-      </div>${folderTreeBranch(root)}</div><div class="ftree-foot small dim">Choose a folder inside the assigned storage area.</div></aside>`;
+      <button class="ftree-name ${S.fpath === root ? 'on' : ''}" data-act="fgo" data-arg="${esc(root)}" data-dropdir="${esc(root)}" title="Your storage zone">${icon('hard-drive', 'sm')}<span class="ell">${esc(mountName(S.fmount))}${root !== '/' ? ' · ' + esc(root) : ''}</span></button>
+      </div>${folderTreeBranch(root)}</div><div class="ftree-foot small dim">Pick a folder in your storage zone.</div></aside>`;
 }
 function folderAside() {
   const F = D.files, disk = F?.disk, inv = F?.inventory;
@@ -534,7 +534,7 @@ Object.assign(ACT, {
     path = path || '/';
     if (path === '/') path = activeZoneRoot(S.fpath, S.fmount).path;
     if (!isRootAccount() && !(D.me?.zones || []).some((z) => +z.mount === +S.fmount && pathWithin(path, z.path))) {
-      note('That folder is outside your assigned storage zones', { err: true }); return;
+      note('That folder is outside your storage zones. Ask an administrator for access.', { err: true }); return;
     }
     S.fpath = path; S.fOffset = 0; S.fsel = new Set(); S.fanchor = null; S.ftab = 'files'; S.fq = ''; D.fsearch = null; D.files = null;
     treePathList(S.fpath).forEach((p) => S.ftreeExpanded.add(p));
@@ -586,7 +586,7 @@ Object.assign(ACT, {
   },
   fsmart() {
     S.smartSort = !S.smartSort; store.set('smartSort', S.smartSort);
-    note(S.smartSort ? 'Smart-Sorting on — uploads are sorted into type folders' : 'Smart-Sorting off — uploads land where you drop them' +
+    note(S.smartSort ? 'Smart-Sorting on: uploads go into type folders' : 'Smart-Sorting off: uploads land where you drop them' +
       (smartCfg().home && smartCfg().root_to_home ? ' (drive-root uploads still go to ' + smartCfg().home.path + ')' : ''));
     render(true);
   },
@@ -654,7 +654,7 @@ Object.assign(ACT, {
     const old = one(); if (!old) return;
     const f = fileByName(old) || dirByName(old);
     const r = await ask({ kicker: 'Rename or move', title: old, input: old, ok: 'Rename',
-      text: 'Type a new name, or a path starting with / to move it within this drive. Cloudflare may keep serving the old URL from cache (it is purged automatically when permitted).',
+      text: 'Type a new name, or a path starting with / to move it.',
       check: f && f.hits ? 'Leave a redirect from the old URL (' + f.hits + ' hits in 30 days)' : null, checkDefault: !!(f && f.hits) });
     const val = r && typeof r === 'object' ? r.value : r;
     if (!val || val === old) return;
@@ -664,20 +664,20 @@ Object.assign(ACT, {
   async fdelete() {
     const paths = selectedPaths(); if (!paths.length) return;
     const ok = await ask({ kicker: 'Move to trash', title: paths.length === 1 ? paths[0] : paths.length + ' items', danger: true, ok: 'Move to trash',
-      text: 'Items and their version history go to the drive’s trash and can be restored. Their URLs answer 403 while in the trash (404 once it is emptied), Cloudflare’s cached copies are purged, and visitors’ browsers are told to drop theirs.' });
+      text: 'They go to the trash with their versions, and can be restored from there.' });
     if (!ok) return;
     try { const r = await post('/api/files/delete', { mount: S.fmount, paths }); paths.forEach((p) => invalidateFolderTree(p)); S.fsel = new Set(); note('Moved ' + r.moved.length + ' item(s) to trash' + cdnNote(r.cdn)); pollFiles(true); } catch (e) { note(e.message); }
   },
-  fclip(mode) { const paths = selectedPaths(); if (!paths.length) return; S.clip = { mode, mount: S.fmount, paths }; note(paths.length + ' item(s) ' + (mode === 'cut' ? 'cut' : 'copied') + ' — open the target folder and paste'); render(true); },
+  fclip(mode) { const paths = selectedPaths(); if (!paths.length) return; S.clip = { mode, mount: S.fmount, paths }; note(paths.length + ' item(s) ' + (mode === 'cut' ? 'cut' : 'copied') + '. Open the target folder and paste.'); render(true); },
   async fpaste() {
     const c = S.clip; if (!c) return;
-    if (c.mount === S.fmount && c.paths.some((p) => S.fpath === p || S.fpath.startsWith(p + '/'))) return note('Cannot paste a folder into itself');
+    if (c.mount === S.fmount && c.paths.some((p) => S.fpath === p || S.fpath.startsWith(p + '/'))) return note('Can’t paste a folder into itself');
     if (c.mount === S.fmount && c.paths.every((p) => parentOf(p) === S.fpath)) return note('Items are already in this folder');
     try {
       const r = await post(c.mode === 'cut' ? '/api/files/move' : '/api/files/copy', { mount: c.mount, paths: c.paths, dest_mount: S.fmount, dest: S.fpath });
       c.paths.forEach((p) => invalidateFolderTree(p, c.mount)); invalidateFolderTree(S.fpath);
       if (c.mode === 'cut') S.clip = null;
-      note(r.job ? 'Working in the background — see Jobs' : 'Done'); pollFiles(true);
+      note(r.job ? 'Working in the background. See Jobs for progress.' : 'Done'); pollFiles(true);
       if (r.job) setTimeout(() => pollFiles(true), 1500);
     } catch (e) { note(e.message); }
   },
@@ -685,16 +685,16 @@ Object.assign(ACT, {
     const paths = selectedPaths(); if (!paths.length) return;
     const dest = await pickFolder({ title: 'Move ' + paths.length + ' item(s) to…', mount: S.fmount, path: S.fpath, allowCopy: true });
     if (!dest) return;
-    try { const r = await post(dest.copy ? '/api/files/copy' : '/api/files/move', { mount: S.fmount, paths, dest_mount: dest.mount, dest: dest.path }); paths.forEach((p) => invalidateFolderTree(p)); invalidateFolderTree(dest.path, dest.mount); S.fsel = new Set(); note(r.job ? 'Working in the background — see Jobs' : 'Moved'); pollFiles(true); } catch (e) { note(e.message); }
+    try { const r = await post(dest.copy ? '/api/files/copy' : '/api/files/move', { mount: S.fmount, paths, dest_mount: dest.mount, dest: dest.path }); paths.forEach((p) => invalidateFolderTree(p)); invalidateFolderTree(dest.path, dest.mount); S.fsel = new Set(); note(r.job ? 'Working in the background. See Jobs for progress.' : 'Moved'); pollFiles(true); } catch (e) { note(e.message); }
   },
   async frestore(arg) {
     const i = arg.indexOf('|');
     try { const r = await post('/api/files/restore', { mount: S.fmount, batch: arg.slice(0, i), path: arg.slice(i + 1) }); invalidateFolderTree(r.path || arg.slice(i + 1)); note('Restored ' + r.path); pollFiles(true); } catch (e) { note(e.message); }
   },
   async femptytrash() {
-    const ok = await ask({ kicker: 'Empty trash', title: 'Permanently delete everything in the trash of ' + mountName(S.fmount) + '?', danger: true, ok: 'Delete permanently', text: 'This cannot be undone. Version history of these items is deleted too. Their URLs answer 404 from now on.' });
+    const ok = await ask({ kicker: 'Empty trash', title: 'Permanently delete everything in the trash of ' + mountName(S.fmount) + '?', danger: true, ok: 'Delete permanently', text: 'This can’t be undone, and their version history goes too.' });
     if (!ok) return;
-    try { const r = await post('/api/files/empty-trash', { mount: S.fmount }); note('Trash emptied · ' + fmt.bytes(r.freed) + ' freed' + cdnNote(r.cdn)); pollFiles(true); } catch (e) { note(e.message); }
+    try { const r = await post('/api/files/empty-trash', { mount: S.fmount }); note('Trash emptied, ' + fmt.bytes(r.freed) + ' freed' + cdnNote(r.cdn)); pollFiles(true); } catch (e) { note(e.message); }
   },
   fedit() { const f = one(); if (f) openEditor(S.fmount, joinPath(S.fpath, f)); },
   fshare() { const f = one(); if (f && typeof openLinkEditor === 'function') openLinkEditor({ mount: S.fmount, path: joinPath(S.fpath, f) }); },
@@ -728,7 +728,7 @@ MENUS.fitem = (name) => {
     item('Preview / open', '↵', () => ACT.fopen(name)),
     item('Open public URL', '↗', () => ACT.fopenurl(f.url)),
     item('Copy public link', '', () => copy(f.url, 'link')),
-    canShare ? item('Share / link modifiers…', '', () => ACT.fshare()) : null,
+    canShare ? item('Share…', '', () => ACT.fshare()) : null,
     (f.text && fcan('files.edit', path)) ? item('Edit text', '', () => openEditor(S.fmount, path)) : null,
     hasCap('analytics.visitors') ? item('Show requests for this file', '', () => ACT.filterPath(encodeURI(path))) : null
   ].filter(Boolean);
@@ -792,7 +792,7 @@ document.addEventListener('drop', async (e) => {
   e.preventDefault();
   const d = JSON.parse(e.dataTransfer.getData(STRATA_DND) || '{}');
   const dest = t.dataset.dropdir;
-  if (!d.paths || d.paths.some((p) => dest === p || dest.startsWith(p + '/'))) return note('Cannot move a folder into itself');
+  if (!d.paths || d.paths.some((p) => dest === p || dest.startsWith(p + '/'))) return note('Can’t move a folder into itself');
   if (d.paths.every((p) => parentOf(p) === dest)) return;
   try { const r = await post(e.ctrlKey ? '/api/files/copy' : '/api/files/move', { mount: d.mount, paths: d.paths, dest_mount: S.fmount, dest }); d.paths.forEach((p) => invalidateFolderTree(p, d.mount)); invalidateFolderTree(dest); S.fsel = new Set(); note((e.ctrlKey ? 'Copied ' : 'Moved ') + d.paths.length + ' item(s) to ' + dest + (r.job ? ' (in the background)' : '')); pollFiles(true); } catch (err) { note(err.message); }
 });
@@ -845,7 +845,7 @@ OVERLAYS.push(() => {
     <div class="body"><div class="cap">Choose a folder</div><h4>${esc(P.title)}</h4>
       <div class="tbar px-0 py-6 border-0">${served().map((m) => `<button class="pill ${m.mount === +P.mount ? 'on' : ''}" data-act="pickMount" data-arg="${m.mount}">${esc(m.name)}</button>`).join('')}</div>
       <div class="crumbs mx-0 my-6"><button data-act="pickGo" data-arg="/">${esc(mountName(P.mount))}</button>${parts.map((p, i) => `<span class="dim">/</span><button data-act="pickGo" data-arg="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</button>`).join('')}</div>
-      <div class="picker-search"><input id="pickSearch" class="input" value="${esc(P.q)}" placeholder="Find a folder in this location…" aria-label="Find a folder"><button class="pill on" data-act="pickApplySearch">Search</button>${P.q ? '<button class="pill" data-act="pickClearSearch">Clear</button>' : ''}</div>
+      <div class="picker-search"><input id="pickSearch" class="input" value="${esc(P.q)}" placeholder="Find a folder here…" aria-label="Find a folder"><button class="pill on" data-act="pickApplySearch">Search</button>${P.q ? '<button class="pill" data-act="pickClearSearch">Clear</button>' : ''}</div>
       <div class="plist">${P.dirs == null ? '<div class="empty">Loading…</div>' : P.error ? `<div class="empty hot">${esc(P.error)}</div>` : P.dirs.map((d) => `<button data-act="pickGo" data-arg="${esc(joinPath(P.path, d))}"><span class="fico dir"></span>${esc(d)}</button>`).join('') || '<div class="empty">No matching folders here.</div>'}</div>
       <div class="picker-pages"><span class="small dim">${P.dirs == null || P.error ? '' : `${fmt.n(P.total ? P.offset + 1 : 0)}–${fmt.n(last)} of ${fmt.n(P.total)} folders`}</span><div class="grow"></div><button class="pill" data-act="pickPage" data-arg="-1" ${P.offset <= 0 ? 'disabled' : ''}>Previous</button><button class="pill" data-act="pickPage" data-arg="1" ${P.offset + P.limit >= P.total ? 'disabled' : ''}>Next</button></div>
       ${P.allowCopy ? `<label class="dlg-check"><input type="checkbox" id="pickcopy" ${P.copy ? 'checked' : ''}> Copy instead of move</label>` : ''}
@@ -885,7 +885,7 @@ async function openEditor(mount, path) {
         <div class="fill"></div><span class="small dim" id="eddirty">saved</span>
         <button class="btn btn-primary" data-act="edSave">Save (Ctrl S)</button><button class="btn btn-secondary" data-act="edClose">Close</button></div>
       <textarea id="edtext" spellcheck="false" wrap="off"></textarea>
-      <div class="edfoot small dim">${esc(t.encoding)} · ${esc(fmt.bytes(t.size))} · saving keeps the previous content as a version (Versions tab)</div></div>`;
+      <div class="edfoot small dim">${esc(t.encoding)} · ${esc(fmt.bytes(t.size))} · each save keeps the previous version</div></div>`;
     $('#edtext').value = t.text;
     $('#edtext').focus();
   } catch (e) { note(e.message); }
@@ -1064,7 +1064,7 @@ function onDropFiles(list, dir) {
     const f = list.length === 1 ? list[0].file : null;
     if (f && f.size === s.size && f.name === s.path.split('/').pop())
       return queueUploads([{ file: f, rel: s.path.split('/').pop() }], s.mount, parentOf(s.path), s.policy === 'ask' ? 'replace' : s.policy);
-    note('That selection does not match the interrupted upload. Adding it as a new upload instead.');
+    note('That file doesn’t match the interrupted upload, so it uploads as a new file.');
   }
   let mount, base;
   if (S.view === 'files' && S.ftab === 'files') { mount = S.fmount; base = dir || S.fpath; }
@@ -1081,8 +1081,8 @@ async function smartQueue(list, mount, dir) {
     const site = list.some((x) => x.rel.includes('/') && sortCat(x.rel) === 'html');
     const preview = sortPlan(list, sm.mode, sm.base, true);
     const r = await ask({ kicker: 'Smart-Sorting', title: `Split ${folders.length === 1 ? folders[0] : folders.length + ' folders'} into type folders?`,
-      text: `${site ? 'This looks like a website. ' : ''}Split: files go to ${planSummary(preview)}, and links between them in HTML, CSS, JS and JSON are rewritten to their new public CDN URLs. ` +
-        `Keep: uploaded unchanged to ${mountName(mount)}:${joinPath(sm.base, folders[0])}${folders.length > 1 ? ' (and siblings)' : ''}.`,
+      text: `${site ? 'This looks like a website. ' : ''}Split puts the files into ${planSummary(preview)} and rewrites the links between them. ` +
+        `Keep uploads them unchanged to ${mountName(mount)}:${joinPath(sm.base, folders[0])}${folders.length > 1 ? ' (and the others beside it)' : ''}.`,
       ok: 'Split & rewrite', alt: 'Keep structure' });
     if (!r) return;
     split = r !== 'alt';
@@ -1171,7 +1171,7 @@ function sendChunk(u, i) {
     else if (st === -1) { if (u.status === 'uploading' || u.paused) u.pending.unshift(i); }
     else if (st === 404) { u.sess = null; u.status = 'queued'; u.sent = 0; u.done = 0; Object.values(u.xhrs).forEach((x) => x.abort()); }
     else if (TRANSIENT.has(st) && (u.tries[i] = (u.tries[i] || 0) + 1) <= 6) {
-      u.err = `chunk ${i + 1}: ${j.error || 'HTTP ' + st} — retrying`;
+      u.err = `chunk ${i + 1}: ${j.error || 'HTTP ' + st}. Retrying…`;
       setTimeout(() => { u.pending.unshift(i); upPump(); }, backoff(u.tries[i]));
     } else { u.status = 'error'; u.err = j.error || 'HTTP ' + st; Object.values(u.xhrs).forEach((x) => x.abort()); }
     upPump();
@@ -1187,7 +1187,7 @@ function singlePut(u) {
     else if (st === -1) { if (!u.paused) u.status = 'cancelled'; }
     else if (st === 409 && j.error === 'exists') u.status = 'exists';
     else if (TRANSIENT.has(st) && (u.tries.single = (u.tries.single || 0) + 1) <= 5) {
-      u.err = (j.error || 'HTTP ' + st) + ' — retrying'; u.status = 'queued-retry';
+      u.err = (j.error || 'HTTP ' + st) + '. Retrying…'; u.status = 'queued-retry';
       setTimeout(() => { if (u.status === 'queued-retry') { u.status = 'queued'; upPump(); } }, backoff(u.tries.single));
     } else { u.status = 'error'; u.err = j.error || 'HTTP ' + st; }
     upPump();
@@ -1256,7 +1256,7 @@ function totalsLine() {
 }
 function miniQueue() {
   const act = U.filter((u) => ['queued', 'queued-retry', 'uploading', 'finishing', 'exists', 'error'].includes(u.status));
-  if (!act.length) return `<div class="small dim px-0 pt-4 pb-8">${U.length ? totalsLine() : 'Drop files anywhere on this view to upload into this folder.'}</div>`;
+  if (!act.length) return `<div class="small dim px-0 pt-4 pb-8">${U.length ? totalsLine() : 'Drop files here to upload them to this folder.'}</div>`;
   return `<div class="small px-0 pt-2 pb-6">${totalsLine()}</div>` + act.slice(0, 6).map((u) => `<div class="up ${u.status === 'error' ? 'err' : ''}"><div class="row"><span class="ell">${esc(u.dest.split('/').pop())}</span><b>${esc(statusText(u))}</b></div><div class="bar2"><i style="width:${share(sentOf(u), u.size || 1).toFixed(1)}%"></i></div></div>`).join('');
 }
 Object.assign(ACT, {
@@ -1276,7 +1276,7 @@ Object.assign(ACT, {
   upClear() { for (let i = U.length - 1; i >= 0; i--) if (['done', 'skipped', 'cancelled', 'error'].includes(U[i].status)) U.splice(i, 1); liveSoon(); render(true); },
   upMount(id) { S.upMount = +id; S.upPath = zoneRoots(S.upMount).find((z) => z.access === 'write')?.path || '/'; save(); render(true); },
   upPolicyDefault(p) { S.upPolicy = p; save(); render(true); },
-  async upBrowse() { const d = await pickFolder({ title: 'Upload destination', mount: S.upMount, path: S.upPath }); if (d) { if (!canWriteZone(d.path, d.mount)) return note('Choose a folder with write access', { err: true }); S.upMount = d.mount; S.upPath = d.path; save(); render(true); } },
+  async upBrowse() { const d = await pickFolder({ title: 'Upload destination', mount: S.upMount, path: S.upPath }); if (d) { if (!canWriteZone(d.path, d.mount)) return note('You can’t upload there. Choose a folder you can write to.', { err: true }); S.upMount = d.mount; S.upPath = d.path; save(); render(true); } },
   upHere() { S.upMount = S.fmount; S.upPath = S.fpath; save(); go('upload'); },
   upOpenDest() { S.fmount = S.upMount; ACT.fgo(S.upPath); go('files'); },
   upResumeSrv(id) { const s = (D.uploadsSrv?.sessions || []).find((x) => x.id === id); if (!s) return; S.resumeFor = s; note('Select the same file again to resume ' + s.path.split('/').pop()); $('#upf').click(); },
@@ -1287,8 +1287,8 @@ async function loadUploadsSrv() {
 }
 VIEW_REFRESH.upload = async () => { if (!D.me) await loadMe(); if (!D.drives) await loadDrives(); loadUploadsSrv(); try { D.audit = await get('/api/audit'); } catch { /* ignore */ } render(true); };
 function vUpload() {
-  if (!D.drives) { if (!D.me) loadMe(); loadDrives(); return loading('Loading assigned upload areas…'); }
-  if (!writableServed().length) return `<div class="admin-page"><section class="panel"><div class="empty big">${icon('shield-alert', 'xl')}<b>No storage area here allows uploads.</b><span>Ask the administrator for a storage zone that includes the Upload action.</span></div></section></div>`;
+  if (!D.drives) { if (!D.me) loadMe(); loadDrives(); return loading('Loading your storage zones…'); }
+  if (!writableServed().length) return `<div class="admin-page"><section class="panel"><div class="empty big">${icon('shield-alert', 'xl')}<b>You can’t upload anywhere yet.</b><span>Ask an administrator for a storage zone with upload access.</span></div></section></div>`;
   const srv = (D.uploadsSrv?.sessions || []).filter((s) => !U.some((u) => u.sess && u.sess.id === s.id));
   const recent = (D.audit?.rows || []).filter((r) => r.action === 'upload' && r.ok).slice(0, 15);
   const pol = [['ask', 'Ask'], ['replace', 'Replace (keeps a version)'], ['rename', 'Keep both'], ['skip', 'Skip']];
@@ -1297,10 +1297,10 @@ function vUpload() {
       <div class="updrop" data-act="fpick" data-arg="upf" data-dropdir="${esc(S.upPath)}">
         <div class="updrop-icon">${icon('upload', 'lg')}</div>
         <div><div class="h800 fs-20">Drop files or folders here</div>
-          <div class="small dim">or choose from your device · folders keep their structure · paste an image or file with Ctrl+V</div></div>
+          <div class="small dim">or choose them, or paste with Ctrl+V</div></div>
       </div>
       <div class="act-row"><button class="btn btn-primary" data-act="fpick" data-arg="upf">Choose files…</button><button class="btn btn-secondary" data-act="fpick" data-arg="updir">Choose folder…</button></div>
-      <div class="set-row up-destination"><div><div class="h800">Upload to</div><div class="small dim">${esc(mountName(S.upMount))} · enter a path or browse.</div></div>
+      <div class="set-row up-destination"><div><div class="h800">Upload to</div><div class="small dim">${esc(mountName(S.upMount))}: enter a path or browse.</div></div>
         <div class="set-ctl hrow items-center f-wrap jc-end">
           ${served().map((m) => `<button class="pill ${m.mount === +S.upMount ? 'on' : ''}" data-act="upMount" data-arg="${m.mount}">${esc(m.name)}</button>`).join('')}
           <input id="updest" class="input w-240 fs-125 px-8 py-5" value="${esc(S.upPath)}" spellcheck="false">
@@ -1308,15 +1308,14 @@ function vUpload() {
       <details class="up-options"><summary>More options <span class="small dim">· ${S.smartSort ? 'Smart-Sorting on' : 'Smart-Sorting off'} · collisions: ${esc(S.upPolicy)}</span></summary>
       <div class="up-option-body"><div class="set-row"><div><div class="h800">Smart-Sorting</div><div class="small dim">${esc((() => {
         const sm = smartMode(S.upMount, S.upPath);
-        return sm.mode === 'home' ? 'Uploads go to ' + sm.base + '/<type>/ (image, video, gif, arch, html, css…); dropped folders are offered a split.'
-          : sm.mode === 'project' ? 'Uploads into ' + S.upPath + ' are sorted: html stays, css/ and js/ beside it, everything else into ' + (smartCfg().assets || 'assets') + '/<type>/.'
-            : 'Off - files land exactly in the destination.';
+        return sm.mode === 'home' ? 'Uploads go into type folders in ' + sm.base + '/.'
+          : sm.mode === 'project' ? 'Uploads into ' + S.upPath + ' are sorted by type.'
+            : 'Off: files land in the destination as they are.';
       })())}</div></div>
         <div class="set-ctl"><button class="pill ${S.smartSort ? 'on' : ''}" data-act="fsmart">${S.smartSort ? 'On ✓' : 'Off'}</button></div></div>
-      <div class="set-row"><div><div class="h800">If a file already exists</div><div class="small dim">“Replace” moves the old file into the version history, so it can be restored.</div></div>
+      <div class="set-row"><div><div class="h800">If a file already exists</div><div class="small dim">“Replace” keeps the old file as a version.</div></div>
         <div class="set-ctl"><div class="seg-row">${pol.map(([k, l]) => `<button class="${S.upPolicy === k ? 'on' : ''}" data-act="upPolicyDefault" data-arg="${k}">${l}</button>`).join('')}</div></div></div>
-      <p class="small dim mx-0 mt-10 mb-0">Files up to ${UPCFG.chunk / MiB} MiB go in one request; larger files are split into ${UPCFG.chunk / MiB} MiB chunks, ${UPCFG.parallel} in parallel.
-        Every request stays below Cloudflare’s 100 MB request-body limit (Free plan), failed chunks are retried, and an interrupted upload continues from the last chunk when you select the same file again. Change sizes in Settings.</p></div></details>
+      <p class="small dim mx-0 mt-10 mb-0">Large files upload in ${UPCFG.chunk / MiB} MiB chunks, ${UPCFG.parallel} at a time, and resume if interrupted. Change this in Settings.</p></div></details>
     </section>
     <section class="panel span2 min-h-260">
       <div class="ph"><h5>Queue</h5><span class="small" id="uptotals">${totalsLine()}</span>
@@ -1328,7 +1327,7 @@ function vUpload() {
       ${srv.length ? srv.map((s) => `<div class="upq"><div class="row"><span class="ell"><b>${esc(s.path.split('/').pop())}</b> <span class="dim">${esc(mountName(s.mount))}:${esc(parentOf(s.path))}</span></span>
         <span class="small">${esc(fmt.bytes(s.bytes_done))} of ${esc(fmt.bytes(s.size))} · ${esc(fmt.ago(s.updated))}</span>
         <span class="small"><button class="link" data-act="upResumeSrv" data-arg="${esc(s.id)}">resume…</button> · <button class="link" data-act="upDiscardSrv" data-arg="${esc(s.id)}">discard</button></span></div>
-        <div class="bar2"><i style="width:${share(s.bytes_done, s.size).toFixed(1)}%"></i></div></div>`).join('') : '<div class="empty">None — interrupted uploads show up here and can be resumed.</div>'}
+        <div class="bar2"><i style="width:${share(s.bytes_done, s.size).toFixed(1)}%"></i></div></div>`).join('') : '<div class="empty">None. Interrupted uploads show up here.</div>'}
     </section>
     <section class="panel">
       <div class="ph"><h5>Recently uploaded</h5></div>
@@ -1351,7 +1350,7 @@ async function pollAnalyze() {
     if (!D.drives) await loadDrives();
     if (!isRootAccount()) {
       const full = served().filter((d) => fullDriveZone(d.mount));
-      if (!full.length) { D.an = null; D.anError = 'Storage analysis is available only for whole-drive zones. Ask an administrator to assign a full-drive analysis area.'; render(true); return; }
+      if (!full.length) { D.an = null; D.anError = 'Analysis needs access to a whole drive. Ask an administrator for one.'; render(true); return; }
       if (S.anMount === 'all' || !full.some((d) => +d.mount === +S.anMount)) S.anMount = full[0].mount;
     }
     const m = S.anMount;
@@ -1394,7 +1393,7 @@ function squarify(nodes, W, H) {
 }
 function treemap() {
   const T = D.anTree;
-  if (!T || !T.nodes) return '<div class="empty">No index yet — the first scan runs shortly after Strata starts.</div>';
+  if (!T || !T.nodes) return '<div class="empty">No index yet. The first scan starts shortly after Strata does.</div>';
   const W = 240, H = 100;
   const nodes = T.nodes.slice(0, 300);
   const rects = squarify(nodes, W, H);
@@ -1422,7 +1421,7 @@ function treemapColor(n) {
   return `hsl(${hueFor(key)} 62% 76%)`;
 }
 function treemapLegend(nodes) {
-  if (S.anColor === 'traffic') return '<span><i class="key-cool"></i>few origin hits</span><span><i class="key-warm"></i>many origin hits · last 30 days</span>';
+  if (S.anColor === 'traffic') return '<span><i class="key-cool"></i>few origin hits</span><span><i class="key-warm"></i>many origin hits (30 days)</span>';
   const totals = new Map();
   for (const n of nodes) { const k = S.anColor === 'category' || n.dir ? (n.cat || 'other') : treeExt(n); totals.set(k, (totals.get(k) || 0) + n.size); }
   return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => `<span><i style="background:hsl(${hueFor(k)} 62% 76%)"></i>${S.anColor === 'extension' && k !== 'no extension' && k !== 'folder' ? '.' : ''}${esc(k)}</span>`).join('');
@@ -1459,7 +1458,7 @@ function vAnalyze() {
         <div class="ph"><h5>Where the space goes</h5><span class="crumbs"><button data-act="anGo" data-arg="/">${esc(mountName(tm))}</button>${parts.map((p, i) => `<span class="dim">/</span><button data-act="anGo" data-arg="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</button>`).join('')}</span>
           <button class="pill" data-act="anColor" title="Change treemap colors">Color: ${S.anColor === 'extension' ? 'file type' : S.anColor === 'category' ? 'category' : 'origin hits'}</button></div>
         ${treemap()}
-        <div class="keyrow2">${treemapLegend(D.anTree?.nodes || [])}<span class="dim">· area = size · click a folder to zoom in, a file to reveal it${D.anTree?.more ? ` · showing up to 300 items; ${fmt.n(D.anTree.more)} more not mapped` : ''}</span></div>
+        <div class="keyrow2">${treemapLegend(D.anTree?.nodes || [])}<span class="dim">Area is size. Click a folder to zoom in${D.anTree?.more ? `; ${fmt.n(D.anTree.more)} more items not shown` : ''}.</span></div>
       </section>
       <section class="panel">
         <div class="ph"><h5>This folder</h5><span class="small dim">${esc(fmt.bytes(here.bytes))} · ${fmt.n(here.files)} files · ${fmt.n(here.dirs)} folders</span></div>
@@ -1506,13 +1505,13 @@ function anTabBody() {
   if (tab === 'dupes') {
     const G = D.dupes;
     if (!G) return loading('Grouping duplicates…');
-    if (!G.groups.length) return `<div class="empty">No duplicates found among ${fmt.n(A.duplicates.hashed)} hashed files (${fmt.n(A.duplicates.candidates)} files share a size with another file; hashing runs after each scan).</div>`;
+    if (!G.groups.length) return `<div class="empty">No duplicates among ${fmt.n(A.duplicates.hashed)} hashed files.</div>`;
     return G.groups.map((g) => `<div class="dupe"><div class="ph"><h5>${fmt.n(g.n)} copies · ${esc(fmt.bytes(g.size))} each</h5><span class="small hot">${esc(fmt.bytes(g.wasted))} wasted</span></div>
       ${g.items.map((it, i) => `<div class="logline"><span title="${esc(it.path)}">${i === 0 ? '<b>oldest</b> · ' : ''}${esc(it.drive || '')}:${esc(it.path)}</span><span><button class="link" data-act="anRevealM" data-arg="${esc(it.mount + '|' + it.path)}">reveal</button>${i ? ` · <button class="link" data-act="anTrash" data-arg="${esc(it.mount + '|' + it.path)}">move to trash</button>` : ''}</span></div>`).join('')}</div>`).join('');
   }
   if (tab === 'cold') {
     const L = D.anList && D.anList.kind === 'cold' ? D.anList : null;
-    return `<div class="tbar border-0"><span class="small dim">Files nobody requested from the origin in 90 days, largest first. Cloudflare answers cached files without asking the origin, so popular cached media can look cold here — check the Edge view before deleting.</span></div>` +
+    return `<div class="tbar border-0"><span class="small dim">Files not requested from the origin in 90 days, largest first. Cloudflare serves cached files itself, so check the Edge view before deleting.</span></div>` +
       (L ? table('ancold', PATH_LABELS, pathRows(L.rows)) : loading());
   }
   if (tab === 'cleanup') {
@@ -1523,11 +1522,11 @@ function anTabBody() {
   if (tab === 'delivery') {
     const d = A.delivery;
     return `<div class="grid2 cols-3">
-      <section class="panel"><div class="ph"><h5>Too big for Cloudflare’s cache</h5></div><div class="big-num">${fmt.n(d.over_cache_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_cache_limit.b))} in files over 512 MB. Cloudflare (Free/Pro/Business) never caches these, so every download is served by your origin and NAS.</div>
+      <section class="panel"><div class="ph"><h5>Too big for Cloudflare’s cache</h5></div><div class="big-num">${fmt.n(d.over_cache_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_cache_limit.b))} in files over 512 MB. Cloudflare never caches these, so the origin serves every download.</div>
         <div class="act-row"><button class="btn btn-secondary" data-act="anList" data-arg="over_cache_limit|">List them</button></div></section>
-      <section class="panel"><div class="ph"><h5>Video</h5></div><div class="big-num">${fmt.n(d.video.c)}</div><div class="small dim">${esc(fmt.bytes(d.video.b))}. Cloudflare’s terms restrict serving video or a disproportionate share of large files through the regular CDN on self-serve plans; Stream or R2 are the compliant routes if this grows. <a class="link" href="https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/" target="_blank" rel="noopener">Cloudflare’s policy ↗</a></div>
+      <section class="panel"><div class="ph"><h5>Video</h5></div><div class="big-num">${fmt.n(d.video.c)}</div><div class="small dim">${esc(fmt.bytes(d.video.b))}. Cloudflare’s terms limit serving video through its regular CDN; Stream or R2 are the allowed routes if this grows. <a class="link" href="https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/" target="_blank" rel="noopener">Cloudflare’s policy ↗</a></div>
         <div class="act-row"><button class="btn btn-secondary" data-act="anList" data-arg="video|">List them</button></div></section>
-      <section class="panel"><div class="ph"><h5>Over 100 MB</h5></div><div class="big-num">${fmt.n(d.over_upload_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_upload_limit.b))}. Larger than one Cloudflare request body — Strata’s uploader splits these into chunks automatically.</div></section>
+      <section class="panel"><div class="ph"><h5>Over 100 MB</h5></div><div class="big-num">${fmt.n(d.over_upload_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_upload_limit.b))}. Uploads of these go in chunks automatically.</div></section>
     </div>` + (D.anList && D.anList.title ? `<div class="ph px-18 py-10"><h5>${esc(D.anList.title)}</h5></div>` + table('anlist', PATH_LABELS, pathRows(D.anList.rows)) : '');
   }
   if (tab === 'age') {
@@ -1536,7 +1535,7 @@ function anTabBody() {
       <section class="panel"><div class="ph"><h5>By file size</h5></div>${barList(A.sizes, { label: (r) => r.k + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) })}</section></div>`;
   }
   if (tab === 'hot') {
-    return `<div class="tbar border-0"><span class="small dim">Most bandwidth served by the origin in 90 days (Cloudflare cache hits not included).</span></div>` +
+    return `<div class="tbar border-0"><span class="small dim">Most bytes served by the origin in 90 days, cache hits not counted.</span></div>` +
       table('anhot', PATH_LABELS.concat([{ t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 90, a: 'r' }]), pathRows(A.hot, (r) => [cell(fmt.n(r.hits), 'r'), cell(fmt.bytes(r.sent), 'r h800')]));
   }
   return `<div class="grid2 cols-3">${A.drives.map((d) => `<section class="panel"><div class="ph"><h5>${esc(d.name)}</h5><span class="small dim">${esc(d.kind)}${d.enabled ? '' : ' · disabled'}</span></div>
@@ -1551,7 +1550,7 @@ Object.assign(ACT, {
     if (!isRootAccount()) {
       const allowed = served().filter((d) => fullDriveZone(d.mount));
       if (m === 'all') m = allowed[0]?.mount;
-      else if (!allowed.some((d) => +d.mount === +m)) return note('That drive is outside your full-drive analysis access', { err: true });
+      else if (!allowed.some((d) => +d.mount === +m)) return note('You can’t analyze that drive. Ask an administrator for access.', { err: true });
     }
     S.anMount = m === 'all' ? 'all' : +m; S.anPath = '/'; D.anList = null; D.dupes = null; save(); pollAnalyze();
   },

@@ -778,7 +778,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/") and not self.authorize(user, path, "GET", q):
             core.audit(self.client_ip(), user, "access-denied", path[:200], ok=False)
-            return self.json({"error": "this account does not have access to this view or storage area"}, 403)
+            return self.json({"error": "this account can't open this. Ask an administrator for access."}, 403)
         try:
             return self.get_routes(user, path, q)
         except Exception as e:
@@ -1301,7 +1301,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(r)
             body = self.body_form() if path == "/privacy/accept" else self.body_json()
             if path.startswith("/api/") and not self.authorize(user, path, "POST", q, body):
-                return self.json({"error": "this account does not have permission for this action"}, 403)
+                return self.json({"error": "this account can't do this. Ask an administrator for access."}, 403)
             if path == "/privacy/accept":
                 if body.get("accept") != "yes":
                     raise files.FileError(400, "privacy notice acceptance is required")
@@ -1392,7 +1392,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ide/save":
             return self.ide_save(user, ip, b)
         if path.startswith("/api/2fa/") and (accounts.get(user) or {}).get("role") != "root":
-            raise files.FileError(403, "the legacy authenticator factor is managed only by the root account")
+            raise files.FileError(403, "only the owner can set up the authenticator app")
         if path == "/api/audit/events":
             events = b.get("events")
             if not isinstance(events, list) or len(events) > 100:
@@ -1459,9 +1459,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 grants = b.get("permissions") or []
             if invited_role == "root":
-                raise files.FileError(403, "root accounts cannot be created or invited")
+                raise files.FileError(403, "there is only one owner: invite an administrator or a member instead")
             if invited_role == "admin" and actor.get("role") not in ("root", "admin"):
-                raise files.FileError(403, "only a root or administrator can invite an administrator")
+                raise files.FileError(403, "only the owner or an administrator can invite administrators")
             if actor.get("role") not in ("root", "admin") and any(
                     p not in (actor.get("permissions") or []) for p in grants):
                 raise files.FileError(403, "you may only delegate permissions already assigned to your account")
@@ -1492,7 +1492,7 @@ class Handler(BaseHTTPRequestHandler):
             if not acct:
                 raise files.FileError(404, "account not found")
             if acct.get("role") == "root":
-                raise files.FileError(403, "root permissions cannot be altered")
+                raise files.FileError(403, "the owner's permissions can't be changed")
             target_role = str(b.get("role", "employee"))
             preset = str(b.get("preset") or "")
             if preset and preset in accounts.PRESETS and preset != "custom":
@@ -1501,9 +1501,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 grants = b.get("permissions") or []
             if target_role == "root":
-                raise files.FileError(403, "cannot promote account to root")
+                raise files.FileError(403, "an account can't become the owner")
             if target_role == "admin" and actor.get("role") not in ("root", "admin"):
-                raise files.FileError(403, "only a root or administrator can grant administrator access")
+                raise files.FileError(403, "only the owner or an administrator can grant administrator access")
             if actor.get("role") not in ("root", "admin") and any(
                     p not in (actor.get("permissions") or []) for p in grants):
                 raise files.FileError(403, "you may only delegate permissions already assigned to your account")
@@ -1521,7 +1521,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     root_count = db.execute("SELECT COUNT(*) FROM account WHERE role='root' AND enabled=1").fetchone()[0]
                     if root_count <= 1:
-                        raise files.FileError(400, "the last root administrator cannot be disabled")
+                        raise files.FileError(400, "the owner can't be disabled")
                 finally:
                     db.close()
             if target.lower() == user.lower() and not enabled:

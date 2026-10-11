@@ -214,7 +214,7 @@ def set_administrative(user, flag):
     if not a:
         raise ValueError("Account not found")
     if a.get("role") == "root":
-        raise ValueError("Root is always administrative")
+        raise ValueError("The owner is always a moderator")
     db = core.connect()
     try:
         with db:
@@ -351,7 +351,7 @@ def set_constraints(user, expires=None, allowed_ips="", session_hours=None, note
     if not a:
         raise ValueError("Account not found")
     if a.get("role") == "root":
-        raise ValueError("Root has no constraints - it must always be able to sign in")
+        raise ValueError("The owner has no sign-in limits, so they can always sign in")
     if expires not in (None, ""):
         expires = float(expires)
         if expires < time.time() - 60:
@@ -540,7 +540,7 @@ def send_code(user, email, sender, ip="", purpose="login"):
     if not EMAIL_RE.fullmatch(str(email or "")):
         raise ValueError("Add a valid e-mail address before signing in")
     if not core.CFG.get("alerts", {}).get("resend_api_key") or not core.CFG.get("alerts", {}).get("from"):
-        raise ValueError("E-mail OTP is not configured. Ask the root administrator to configure Resend from the local network.")
+        raise ValueError("E-mail isn't set up. Ask the owner to add a Resend key in Settings.")
     code = "%06d" % secrets.randbelow(1000000)
     expiry = time.time() + 600
     db = core.connect()
@@ -773,7 +773,7 @@ def issue_password_reset(username, created_by):
     if not a:
         raise ValueError("Account not found")
     if a.get("role") == "root":
-        raise ValueError("The root password can only be changed by root itself or from the server CLI")
+        raise ValueError("Only the owner can change the owner's password, in Settings or on the server")
     token = secrets.token_urlsafe(32)
     expires = time.time() + 24 * 3600
     db = core.connect()
@@ -797,7 +797,7 @@ def delete_account(user, storage_action="retain"):
     try:
         root_count = db.execute("SELECT COUNT(*) FROM account WHERE role='root' AND enabled=1").fetchone()[0]
         if a.get("role") == "root" and root_count <= 1:
-            raise ValueError("The last root administrator cannot be deleted")
+            raise ValueError("The owner can't be deleted")
         if storage_action in ("delete", "archive"):
             import files
             z_list = zones(user)
@@ -839,7 +839,7 @@ def set_permissions(user, role, permissions, preset=None):
     if not a:
         raise ValueError("Account not found")
     if a["role"] == "root":
-        raise ValueError("Root access is protected")
+        raise ValueError("The owner's access can't be changed")
     if preset and preset in PRESETS and preset != "custom":
         role = PRESETS[preset]["role"]
         grants = list(PRESETS[preset]["permissions"])

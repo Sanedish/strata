@@ -102,7 +102,7 @@
     const list = all.filter((p) => !q || [p.user, p.title, p.department, p.status].some((x) => String(x || '').toLowerCase().includes(q)));
     const groups = [['online', 'Online'], ['idle', 'Idle'], ['offline', 'Offline']].map(([s, label]) => {
       const rows = list.filter((p) => (D.presence[p.user]?.s || p.presence?.s || 'offline') === s);
-      return rows.length ? `<div class="cap op-group">${label} — ${rows.length}</div>${rows.map(personRow).join('')}` : '';
+      return rows.length ? `<div class="cap op-group">${label} · ${rows.length}</div>${rows.map(personRow).join('')}` : '';
     }).join('');
     const on = all.filter((p) => (D.presence[p.user]?.s || p.presence?.s) !== 'offline').length;
     return `<aside class="aside office-people" aria-label="People">
@@ -135,7 +135,7 @@
     return `<div class="office-compose">
       <textarea id="office-draft-${esc(key)}" class="input office-text" rows="3" maxlength="2000" placeholder="${esc(placeholder)}" data-draft="${esc(key)}">${esc(O.drafts[key] || '')}</textarea>
       <div class="office-compose-foot">
-        ${canPrivate ? `<label class="dlg-check"><input type="checkbox" data-change="officePriv" ${O.priv ? 'checked' : ''}> ${icon('lock', 'sm')} Private — only ${esc(target)} and you</label>` : '<span class="small dim">Everyone on the team sees this · @name mentions someone</span>'}
+        ${canPrivate ? `<label class="dlg-check"><input type="checkbox" data-change="officePriv" ${O.priv ? 'checked' : ''}> ${icon('lock', 'sm')} Private: only ${esc(target)} and you</label>` : '<span class="small dim">Everyone on the team sees this · @name mentions someone</span>'}
         <div class="grow"></div>
         <button class="btn btn-primary sm" data-act="officeSend" data-arg="${esc(key)}"${O.busy ? ' disabled' : ''}>${icon('send', 'sm')} ${target ? 'Leave note' : 'Post'}</button>
       </div></div>`;

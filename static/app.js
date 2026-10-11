@@ -256,7 +256,7 @@ function sparkSvg(arr, { w = 240, h = 76, cls = 'spark', max, stroke = 'var(--co
 // multi-series line chart (Analyze › Growth, Network): series [{label, data: [[x, y]], color}]
 function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.date(x) } = {}) {
   const all = series.flatMap((s) => s.data);
-  if (all.length < 2) return '<div class="empty">Not enough data points yet — one is added per day.</div>';
+  if (all.length < 2) return '<div class="empty">Not enough data yet: one point is added per day.</div>';
   const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y1 = niceMax(ys, 1), W = 600;
   const px = (x) => ((x - x0) / Math.max(1, x1 - x0) * W).toFixed(1), py = (y) => (h - (y / y1) * (h - 8)).toFixed(1);
@@ -540,7 +540,7 @@ function renderFooter() {
     <span>cloudflared ${esc(t.version || '')} ${t.up ? '· up ' + esc(fmt.dur(t.uptime)) : '<b class="hot">unreachable</b>'}</span>
     <div class="fill"></div>
     ${(INST.siblings || []).map((s) => `<button class="link" data-act="openSibling" data-arg="${esc(s.url)}" title="Open the ${esc(s.name)} dashboard">${esc(s.name)} ↗</button>`).join('')}
-    <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the polling interval · right-click to pick">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
+    <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the refresh rate, right-click to pick one">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
     <span class="clock">${fmt.time(Date.now() / 1000)}</span>`);
 }
 
@@ -766,7 +766,7 @@ function inspector(r) {
       ['Method', r.method], ['Protocol', r.proto], ['Status', r.status], ['Content type', r.ctype], ['Sent', fmt.bytes(r.bytes)],
       ['Duration', fmt.ms(r.dur)], ['Client', r.ip], ['Country', cname(r.country)], ['Edge', r.colo + ' · ' + coloName(r.colo)],
       ['Referrer', r.ref], ['Client kind', KIND[r.kind] || r.kind], ['Agent', r.agent + (r.os && r.os !== '-' ? ' · ' + r.os : '')],
-      ['User-Agent', r.ua || '(empty)'], ['Probe', r.scan ? 'yes — matches scanner patterns' : 'no'], ['Flagged', r.sus || 'no'],
+      ['User-Agent', r.ua || '(empty)'], ['Probe', r.scan ? 'yes, matches scanner patterns' : 'no'], ['Flagged', r.sus || 'no'],
       ['Modifiers', r.mods || '—'], ['Tag', r.tag || '—'], ['Blocked by', r.blocked || '—'],
     ]);
   }
@@ -849,7 +849,7 @@ function vVisitors() {
   return tblView({
     title: 'Audience', note: `${fmt.n(T.uniq)} unique clients · ${rangeLabel()}${engineNote(st)}`, key: 'vis-' + tab, labels, rows,
     tabs: [['countries', 'Countries', 'earth'], ['clients', 'Clients', 'monitor'], ['referrers', 'Referrers', 'link-2'], ['hosts', 'Hostnames', 'globe'], ['os', 'Systems', 'cpu']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'visitors:' + k, on: tab === k })),
-    empty: tab === 'referrers' ? 'No referrers yet — most CDN hits are direct links and embeds.' : undefined,
+    empty: tab === 'referrers' ? 'No referrers yet. Most hits are direct links and embeds.' : undefined,
     aux: {
       kicker: 'Audience', title: 'Unique visitors · ' + rangeLabel(), series: st.series.uniq,
       gauges: ['browser', 'player', 'embed', 'bot'].map((k) => gauge(KIND[k], fmt.n(kinds[k]?.c || 0) + ' · ' + fmt.pct(share(kinds[k]?.c || 0, T.reqs)), share(kinds[k]?.c || 0, T.reqs), k === 'bot' ? 60 : 101)),
@@ -901,7 +901,7 @@ function vOrigins() {
   const st = L.storage || [];
   const nas = st[0] || {};
   return tblView({
-    title: 'Tunnel ingress', note: `${rows.length} rules from cloudflared config.yml · probed every 15 s with HEAD /`, key: 'origins', rows,
+    title: 'Tunnel ingress', note: `${rows.length} rules from cloudflared’s config.yml, checked every 15 s`, key: 'origins', rows,
     tabs: [{ label: 'Edit ingress', icon: 'pencil', act: 'go', arg: 'network', on: false }],
     labels: [{ t: 'Hostname', w: 220 }, { t: 'Service', w: 190 }, { t: 'HTTP', w: 56 }, { t: 'Latency', w: 76, a: 'r' }, { t: 'State', w: 100 }, { t: 'Trend', w: 110 }, { t: 'Error', w: 200 }],
     aux: {
@@ -934,7 +934,7 @@ function vSecurity() {
     title: 'Threat surface', note: `${fmt.n(T.scans)} probe requests · ${fmt.n(T.sus)} suspicious from ${fmt.n(T.sus_ips)} clients (not in error rates) · ${rangeLabel()} · right-click a client to block it`,
     key: 'sec-' + tab, labels, rows,
     tabs: [['scanners', 'Scanners', 'skull'], ['notfound', 'Not found', 'search'], ['ips', 'Top clients', 'users']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'security:' + k, on: tab === k })),
-    empty: tab === 'scanners' ? 'No scanner activity in this range. Probes for .env, wp-login.php and the like show up here.' : undefined,
+    empty: tab === 'scanners' ? 'No scanners in this range. Probes for .env and the like show up here.' : undefined,
     aux: {
       kicker: 'Threats', title: 'Suspicious requests · ' + rangeLabel(), series: st.series.sus || st.series.e4,
       gauges: [
@@ -1013,7 +1013,7 @@ function vEdge() {
   if (!e) return loading('Asking Cloudflare…');
   const setup = `<div class="setup">
     <h5>Connect Cloudflare edge analytics</h5>
-    <p>Caddy only sees requests that <b>miss</b> Cloudflare’s cache. Cloudflare’s own numbers fill that gap: cache hit ratio, total bandwidth and threats.</p>
+    <p>Caddy only sees requests that <b>miss</b> Cloudflare’s cache. Connect Cloudflare to see the rest.</p>
     <ol>
       <li>Open <b>dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</b>.</li>
       <li>Permissions: <code>Zone · Analytics · Read</code> and <code>Zone · Zone · Read</code>. Zone resources: <code>${esc(INST.zone)}</code> only.</li>
@@ -1022,7 +1022,7 @@ function vEdge() {
     <pre><code>{
   "cloudflare": { "api_token": "paste-token-here", "zone_name": "${esc(INST.zone)}" }
 }</code></pre>
-    <p class="dim">The Network view lists every other permission Strata can use (zone settings, DNS, purge, edge blacklist).</p>
+    <p class="dim">The Network view lists the other permissions Strata can use.</p>
     ${e.configured ? `<p class="hot"><b>Last attempt failed:</b> ${esc(e.error)}</p><button class="btn btn-secondary" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Retry now</button>` : ''}
   </div>`;
   if (!e.configured || !e.ok) return setup;
@@ -1058,7 +1058,7 @@ function vEdge() {
     </div>
     <div class="grid2 cols-135 fill">
       <section class="panel oy-auto">
-        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">ink = cache hit · red = fetched from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
+        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
         <div class="ph mt-18"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
@@ -1100,7 +1100,7 @@ function vInsights() {
   const ret = `<div class="d-flex gap-26 mx-0 mt-4 mb-8"><div><div class="cap">Returning</div><div class="big-num">${fmt.n(I.returning)}</div></div>
     <div><div class="cap">New</div><div class="big-num">${fmt.n(I.visitors - I.returning)}</div></div></div>
     <div class="stackbar"><i style="flex:${I.returning || 0};background:var(--color-text)"></i><i style="flex:${(I.visitors - I.returning) || 0};background:var(--color-accent)"></i></div>
-    <div class="small dim">Returning = seen before this range began (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
+    <div class="small dim">Returning: seen before this range (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
     <div class="cap mt-16">Status classes</div>${classBar}
     <div class="cap mt-16">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
   const inv = I.inventory;
@@ -1158,7 +1158,7 @@ function vCompression() {
     title: 'Brotli precompression', note: runLine, key: 'comp-' + tab, labels, rows,
     tabs: [['files', 'Store', 'archive'], ['runs', 'Run log', 'list'], ['served', 'Served', 'send']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'compression:' + k, on: tab === k }))
       .concat([{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }]),
-    empty: tab === 'files' ? 'Nothing precompressed yet — the first scan runs shortly after start.' : undefined,
+    empty: tab === 'files' ? 'Nothing precompressed yet. The first scan starts shortly after Strata does.' : undefined,
     aux: {
       kicker: 'Precompression', title: 'Bytes saved · ' + rangeLabel(), series: C.series.saved,
       gauges: [
@@ -1200,22 +1200,22 @@ function vSettings() {
   }).join('')).join('');
   const vitalSlots = Array.from({ length: 8 }, (_, i) => `<select class="input" data-change="vitalSlot" data-arg="${i}">
     <option value="">— empty —</option>${Object.entries(VITALS).map(([k, [l]]) => `<option value="${k}" ${(S.vitals || [])[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`).join('');
-  const kbd = [['Ctrl K', 'Command palette (views, actions, settings, files)'], ['?', 'This list'], ['/', 'Filter requests'], ['g then s r f u a n …', 'Go to a view (first letter)'],
+  const kbd = [['Ctrl K', 'Command palette'], ['?', 'This list'], ['/', 'Filter requests'], ['g then s r f u a n …', 'Go to a view (first letter)'],
     ['1 – 9', 'Switch views (sidebar order)'], ['[', 'Collapse / expand the sidebar'], ['T', 'Cycle light / dark / system theme'], [',', 'Settings'],
     ['I', 'Show / hide Infrastructure'], ['B', 'Include / exclude bots'], ['D', 'Deep fields'], ['Space', 'Pause sampling · Files: preview'],
     ['Esc', 'Close menu / inspector / preview'], ['Del · F2', 'Files: trash · rename'], ['Backspace', 'Files: parent folder'], ['Ctrl A · C · X · V', 'Files: select all · copy · cut · paste'], ['Ctrl V (image)', 'Files / Upload: upload from the clipboard']];
   return `<div class="settings" data-scroll="settings">
     <section class="panel span2">
       <div class="ph"><h5>${icon('palette')}Appearance</h5><span class="small dim">applies instantly · ${S.syncPrefs ? 'synced to your account' : 'remembered in this browser'}</span></div>
-      ${row('Theme', 'System follows your operating system’s light / dark setting.', seg([['auto', icon('monitor', 'sm') + 'System'], ['light', icon('sun', 'sm') + 'Light'], ['dark', icon('moon', 'sm') + 'Dark']], S.theme, 'setTheme'))}
-      ${row('Accent colour', 'Highlights, charts and active elements. Default: this site’s colour' + (INST.accent ? ' (' + INST.accent + ')' : '') + ' — each site can look different, so you always know which one you are in.',
+      ${row('Theme', 'System follows your device’s setting.', seg([['auto', icon('monitor', 'sm') + 'System'], ['light', icon('sun', 'sm') + 'Light'], ['dark', icon('moon', 'sm') + 'Dark']], S.theme, 'setTheme'))}
+      ${row('Accent colour', 'Highlights and charts. Default: this site’s colour' + (INST.accent ? ' (' + INST.accent + ')' : '') + '.',
         `<span class="row gap-6">${ACCENTS.map(([c, n]) => `<button class="swatch ${acc.toLowerCase() === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-arg="${c}" title="${esc(n)}"></button>`).join('')}
          <input type="color" class="input" data-change="accentPick" value="${esc(acc)}" title="Any colour"><button class="pill" data-act="setAccent" data-arg="" title="Back to this site's colour">${icon('rotate-ccw', 'sm')}Site default</button></span>`)}
-      ${row('Density', 'Row height and padding of tables and panels.', seg([['compact', 'Compact'], ['normal', 'Normal'], ['comfy', 'Comfortable']], S.density, 'setDensity'))}
-      ${row('Corners', 'Soft is the default. Choose sharp for the original Modernist look or round for more curve.', seg([[0, 'Sharp'], [1, 'Soft'], [2, 'Round']], S.radius, 'setRadius'))}
-      ${row('Typeface', 'Archivo (default), the system UI font, or monospaced for numbers-heavy work.', seg([['archivo', 'Archivo'], ['system', 'System'], ['mono', 'Mono']], S.font, 'setFont'))}
-      ${row('Striped tables', 'Alternate row shading in long tables.', toggle(S.zebra, 'setZebra'))}
-      ${row('Reduce motion', 'Turn off row flashes, spinners and transitions.', toggle(S.reduceMotion, 'reduceMotion'))}
+      ${row('Density', 'Row height and padding.', seg([['compact', 'Compact'], ['normal', 'Normal'], ['comfy', 'Comfortable']], S.density, 'setDensity'))}
+      ${row('Corners', 'Soft is the default.', seg([[0, 'Sharp'], [1, 'Soft'], [2, 'Round']], S.radius, 'setRadius'))}
+      ${row('Typeface', 'Archivo is the default.', seg([['archivo', 'Archivo'], ['system', 'System'], ['mono', 'Mono']], S.font, 'setFont'))}
+      ${row('Striped tables', 'Shade every other row.', toggle(S.zebra, 'setZebra'))}
+      ${row('Reduce motion', 'Turn off animations.', toggle(S.reduceMotion, 'reduceMotion'))}
     </section>
     <section class="panel span2">
       <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} %</span></div>
@@ -1234,36 +1234,36 @@ function vSettings() {
       <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin, hide and order the sidebar</span></div>
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
       ${row('Collapsed sidebar', 'Icons only (toggle with [ ).', toggle(S.navCollapsed, 'setNavCollapsed'))}
-      ${row('Show Infrastructure', 'Network, tunnel, origins, edge, latency, history, system and logs. Click the group heading to toggle it.', toggle(S.deep, 'setDeep'))}
+      ${row('Show Infrastructure', 'Show the tunnel, network and system pages.', toggle(S.deep, 'setDeep'))}
       <div class="navcfg mt-8">${navRows}</div>
     </section>
     <section class="panel">
-      <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">the traffic tiles above the monitoring views</span></div>
-      ${row('Show everywhere', 'Also show them on Team, Files, configuration pages, Accounts, Code and Settings.', toggle(S.vitalsAll, 'setVitalsAll'))}
+      <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">the traffic tiles above the traffic pages</span></div>
+      ${row('Show everywhere', 'Show them on every page, not only traffic.', toggle(S.vitalsAll, 'setVitalsAll'))}
       <div class="form cols-2 mt-8">${vitalSlots}</div>
       <div class="act-row"><button class="pill" data-act="vitalsReset">${icon('rotate-ccw', 'sm')}Default six</button><button class="pill" data-act="vitalsNone">${icon('eye-off', 'sm')}Hide the strip</button></div>
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('refresh-cw')}Data & refresh</h5></div>
-      ${row('Polling interval', 'How often live vitals and the request log refresh.', seg(RATES.map((r) => [r, r < 1000 ? r + ' ms' : r / 1000 + ' s']), S.rate, 'setRate'))}
-      ${row('Pause in background tabs', 'Stop polling while this tab is hidden (saves the server work).', toggle(S.hiddenPause, 'setHiddenPause'))}
-      ${row('Default range', 'Used by charts, tables and the stats views.', `<select class="input" data-change="setRangeSel">${RANGES.map(([k, l]) => `<option value="${k}" ${S.range === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-      ${row('Include bots in stats', 'Scanners, crawlers and scripts in the aggregate numbers.', toggle(!S.nobots, 'setBots'))}
-      ${row('Deep fields', 'Extra columns in the request log (edge, OS, type, encoding, referrer…).', toggle(S.fields, 'setFields'))}
+      ${row('Refresh rate', 'How often live numbers refresh.', seg(RATES.map((r) => [r, r < 1000 ? r + ' ms' : r / 1000 + ' s']), S.rate, 'setRate'))}
+      ${row('Pause in background tabs', 'Stop refreshing while this tab is hidden.', toggle(S.hiddenPause, 'setHiddenPause'))}
+      ${row('Default range', 'For charts and tables.', `<select class="input" data-change="setRangeSel">${RANGES.map(([k, l]) => `<option value="${k}" ${S.range === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      ${row('Include bots in stats', 'Count scanners, crawlers and scripts in totals.', toggle(!S.nobots, 'setBots'))}
+      ${row('Deep fields', 'Extra columns in the request log.', toggle(S.fields, 'setFields'))}
       ${row('Column widths', Object.keys(S.widths).length + ' customised column(s).', `<button class="pill" data-act="resetWidths" ${Object.keys(S.widths).length ? '' : 'disabled'}>Reset</button>`)}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('clock')}Time & notifications</h5></div>
       ${row('24-hour clock', 'Otherwise 12-hour with AM / PM.', toggle(S.clock24, 'setClock24'))}
       ${row('Relative times', '“5 m ago” instead of the date and time.', toggle(S.relTimes, 'setRelTimes'))}
-      ${row('Ask before deleting', 'Confirm moves to the trash (permanent deletes always ask).', toggle(S.confirmDelete, 'setConfirmDelete'))}
-      ${row('Desktop notifications', 'When uploads finish and new alerts arrive (this browser asks for permission once).', toggle(S.notify, 'setNotify'))}
+      ${row('Ask before deleting', 'Confirm before moving files to the trash.', toggle(S.confirmDelete, 'setConfirmDelete'))}
+      ${row('Desktop notifications', 'When uploads finish and alerts arrive.', toggle(S.notify, 'setNotify'))}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('save')}Preferences</h5></div>
-      ${row('Sync to my account', 'Store these preferences on the server, so every browser you sign in with gets them.', toggle(S.syncPrefs, 'setSync'))}
-      ${row('Export / import', 'A JSON file with every preference on this page.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
-      ${row('Reset everything', 'Restore all preferences in this browser to their defaults.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
+      ${row('Sync to my account', 'Use these preferences in every browser.', toggle(S.syncPrefs, 'setSync'))}
+      ${row('Export / import', 'Save or load them as a JSON file.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
+      ${row('Reset everything', 'Back to the defaults in this browser.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('server')}Session & system</h5></div>
@@ -1554,7 +1554,7 @@ function renderOverlay() {
   }
   if (S.help) {
     html += `<div class="palbg" data-act="helpClose"><div class="dlg w-560" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
-      <div class="kbd cols-k150">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blacklist · l links · n network · t tunnel · y system · x settings'],
+      <div class="kbd cols-k150">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blocklist · l links · n network · t tunnel · y system · x settings'],
         ['1 – 9', 'Views in sidebar order'], ['[', 'Sidebar'], ['T', 'Theme'], ['Space', 'Pause · Files: preview'], ['Esc', 'Close'], ['Del · F2 · Backspace', 'Files: trash · rename · up'], ['Ctrl V', 'Paste images to upload']].map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div></div>
       <div class="acts"><div class="fill"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
   }
@@ -1651,7 +1651,7 @@ const ACT = {
   fields() { S.fields = !S.fields; persist(); render(); },
   cycleRate() {
     if (S.paused) { S.paused = false; render(); return; }
-    S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; persist(); render(); note('Polling every ' + S.rate + ' ms');
+    S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; persist(); render(); note('Refreshing every ' + S.rate + ' ms');
   },
   themeCycle() { const order = ['auto', 'light', 'dark']; setPref('theme', order[(order.indexOf(S.theme) + 1) % 3]); note('Theme: ' + ({ auto: 'follows the system', light: 'light', dark: 'dark' }[S.theme])); },
   navCollapse() { setPref('navCollapsed', !S.navCollapsed); },
@@ -1734,7 +1734,7 @@ const ACT = {
     }
     setPref('notify', !!v);
   },
-  async setSync(v) { S.syncPrefs = !!v; persist(); if (v) { await pushPrefs(); note('Preferences are now stored in your account'); } render(true); },
+  async setSync(v) { S.syncPrefs = !!v; persist(); if (v) { await pushPrefs(); note('Preferences now sync to your account'); } render(true); },
   vitalSlot(v, el) { const i = +el.dataset.arg; const list = (S.vitals || []).slice(); while (list.length <= i) list.push(''); list[i] = v; S.vitals = list.filter(Boolean); persist(); render(true); },
   vitalsReset() { S.vitals = PREFS.vitals.slice(); persist(); render(true); },
   vitalsNone() { S.vitals = []; persist(); render(true); },
@@ -1754,7 +1754,7 @@ const ACT = {
     inp.click();
   },
   async resetPrefs() {
-    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Strata preference in this browser?', ok: 'Reset', text: 'Appearance, scale, layout, polling rate, filters and column widths go back to their defaults. Nothing on the server changes.' });
+    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Strata preference in this browser?', ok: 'Reset', text: 'Everything on the Settings page goes back to its default. Only this browser changes.' });
     if (!ok) return;
     try { Object.keys(localStorage).filter((k) => k.startsWith('strata:')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
     if (S.syncPrefs) { try { await post('/api/prefs', { prefs: {}, ts: Date.now() / 1000 }); } catch { /* ignore */ } }
@@ -1878,7 +1878,7 @@ const MENUS = {
       item('Open History', '', () => go('history'), { icon: 'clock-fading' }),
       item('Customise the strip…', '', () => go('settings'), { icon: 'sliders-horizontal' }),
       item(S.paused ? 'Resume sampling' : 'Freeze sampling', 'space', () => ACT.pause(), { sep: true, icon: S.paused ? 'play' : 'pause' }),
-      item('Polling interval…', S.rate + ' ms', () => ACT.cycleRate(), { icon: 'refresh-cw' }),
+      item('Refresh rate…', S.rate + ' ms', () => ACT.cycleRate(), { icon: 'refresh-cw' }),
     ] };
   },
   traffic() {
@@ -1886,7 +1886,7 @@ const MENUS = {
       .concat([item('Copy series as CSV', '', () => copySeries(), { sep: true, icon: 'clipboard-copy' }), item(S.paused ? 'Resume sampling' : 'Freeze sampling', 'space', () => ACT.pause(), { icon: 'pause' })]) };
   },
   rate() {
-    return { kicker: 'Polling interval', title: 'Currently ' + S.rate + ' ms', items: RATES.map((r, i) => item(r + ' ms' + (r === S.rate ? '  ·  current' : ''), i === 0 ? 'fastest' : i === RATES.length - 1 ? 'calmest' : '', () => { S.rate = r; persist(); render(); })) };
+    return { kicker: 'Refresh rate', title: 'Currently ' + S.rate + ' ms', items: RATES.map((r, i) => item(r + ' ms' + (r === S.rate ? '  ·  current' : ''), i === 0 ? 'fastest' : i === RATES.length - 1 ? 'calmest' : '', () => { S.rate = r; persist(); render(); })) };
   },
 };
 function appMenu(kicker = 'Strata', title = INST.name || 'CDN Monitor') {
