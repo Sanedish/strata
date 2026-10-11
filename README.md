@@ -1,7 +1,18 @@
 <h1 align="center">Strata</h1>
 
 <p align="center">
-A web interface for running a Caddy file server that sits behind a Cloudflare Tunnel.
+<b>A self-hosted dashboard for running a Caddy file server behind a Cloudflare Tunnel.</b><br>
+Drives and access rules, live traffic, auto-bans, alerts, accounts and file management,<br>
+in plain Python with no web framework and no build step. It runs on your own machine.
+</p>
+
+<p align="center">
+<img alt="Python, no framework" src="https://img.shields.io/badge/Python-no%20framework-3776AB?logo=python&logoColor=white">
+<img alt="Windows and Linux, self-hosted" src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux-self--hosted-2563EB">
+<img alt="Built on Caddy, cloudflared and SQLite" src="https://img.shields.io/badge/built%20on-Caddy%20%C2%B7%20cloudflared%20%C2%B7%20SQLite-1F9D55">
+<img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-555555">
+<img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-D6336C">
+<img alt="Status: early" src="https://img.shields.io/badge/status-early-E3B341">
 </p>
 
 <p align="center">
@@ -29,9 +40,6 @@ Python with no web framework, stores everything in SQLite, and the dashboard is 
 step. It is built and used on Windows; on Linux the test suite passes, but no real install has run yet (see
 [Platforms](#platforms)).
 
-I build and run it on Windows. The Linux path is written but has never been run on a real Linux machine, see
-[Platforms](#platforms).
-
 ## What it does
 
 ### Serving files through Caddy
@@ -45,6 +53,31 @@ Every change is checked with `caddy validate` before Caddy reloads it. If valida
 stays as it was. Earlier configs are kept, and you can roll back to one from the dashboard.
 
 Files that shrink by enough get a Brotli copy next to them, which Caddy then serves to browsers that accept it.
+
+### Ready-made pages: errors, galleries and the audio player
+
+Strata ships three kinds of visitor-facing pages that work as soon as you switch them on. Each one is a plain HTML
+file you can restyle without touching Strata's code or rebuilding anything.
+
+| Page | Switch it on | What visitors get | The file to edit |
+|---|---|---|---|
+| **Error pages** | Site › Serving › Site › Error pages | Your own page for 404 (missing or hidden files), 403 (blocked, or in the trash) and 502/503/504 (a proxied service is down) instead of Caddy's plain text | An HTML file on one of your drives, `/errors/<code>.html` by default |
+| **Gallery** | An access rule with the action **Gallery view**, e.g. `/photos/*` | A thumbnail grid with sorting, three tile sizes and a full-screen viewer, instead of a 404 for the folder | `gallery/gallery.html` |
+| **Audio player** | An access rule with the action **Audio player**, e.g. `/music/*` | A full-page player with the cover art, title, artist and a visualizer when a desktop browser opens an audio file | `player/player.html` |
+
+**Error pages** are the easiest to change. Click **Edit** next to a code: the first time, Strata writes a small
+starter page to the drive you picked and opens it in the dashboard's editor. Change the text and colours, save, and
+use **Preview** to see it in a new tab. Error pages are never cached, so visitors see a change right away. Leave the
+502 field empty to keep Caddy's plain text.
+
+**Gallery and player** are Caddy templates. Colours, fonts and spacing are CSS variables at the top of each file
+(`--bg`, `--accent` and friends in the gallery, `--ink`, `--red` and `--mono` in the player), so most restyling is
+a few lines. Caddy reads both files on every request: save, reload the page, and the change is live.
+- The gallery's thumbnails come from Strata's link modifiers (`?w=`, `&fm=`), so Cloudflare caches them. The folder
+  listing itself is never cached at the edge, so new uploads show up straight away.
+- The player looks for a `cover.jpg`, `folder.jpg` or similar next to the track. Tracks without one get a random
+  picture from a placeholder folder set on the rule. Phones, `<audio>` embeds, link previews and `?dl=1` still get
+  the plain file, and `?raw=1` always does.
 
 ### Traffic
 
