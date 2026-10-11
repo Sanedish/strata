@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{html .Name}}</title>
+<!-- Strata gallery: Caddy file_server browse template (gallery/gallery.html), enabled per folder by
+     a "Gallery view" access rule. Caddy fills in the listing below; everything else is client-side. Thumbnails use
+     Strata's link modifiers (?w= &fm=), which Cloudflare caches; the listing itself is never edge-cached. -->
+<style>
+:root {
+  --bg: #f6f6f8; --panel: #ffffff; --text: #18181b; --dim: #6b6b76; --line: #e4e4ea; --tile: #ececf1;
+  --accent: #d6336c; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05); --lb: rgba(10,10,12,.96);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f0f12; --panel: #17171c; --text: #ececf1; --dim: #8d8d99; --line: #26262e; --tile: #1d1d23;
+    --accent: #f06595; --shadow: none; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+button, input { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1800px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; flex: 1 1 320px; font-size: 14px; color: var(--dim); }
+.crumbs a { padding: 2px 6px; border-radius: 6px; }
+.crumbs a:hover { background: var(--tile); color: var(--text); }
+.crumbs .sep { opacity: .5; }
+.crumbs .here { color: var(--text); font-weight: 650; padding: 2px 6px; }
+.tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tools input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; width: 180px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: none; padding: 6px 10px; cursor: pointer; color: var(--dim); }
+.seg button.on { background: var(--tile); color: var(--text); }
+main { max-width: 1800px; margin: 0 auto; padding: 16px 16px 48px; }
+.stats { color: var(--dim); font-size: 13px; margin: 0 0 14px; }
+.dirs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 18px; }
+.dir { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; min-width: 0; box-shadow: var(--shadow); }
+.dir:hover { border-color: var(--accent); }
+.dir svg { flex: none; color: var(--accent); }
+.dir span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--min, 220px), 1fr)); gap: 10px; }
+.t { position: relative; display: block; aspect-ratio: 4 / 3; background: var(--tile); border-radius: 10px; overflow: hidden;
+  cursor: zoom-in; box-shadow: var(--shadow); outline-offset: 2px; }
+body.fit .t img, body.fit .t video { object-fit: contain; }
+.t img, .t video { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s ease, opacity .3s; opacity: 0; }
+.t img.ok, .t video.ok { opacity: 1; }
+.t:hover img, .t:hover video { transform: scale(1.03); }
+.t .cap { position: absolute; inset: auto 0 0 0; padding: 18px 10px 7px; font-size: 12.5px; color: #fff;
+  background: linear-gradient(transparent, rgba(0,0,0,.65)); opacity: 0; transition: opacity .2s;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t:hover .cap, .t:focus-visible .cap, body.names .t .cap { opacity: 1; }
+.t .badge { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.6); color: #fff; }
+.t.file { cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--dim); }
+.t.file .ext { font-size: 22px; font-weight: 750; color: var(--text); letter-spacing: .02em; }
+.t.file .cap { opacity: 1; position: static; background: none; color: var(--dim); padding: 0 10px; max-width: 100%; text-align: center; }
+.empty { color: var(--dim); padding: 48px 0; text-align: center; }
+#more { height: 1px; }
+/* lightbox */
+.lb { position: fixed; inset: 0; z-index: 20; background: var(--lb); display: none; flex-direction: column; color: #eee; }
+.lb.open { display: flex; }
+.lb .top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 14px; }
+.lb .top .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb .top .meta { color: #999; font-size: 13px; white-space: nowrap; }
+.lb .btn { border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #eee; border-radius: 8px;
+  padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+.lb .btn:hover { background: rgba(255,255,255,.14); }
+.lb .stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 0 56px 16px; }
+.lb .stage img, .lb .stage video { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
+.lb .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: 0; border-radius: 10px;
+  background: rgba(255,255,255,.07); color: #eee; font-size: 26px; cursor: pointer; }
+.lb .nav:hover { background: rgba(255,255,255,.16); }
+.lb .prev { left: 6px; } .lb .next { right: 6px; }
+.lb .spin { position: absolute; width: 28px; height: 28px; border: 3px solid rgba(255,255,255,.2); border-top-color: #fff;
+  border-radius: 50%; animation: s .8s linear infinite; display: none; }
+.lb.loading .spin { display: block; }
+@keyframes s { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .tools input { width: 100%; flex: 1; } .tools { width: 100%; }
+  .grid { --min: 140px !important; gap: 6px; }
+  .lb .stage { padding: 0 0 12px; } .lb .nav { display: none; } .lb .top .meta { display: none; }
+}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <nav class="crumbs" id="crumbs" aria-label="Path"></nav>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Filter…" aria-label="Filter by name">
+    <div class="seg" id="sort" role="group" aria-label="Sort">
+      <button data-v="name">Name</button><button data-v="date">Date</button><button data-v="size">Size</button>
+    </div>
+    <div class="seg" id="size" role="group" aria-label="Tile size">
+      <button data-v="140" title="Small tiles">S</button><button data-v="220" title="Medium tiles">M</button><button data-v="340" title="Large tiles">L</button>
+    </div>
+    <div class="seg"><button id="fit" title="Show whole images instead of cropping">Fit</button><button id="names" title="Always show file names">Names</button></div>
+  </div>
+</div></header>
+<main>
+  <p class="stats" id="stats"></p>
+  <div class="dirs" id="dirs"></div>
+  <div class="grid" id="grid"></div>
+  <div id="more"></div>
+</main>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Viewer">
+  <div class="top">
+    <span class="nm" id="lbName"></span><span class="meta" id="lbMeta"></span>
+    <a class="btn" id="lbOrig" target="_blank" rel="noopener">Original</a>
+    <a class="btn" id="lbDl">Download</a>
+    <button class="btn" id="lbClose" aria-label="Close">✕</button>
+  </div>
+  <div class="stage" id="lbStage"><div class="spin"></div>
+    <button class="nav prev" id="lbPrev" aria-label="Previous">‹</button>
+    <button class="nav next" id="lbNext" aria-label="Next">›</button>
+  </div>
+</div>
+
+<script id="listing" type="application/json">{{toJson .Items}}</script>
+<script>
+(function () {
+  'use strict';
+  var IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|avif)$/i;      // what Strata's link modifiers can resize
+  var VID = /\.(mp4|webm|m4v|mov|ogv)$/i;
+  var HIDDEN = /^(\.|\$|~\$)|^(thumbs\.db|desktop\.ini|system volume information)$/i;
+  var THUMB = '?w=640&fm=webp&q=78';
+  var VIEW = '?w=2560&fm=webp&q=88';
+  var CHUNK = 120;
+
+  var raw = [];
+  try { raw = JSON.parse(document.getElementById('listing').textContent) || []; } catch (e) { raw = []; }
+  var names = {};
+  raw.forEach(function (f) { names[f.name.toLowerCase()] = 1; });
+  // precompressed siblings (x.br next to x) are Caddy's, not content
+  var items = raw.filter(function (f) {
+    if (HIDDEN.test(f.name)) return false;
+    if (!f.is_dir && /\.(br|gz|zst)$/i.test(f.name) && names[f.name.toLowerCase().replace(/\.(br|gz|zst)$/i, '')]) return false;
+    return true;
+  });
+
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem('gallery.' + k); return v === null ? d : v; } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem('gallery.' + k, v); } catch (e) { /* private mode */ } }
+  };
+  var S = { sort: store.get('sort', 'name'), size: store.get('size', '220'), fit: store.get('fit', '0') === '1',
+            names: store.get('names', '0') === '1', q: '' };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  function bytes(n) {
+    if (n < 1024) return n + ' B';
+    var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
+    do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+    return (n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + u[i];
+  }
+  function date(s) { var d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+  function ext(n) { var m = /\.([^.]{1,6})$/.exec(n); return m ? m[1].toUpperCase() : 'FILE'; }
+  var coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+  // breadcrumbs from the real URL (the listing's own path is the drive-relative one)
+  (function () {
+    var parts = location.pathname.split('/').filter(Boolean), href = '/', html = '<a href="/">' + esc(location.host) + '</a>';
+    parts.forEach(function (p, i) {
+      href += p + '/';
+      var label; try { label = decodeURIComponent(p); } catch (e) { label = p; }
+      html += '<span class="sep">/</span>' + (i === parts.length - 1 ? '<span class="here">' + esc(label) + '</span>' : '<a href="' + esc(href) + '">' + esc(label) + '</a>');
+    });
+    $('crumbs').innerHTML = html;
+  })();
+
+  var dirs = [], files = [], shown = [], rendered = 0;
+
+  function compute() {
+    var q = S.q.toLowerCase();
+    var list = items.filter(function (f) { return !q || f.name.toLowerCase().indexOf(q) >= 0; });
+    var cmp = S.sort === 'date' ? function (a, b) { return new Date(b.mod_time) - new Date(a.mod_time); }
+      : S.sort === 'size' ? function (a, b) { return b.size - a.size; }
+      : function (a, b) { return coll.compare(a.name, b.name); };
+    dirs = list.filter(function (f) { return f.is_dir; }).sort(function (a, b) { return coll.compare(a.name, b.name); });
+    files = list.filter(function (f) { return !f.is_dir; }).sort(cmp);
+    shown = files.filter(function (f) { return IMG.test(f.name) || VID.test(f.name); });
+  }
+
+  var FOLDER = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.6a2 2 0 0 1 1.4.6L12 6h6.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>';
+
+  function tile(f) {
+    var url = f.url, cap = '<span class="cap">' + esc(f.name) + '</span>';
+    if (IMG.test(f.name)) {
+      var badge = /\.gif$/i.test(f.name) ? '<span class="badge">GIF</span>' : '';
+      return '<a class="t" href="' + esc(url) + '" data-i="' + shown.indexOf(f) + '"><img loading="lazy" decoding="async" alt="' + esc(f.name) + '" src="' + esc(url + THUMB) + '">' + badge + cap + '</a>';
+    }
+    if (VID.test(f.name)) {
+      return '<a class="t" href="' + esc(url) + '" data-i="' + shown.indexOf(f) + '"><video muted playsinline preload="metadata" src="' + esc(url) + '#t=0.5"></video><span class="badge">▶ ' + ext(f.name) + '</span>' + cap + '</a>';
+    }
+    return '<a class="t file" href="' + esc(url) + '" target="_blank" rel="noopener"><span class="ext">' + esc(ext(f.name)) + '</span><span class="cap">' + esc(f.name) + '<br>' + bytes(f.size) + '</span></a>';
+  }
+
+  function more() {
+    var grid = $('grid'), end = Math.min(files.length, rendered + CHUNK), html = '';
+    for (var i = rendered; i < end; i++) html += tile(files[i]);
+    grid.insertAdjacentHTML('beforeend', html);
+    rendered = end;
+  }
+
+  function draw() {
+    compute();
+    var total = files.reduce(function (s, f) { return s + f.size; }, 0);
+    var bits = [];
+    if (dirs.length) bits.push(dirs.length + (dirs.length === 1 ? ' folder' : ' folders'));
+    bits.push(files.length + (files.length === 1 ? ' file' : ' files'));
+    if (total) bits.push(bytes(total));
+    $('stats').textContent = bits.join(' · ') + (S.q ? ' matching “' + S.q + '”' : '');
+    $('dirs').innerHTML = dirs.map(function (d) { return '<a class="dir" href="' + esc(d.url) + '">' + FOLDER + '<span>' + esc(d.name) + '</span></a>'; }).join('');
+    $('grid').innerHTML = '';
+    rendered = 0;
+    more();
+    if (!dirs.length && !files.length) $('grid').innerHTML = '<div class="empty">' + (S.q ? 'Nothing matches.' : 'This folder is empty.') + '</div>';
+  }
+
+  // a thumbnail that cannot be made (transforms off, odd file) falls back to the original once
+  document.addEventListener('load', function (e) { if (e.target.tagName === 'IMG' && e.target.closest('.t')) e.target.classList.add('ok'); }, true);
+  document.addEventListener('loadeddata', function (e) { if (e.target.tagName === 'VIDEO' && e.target.closest('.t')) e.target.classList.add('ok'); }, true);
+  document.addEventListener('error', function (e) {
+    var el = e.target;
+    if (el.tagName === 'IMG' && el.closest('.t') && !el.dataset.fb) { el.dataset.fb = 1; el.src = el.src.split('?')[0]; }
+  }, true);
+
+  new IntersectionObserver(function (es) { if (es[0].isIntersecting && rendered < files.length) more(); }, { rootMargin: '1200px' }).observe($('more'));
+
+  // controls
+  function seg(id, key, apply) {
+    var box = $(id);
+    function mark() { [].forEach.call(box.children, function (b) { b.classList.toggle('on', b.dataset.v === S[key]); }); }
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      S[key] = b.dataset.v; store.set(key, S[key]); mark(); apply();
+    });
+    mark();
+  }
+  function applySize() { document.body.style.setProperty('--min', S.size + 'px'); }
+  seg('sort', 'sort', draw);
+  seg('size', 'size', applySize);
+  applySize();
+  function toggle(id, key, cls) {
+    var b = $(id);
+    function mark() { b.classList.toggle('on', S[key]); document.body.classList.toggle(cls, S[key]); }
+    b.addEventListener('click', function () { S[key] = !S[key]; store.set(key, S[key] ? '1' : '0'); mark(); });
+    mark();
+  }
+  toggle('fit', 'fit', 'fit');
+  toggle('names', 'names', 'names');
+  var qt;
+  $('q').addEventListener('input', function (e) { clearTimeout(qt); qt = setTimeout(function () { S.q = e.target.value.trim(); draw(); }, 120); });
+
+  // lightbox
+  var lb = $('lb'), stage = $('lbStage'), cur = -1, media = null;
+  function show(i) {
+    if (!shown.length) return;
+    cur = (i + shown.length) % shown.length;
+    var f = shown[cur];
+    if (media) media.remove();
+    lb.classList.add('loading');
+    if (VID.test(f.name)) {
+      media = document.createElement('video');
+      media.controls = true; media.autoplay = true; media.playsInline = true;
+      media.onloadeddata = function () { lb.classList.remove('loading'); };
+      media.src = f.url;
+    } else {
+      media = document.createElement('img');
+      media.alt = f.name;
+      // GIFs are shown as-is so they keep animating; everything else as a large preview
+      var big = /\.gif$/i.test(f.name) ? f.url : f.url + VIEW;
+      media.onload = function () { lb.classList.remove('loading'); };
+      media.onerror = function () { if (media.src.indexOf('?') >= 0) media.src = f.url; else lb.classList.remove('loading'); };
+      media.src = big;
+      [1, -1].forEach(function (d) {     // warm the neighbours
+        var n = shown[(cur + d + shown.length) % shown.length];
+        if (n && IMG.test(n.name) && !/\.gif$/i.test(n.name)) new Image().src = n.url + VIEW;
+      });
+    }
+    stage.insertBefore(media, stage.firstChild);
+    $('lbName').textContent = f.name;
+    $('lbMeta').textContent = [bytes(f.size), date(f.mod_time), (cur + 1) + ' / ' + shown.length].filter(Boolean).join(' · ');
+    $('lbOrig').href = f.url;
+    $('lbDl').href = f.url + '?dl=1';
+    history.replaceState(null, '', '#' + encodeURIComponent(f.name));
+  }
+  function open(i) { lb.classList.add('open'); document.body.style.overflow = 'hidden'; show(i); }
+  function close() {
+    lb.classList.remove('open'); document.body.style.overflow = '';
+    if (media) { media.remove(); media = null; }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  $('grid').addEventListener('click', function (e) {
+    var a = e.target.closest('a.t[data-i]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault(); open(+a.dataset.i);
+  });
+  $('lbClose').onclick = close;
+  $('lbPrev').onclick = function () { show(cur - 1); };
+  $('lbNext').onclick = function () { show(cur + 1); };
+  stage.addEventListener('click', function (e) { if (e.target === stage) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(cur - 1);
+    else if (e.key === 'ArrowRight') show(cur + 1);
+  });
+  var tx = null;
+  stage.addEventListener('touchstart', function (e) { tx = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+  stage.addEventListener('touchend', function (e) {
+    if (tx === null) return;
+    var dx = e.changedTouches[0].clientX - tx; tx = null;
+    if (Math.abs(dx) > 50) show(cur + (dx < 0 ? 1 : -1));
+  });
+
+  draw();
+  // deep link: #file-name opens that file
+  if (location.hash.length > 1) {
+    var want = decodeURIComponent(location.hash.slice(1));
+    var idx = shown.findIndex(function (f) { return f.name === want; });
+    if (idx >= 0) open(idx);
+  }
+})();
+</script>
+</body>
+</html>

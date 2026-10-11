@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<title>{{SITE}} · Network statistics</title>
+<meta name="description" content="Live, anonymised traffic and health statistics for the {{SITE}} CDN.">
+<link rel="icon" href="/favicon.ico">
+<link rel="preload" href="/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{path:styles.css}}" integrity="{{sri:styles.css}}">
+<link rel="stylesheet" href="{{path:dashboard.css}}" integrity="{{sri:dashboard.css}}">
+</head>
+<body>
+<div class="stage">
+  <header class="top">
+    <div class="brand"><span>Official network statistics</span><b>{{SITE}}</b></div>
+    <div class="spacer"></div>
+    <div class="status" id="status" role="status" aria-live="polite"><i></i><span>Checking…</span></div>
+    <div class="seg" id="ranges" role="group" aria-label="Time range">
+      <button type="button" data-range="24h" aria-pressed="true" class="on">24 h</button>
+      <button type="button" data-range="7d" aria-pressed="false">7 days</button>
+      <button type="button" data-range="30d" aria-pressed="false">30 days</button>
+    </div>
+  </header>
+  <div class="banner" id="banner" role="alert">Statistics are temporarily unavailable — retrying.</div>
+  <noscript><div class="banner show">This page needs JavaScript to draw the statistics.</div></noscript>
+  <section class="kpis" id="kpis" aria-label="Key figures"></section>
+  <div class="live" id="live"></div>
+  <main class="grid" id="grid">
+    <section class="card traffic" data-t="traffic">
+      <div class="ph">
+        <h3>Traffic</h3>
+        <div class="legend">
+          <span><i></i>Requests</span>
+          <span><i class="k-err"></i>Errors (excl. suspicious traffic)</span>
+          <span><i class="k-data"></i>Data served</span>
+        </div>
+      </div>
+      <div class="chart" id="chart" role="img" aria-label="Traffic chart"></div>
+      <div class="axis" id="axis"></div>
+    </section>
+  </main>
+  <footer>
+    <p><b class="h8">About these numbers.</b> Counted at our origin server and aggregated before publication. No IP addresses, user agents, referrers or file paths ever reach this page — the service that renders it has no access to them, and this page loads nothing from any third party. Countries, edge locations and folders are only named once at least <span id="kanon">3</span> different visitors were seen; everything else is folded into “other”. Error figures leave out probes, requests from blocked addresses and clients flagged as scanners or fake crawlers; request totals include everything. Cached hits served by Cloudflare never reach the origin, so edge totals are shown separately where available.</p>
+    <p id="updated" class="small">—</p>
+  </footer>
+</div>
+<script src="{{path:app.js}}" integrity="{{sri:app.js}}" defer></script>
+</body>
+</html>

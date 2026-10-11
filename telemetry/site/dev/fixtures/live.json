@@ -1,0 +1,1 @@
+{"generated":1790638740.313693,"rps":0.57,"bps":487,"visitors_5m":1,"caddy":true,"tunnel":true,"tunnel_connections":4,"tunnel_rtt":13.0,"sites":[{"k":"example.com","ok":true,"ms":2.3},{"k":"cdn.example.com","ok":true,"ms":1.6},{"k":"stats.example.com","ok":true,"ms":3.2}],"services_up":6,"services_total":6,"storage_online":true,"storage_used_pct":7.0}

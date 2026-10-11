@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata · E-mail verification</title><link rel="icon" href="/favicon.ico"><link rel="stylesheet" href="/styles.css">
+<meta name="strata-accent" content="{{ACCENT}}"><script src="/boot.js"></script><script src="/login.js"></script>
+<style>
+html,body{margin:0;min-height:100%;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}
+.wrap{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background-image:linear-gradient(var(--color-divider) 2px,transparent 2px);background-size:100% 66px}
+.lock{width:400px;max-width:100%;background:var(--color-bg);border:2px solid var(--color-text);box-shadow:var(--shadow-lg)}
+.head{padding:18px 20px;border-bottom:2px solid var(--color-divider)}.head span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;opacity:.6}.head b{display:block;font:800 26px var(--font-heading)}
+form{padding:20px;display:grid;gap:14px}p{font-size:13px;line-height:1.5;margin:0;opacity:.75}label{display:grid;gap:6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+input{font:700 28px var(--font-heading);letter-spacing:.25em;padding:8px 0;border:0;border-bottom:2px solid var(--color-divider);background:transparent;color:inherit;outline:none;width:100%;box-sizing:border-box}
+input:focus{border-color:var(--color-accent)}button{justify-content:space-between;font-size:14px}.err{background:var(--color-accent);color:var(--color-bg);padding:10px 20px;font-size:13px}.foot{padding:12px 20px;border-top:2px solid var(--color-divider);font-size:12px;opacity:.7}.foot a{color:inherit}
+</style></head>
+<body><div class="wrap"><div class="lock"><div class="head"><span>Strata · e-mail one-time code</span><b>Check your inbox</b></div><!--ERROR-->
+<form method="post" action="/login/otp"><p>Enter the six-digit code sent to the e-mail address on your account. Codes expire after 10 minutes and can only be used once.</p>
+<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus></label>
+<button class="btn btn-primary btn-block" type="submit"><span>Verify and continue</span><span>→</span></button></form>
+<div class="foot"><a href="/privacy">Privacy note</a> · <a href="/login">Start over</a></div></div></div></body></html>

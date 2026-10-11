@@ -1,0 +1,18 @@
+# secrets and per-instance state: never publish these
+strata.json
+strata.json.*.bak
+telemetry/telemetry.json
+data/
+generated/
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+
+# third-party packages, installed by setup.py (pip install --target vendor -r requirements.txt)
+vendor/
+
+__pycache__/
+*.pyc

@@ -1,0 +1,188 @@
+/* Modernist — design-system tokens and component classes, shared by the dashboard and the login pages.
+   Customisable from Settings › Appearance (boot.js applies the choice before the first paint):
+     <html data-theme="light|dark">  data-density="compact|normal|comfy"  data-radius="0|1|2"  data-font="archivo|system|mono"
+     --color-accent  any colour; every accent shade below is derived from it (color-mix), so one value re-themes all. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
+
+:root {
+  --color-accent: #ec3013;
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-raised: #f8f7f7;
+  --color-text: #201e1d;
+  --color-divider: color-mix(in srgb, var(--color-text) 40%, transparent);
+  --color-ok: #1f8a4c;
+  --color-warn: #c47f00;
+
+  /* neutral ramp (light theme) */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  /* accent ramp: derived from --color-accent */
+  --color-accent-100: color-mix(in oklab, var(--color-accent) 8%, white);
+  --color-accent-200: color-mix(in oklab, var(--color-accent) 18%, white);
+  --color-accent-300: color-mix(in oklab, var(--color-accent) 32%, white);
+  --color-accent-400: color-mix(in oklab, var(--color-accent) 58%, white);
+  --color-accent-500: color-mix(in oklab, var(--color-accent) 85%, white);
+  --color-accent-600: color-mix(in oklab, var(--color-accent) 88%, black);
+  --color-accent-700: color-mix(in oklab, var(--color-accent) 72%, black);
+  --color-accent-800: color-mix(in oklab, var(--color-accent) 55%, black);
+  --color-accent-900: color-mix(in oklab, var(--color-accent) 35%, black);
+  --color-accent-2: color-mix(in oklab, var(--color-accent) 75%, white);
+  --color-on-accent: #fff;
+
+  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-heading-weight: 800;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+  color-scheme: light;
+}
+
+/* dark theme: ink and paper swap; "hot" text uses a lighter accent so it stays readable */
+:root[data-theme="dark"] {
+  --color-bg: #141313;
+  --color-surface: #1e1c1c;
+  --color-raised: #252323;
+  --color-text: #ecebe9;
+  --color-divider: color-mix(in srgb, var(--color-text) 26%, transparent);
+  --color-ok: #4cc283;
+  --color-warn: #e7a93a;
+  --color-neutral-100: #1b1a1a;
+  --color-neutral-200: #262424;
+  --color-neutral-300: #343131;
+  --color-neutral-400: #4a4646;
+  --color-neutral-500: #6a6565;
+  --color-neutral-600: #8c8787;
+  --color-neutral-700: #b0abab;
+  --color-neutral-800: #d0cccc;
+  --color-neutral-900: #e8e5e5;
+  --color-accent-100: color-mix(in oklab, var(--color-accent) 14%, #141313);
+  --color-accent-200: color-mix(in oklab, var(--color-accent) 24%, #141313);
+  --color-accent-300: color-mix(in oklab, var(--color-accent) 38%, #141313);
+  --color-accent-700: color-mix(in oklab, var(--color-accent) 70%, white);
+  --color-accent-800: color-mix(in oklab, var(--color-accent) 55%, white);
+  --color-accent-900: color-mix(in oklab, var(--color-accent) 40%, white);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .5);
+  --shadow-md: 0 3px 12px rgb(0 0 0 / .55);
+  --shadow-lg: 0 14px 36px rgb(0 0 0 / .6);
+  color-scheme: dark;
+}
+:root[data-radius="1"] { --radius-sm: 3px; --radius-md: 5px; --radius-lg: 8px; }
+:root[data-radius="2"] { --radius-sm: 6px; --radius-md: 9px; --radius-lg: 14px; }
+:root[data-font="system"] { --font-heading: system-ui, "Segoe UI", sans-serif; --font-body: system-ui, "Segoe UI", sans-serif; }
+:root[data-font="mono"] { --font-body: var(--font-mono); }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+
+.grayscale{filter:grayscale(1) contrast(1.08)}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent-700); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0; }
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+/* icons (Lucide sprite: static/icons.svg) */
+.ic { width: 1.15em; height: 1.15em; flex: none; display: inline-block; vertical-align: -0.2em; stroke-width: 2; }
+.ic.sm { width: 0.95em; height: 0.95em; }
+.ic.lg { width: 1.5em; height: 1.5em; }
+.ic.xl { width: 2.4em; height: 2.4em; stroke-width: 1.6; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.hr { height: 2px; border: 0; margin: var(--space-4) 0; background: var(--color-divider); }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--color-accent); color: var(--color-on-accent); }
+.btn-primary:hover { background: var(--color-accent-600); }
+.btn-primary:active { background: var(--color-accent-700); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent-700); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-danger { background: transparent; color: var(--color-accent-700); border-color: color-mix(in srgb, var(--color-accent) 60%, transparent); }
+.btn-danger:hover { background: var(--color-accent); color: var(--color-on-accent); }
+.btn-icon { width: 36px; height: 36px; padding: 0; }
+.btn-block { width: 100%; margin-top: var(--space-2); justify-content: flex-start; text-align: left; }
+
+/* forms */
+.field > label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.input {
+  width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+  font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+textarea.input { min-height: 90px; resize: vertical; }
+input[type=color].input { padding: 2px; width: 44px; min-height: 32px; cursor: pointer; }
+input[type=range], input[type=checkbox], input[type=radio] { accent-color: var(--color-accent); }
+
+/* cards, tags */
+.card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface); }
+.tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; letter-spacing: 0.02em; padding: 2px 8px; border-radius: calc(var(--radius-md) * 0.75); }
+.tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-neutral { background: var(--color-neutral-200); color: var(--color-neutral-800); }
+.tag-ok { background: color-mix(in srgb, var(--color-ok) 16%, transparent); color: var(--color-ok); }
+.tag-warn { background: color-mix(in srgb, var(--color-warn) 18%, transparent); color: var(--color-warn); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent-700); }
+
+/* plain tables */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 60%, transparent); padding: var(--space-2); border-bottom: 2px solid var(--color-divider); }
+.table td { padding: var(--space-2); border-bottom: 1px solid var(--color-divider); }
