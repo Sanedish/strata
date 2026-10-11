@@ -13,6 +13,7 @@ import math
 import os
 import random
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -169,7 +170,7 @@ def history(files, now):
     return [line(ts, files, 2400) for ts, _ in out if ts < now]
 
 
-METRICS_PORT = 18286
+METRICS_PORT = 18486  # 1848x: run_all.py and the media tests use 1818x-1838x, so the demo can run beside them
 STARTED = time.time()
 
 
@@ -233,10 +234,10 @@ def main():
     os.environ["STRATA_HOME"] = home
     sys.path.insert(0, ra.CODE)
     import auth  # noqa: E402
-    cfg = {"instance": {"id": "example", "name": "example.com", "dry_run": True, "cdn_listen": ":18280",
+    cfg = {"instance": {"id": "example", "name": "example.com", "dry_run": True, "cdn_listen": ":18480",
                         "accent": "#e65a46"},
-           "listen": "127.0.0.1:%d" % PORT, "feed_listen": "127.0.0.1:18281", "transform_listen": "127.0.0.1:18283",
-           "gate_listen": "127.0.0.1:18285", "media": {"listen": "127.0.0.1:18284"},
+           "listen": "127.0.0.1:%d" % PORT, "feed_listen": "127.0.0.1:18481", "transform_listen": "127.0.0.1:18483",
+           "gate_listen": "127.0.0.1:18485", "media": {"listen": "127.0.0.1:18484"},
            "caddy_exe": ra.stub_caddy(os.path.join(root, "bin")), "caddyfile": caddyfile, "access_log": access_log,
            "caddy_metrics": "http://127.0.0.1:%d/caddy" % METRICS_PORT,
            "cloudflared_metrics": "http://127.0.0.1:%d/cloudflared" % METRICS_PORT,
@@ -276,6 +277,7 @@ def main():
     print("demo: %s   (instance folder %s)" % (base, home))
     print("session cookie: strata_session=%s" % token)
     print("in the browser console on that page:  document.cookie = 'strata_session=%s; path=/'" % token)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # a plain kill also stops the server and removes the folder
     try:
         proc.wait()
     except KeyboardInterrupt:
