@@ -268,7 +268,7 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
     ${[0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${W}" y1="${(h * f).toFixed(1)}" y2="${(h * f).toFixed(1)}" stroke="var(--color-neutral-300)" stroke-width="0.5"/>`).join('')}
     ${series.map((s) => `<polyline points="${s.data.map((p) => px(p[0]) + ',' + py(p[1])).join(' ')}" fill="none" stroke="${s.color || 'var(--color-text)'}" stroke-width="2" vector-effect="non-scaling-stroke"${s.dash ? ' stroke-dasharray="5 4"' : ''}><title>${esc(s.label)}</title></polyline>`).join('')}
   </svg><div class="axis"><span>${esc(fmtX(x0))}</span><span>max ${esc(fmtY(y1))}</span><span>${esc(fmtX(x1))}</span></div>
-  <div class="legend mt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
+  <div class="legend smt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
 const loading = (msg = 'Waiting for the collector…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
 const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800" style="font-size:15px;color:var(--color-text)">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
@@ -1084,7 +1084,7 @@ function vEdge() {
         <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">ink = cache hit · red = fetched from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
-        <div class="ph mt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
+        <div class="ph smt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
         ${bars(days, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => x.dimensions.date)}
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
@@ -1124,8 +1124,8 @@ function vInsights() {
     <div><div class="cap">New</div><div class="big-num">${fmt.n(I.visitors - I.returning)}</div></div></div>
     <div class="stackbar"><i style="flex:${I.returning || 0};background:var(--color-text)"></i><i style="flex:${(I.visitors - I.returning) || 0};background:var(--color-accent)"></i></div>
     <div class="small dim">Returning = seen before this range began (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
-    <div class="cap mt-4">Status classes</div>${classBar}
-    <div class="cap mt-4">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
+    <div class="cap smt-4">Status classes</div>${classBar}
+    <div class="cap smt-4">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
   const inv = I.inventory;
   const dailyRows = I.daily.slice().reverse().map((d) => ({ cells: [cell(d.k, 'h800'), cell(fmt.n(d.c), 'r'), cell(fmt.n(d.u), 'r dim'), cell(fmt.bytes(d.b), 'r dim'), cell(fmt.n(d.e), 'r ' + (d.e ? 'hot' : 'dim'))] }));
   return `<div class="ins">
@@ -1256,7 +1256,7 @@ function vSettings() {
       <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin and hide entries</span></div>
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
       ${row('Collapsed sidebar', 'Icons only. Shortcut: [', toggle(S.navCollapsed, 'setNavCollapsed'))}
-      <div class="navcfg mt-2">${navRows}</div>
+      <div class="navcfg smt-2">${navRows}</div>
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">tiles above the traffic pages</span></div>

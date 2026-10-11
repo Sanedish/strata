@@ -187,7 +187,7 @@ function siteTab(V) {
     ${[['s_epage', '404 Not found', 'Missing and hidden files.', s.error_page, '404'], ['s_epage403', '403 Forbidden', 'Blocked requests and files in the trash.', s.error_page_403, '403'],
       ['s_epage502', '502 Service down', 'A proxied service isn’t answering. Empty: plain text.', s.error_page_502, '502']].map(([id, label, sub, val, code]) => `
     <div class="set-row"><div><div class="h800">${label}</div><div class="small dim">${sub}</div></div>
-      <div class="set-ctl hrow"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
+      <div class="set-ctl srow"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
     <div class="ph"><h5>Other hosts</h5></div>
     <div class="set-row"><div><div class="h800">Unknown hostname</div><div class="small dim">Text answered for hosts no drive serves.</div></div>
       <div class="set-ctl"><input id="s_unknown" class="input" value="${esc(s.unknown_host)}" style="width:240px"></div></div>
@@ -200,8 +200,8 @@ function siteTab(V) {
   </section><section class="panel">
     <div class="ph"><h5>Not logged</h5><span class="small dim">polling endpoints that would drown the statistics</span></div>
     ${(s.quiet || []).map((q) => `<div class="logline"><span>${esc(q.host)}</span><span>${esc(q.paths.join(' '))}</span></div>`).join('')}
-    <div class="ph mt-3"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
-    <div class="ph mt-3"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
+    <div class="ph smt-3"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
+    <div class="ph smt-3"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
   </section></div>`;
 }
 function configTab(V) {
@@ -209,7 +209,7 @@ function configTab(V) {
   const rows = V.history.map((h) => ({ cells: [cell('#' + h.id, 'dim'), cell(fmt.dt(h.ts), 'dim'), cell(h.user, 'dim'), cell(h.reason), cell(h.sha, 'dim'), cell(h.ok ? 'applied' : 'refused', h.ok ? '' : 'hot', h.error),
     hcell(`<button class="pill" data-act="histView" data-arg="${h.id}">View</button> ${h.ok ? `<button class="pill" data-act="histRestore" data-arg="${h.id}">Restore</button>` : ''}`)] }));
   return `<div class="grid2" style="grid-template-columns:1.2fr 1fr;flex:1;min-height:0">
-    <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span class="hrow">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
+    <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span class="srow">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
       <pre class="code" data-scroll="caddytext">${esc(shown)}</pre></section>
     <section class="panel"><div class="ph"><h5>History</h5><span class="small dim">every applied (and refused) change</span></div>
       ${table('srv-hist', [{ t: '#', w: 50 }, { t: 'When', w: 110 }, { t: 'By', w: 80 }, { t: 'Change', w: 220 }, { t: 'SHA', w: 130 }, { t: 'Result', w: 70 }, { t: '', w: 140 }], rows)}</section></div>`;
@@ -239,7 +239,7 @@ function driveEditor(m) {
     <div class="form">
       <label>Type<select id="d_kind" class="input"><option value="files" ${m.kind === 'files' ? 'selected' : ''}>Folder of files</option><option value="page" ${m.kind === 'page' ? 'selected' : ''}>Page — only the bare / of the hosts</option><option value="proxy" ${m.kind === 'proxy' ? 'selected' : ''}>Proxy — forward to a local service</option></select></label>
       <label>Name<input id="d_name" class="input" value="${esc(m.name)}" placeholder="e.g. Archive disk"></label>
-      <label class="wide">Folder, or a service’s LAN address (IP:port)<span class="hrow"><input id="d_path" class="input" value="${esc(m.path)}" placeholder="D:/media, //nas/share or 192.168.1.35:8080" style="flex:1"><button class="pill d-local" data-act="fsBrowse" data-arg="${esc(m.path || '')}">Browse…</button></span></label>
+      <label class="wide">Folder, or a service’s LAN address (IP:port)<span class="srow"><input id="d_path" class="input" value="${esc(m.path)}" placeholder="D:/media, //nas/share or 192.168.1.35:8080" style="flex:1"><button class="pill d-local" data-act="fsBrowse" data-arg="${esc(m.path || '')}">Browse…</button></span></label>
       <div id="d_browse" class="wide"></div>
       <label class="d-prefix" style="${m.kind === 'page' ? 'display:none' : ''}">URL prefix<input id="d_prefix" class="input" value="${esc(m.prefix || '/')}" placeholder="/ (whole hostname) or /azura"></label>
       <label class="wide">Hostnames (space or comma separated)<input id="d_hosts" class="input" value="${esc(m.hosts.join(', '))}"></label>
@@ -251,11 +251,11 @@ function driveEditor(m) {
           <div class="small dim" style="margin-bottom:6px">Users who may sign in. Passwords are stored as PBKDF2 hashes; 2FA shows a QR code once after saving. Removing a user or changing a password signs them out everywhere.</div>
           <div id="g_users">${(g.users.length ? g.users : [{}]).map(gateUserRow).join('')}</div>
           <button class="pill" data-act="gAddUser">+ user</button>
-          <label class="wide mt-2">Public paths — no login (one per line, full URL paths, * = wildcard; e.g. a radio's /listen/*)
+          <label class="wide smt-2">Public paths — no login (one per line, full URL paths, * = wildcard; e.g. a radio's /listen/*)
             <textarea id="g_public" class="input" rows="3" placeholder="/listen/*&#10;/public/*">${esc((g.public || []).join('\n'))}</textarea></label></div>
       </div>
-      <label class="wide d-local">Cache-Control (browsers)<span class="hrow"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input" value="${esc(m.cache || '')}" style="flex:1"></span></label>
-      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span class="hrow"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control" style="flex:1"></span></label>
+      <label class="wide d-local">Cache-Control (browsers)<span class="srow"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input" value="${esc(m.cache || '')}" style="flex:1"></span></label>
+      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span class="srow"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control" style="flex:1"></span></label>
       <div class="wide d-local" style="display:flex;gap:16px;flex-wrap:wrap">
         <label class="dlg-check"><input type="checkbox" id="d_pre" ${m.precompress ? 'checked' : ''}> Brotli precompression</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_tf" ${m.transforms ? 'checked' : ''}> Link modifiers (?w ?fm ?ver)</label>
@@ -288,7 +288,7 @@ function ruleParams(action, p) {
   if (action === 'ip_allow') return `<label class="wide">Allowed IPs / CIDR ranges (one per line)<textarea id="p_ips" class="input" rows="4">${esc((p.ips || []).join('\n'))}</textarea></label>`;
   if (action === 'geo_allow' || action === 'geo_deny') return `<label class="wide">Country codes (DE, AT, US… T1 = Tor, XX = unknown)<input id="p_cc" class="input" value="${esc((p.countries || []).join(', '))}"></label>`;
   if (action === 'hotlink') return `<label class="wide">Sites allowed to embed (one per line; your own hosts are always allowed)<textarea id="p_domains" class="input" rows="3">${esc((p.domains || []).join('\n'))}</textarea></label>`;
-  if (action === 'cache') return `<label class="wide">Cache-Control<span class="hrow"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input" value="${esc(p.value || '')}" style="flex:1"></span></label>`;
+  if (action === 'cache') return `<label class="wide">Cache-Control<span class="srow"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input" value="${esc(p.value || '')}" style="flex:1"></span></label>`;
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
   if (action === 'player') return `<label class="wide">Background folder for files without cover art (URL path on the same drive; a random image is picked per visit)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
@@ -306,7 +306,7 @@ function openRuleEditor(r) {
       <div class="wide small dim" id="r_help">${esc(ACTION_HELP[r.action] || '')}</div>
       <label class="wide">Path patterns (one per line)<textarea id="r_pats" class="input" rows="3" placeholder="/clients/*&#10;*.psd">${esc(r.patterns.join('\n'))}</textarea></label>
       <div id="r_params" class="form wide" style="padding:0">${ruleParams(r.action, r.params)}</div>
-      <label>Expires<span class="hrow">${expiryFields('r', r.expires)}</span></label>
+      <label>Expires<span class="srow">${expiryFields('r', r.expires)}</span></label>
       <label class="dlg-check" style="align-self:end"><input type="checkbox" id="r_en" ${r.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Note<input id="r_note" class="input" value="${esc(r.note || '')}"></label>
       <label class="dlg-check wide"><input type="checkbox" id="r_purge" ${r.purge || (!r.id && protective.includes(r.action)) ? 'checked' : ''}> Purge matching files from Cloudflare’s cache (so cached public copies stop being served)</label>
@@ -524,7 +524,7 @@ Object.assign(ACT, {
   blImport() {
     openSheet('Import blacklist', 'Paste a list', `<div class="form">
       <label>Type<select id="bi_kind" class="input">${Object.entries(D.serv.bl_kinds).map(([k, l]) => `<option value="${k}" ${k === 'ip' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
-      <label>Expires<span class="hrow">${expiryFields('bi', null)}</span></label>
+      <label>Expires<span class="srow">${expiryFields('bi', null)}</span></label>
       <label class="wide">One entry per line (# starts a comment)<textarea id="bi_text" class="input" rows="10" placeholder="203.0.113.7&#10;198.51.100.0/24  # scanner range"></textarea></label>
       <label class="wide">Note<input id="bi_note" class="input" value="import ${new Date().toISOString().slice(0, 10)}"></label></div>`,
     '<button class="btn btn-primary" data-act="blImportGo">Import</button>');
@@ -624,13 +624,13 @@ function openLinkEditor(o, retried) {
         <div class="share-card-head">
           <div class="cap">Share target</div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <label style="flex:1;min-width:140px">Target type<select id="l_kind" class="input mt-1"><option value="file" ${l.url ? '' : 'selected'}>File / folder on drive</option>${!D.me || (D.me.capabilities || []).includes('serving.links') ? `<option value="url" ${l.url ? 'selected' : ''}>External URL</option>` : ''}</select></label>
-            <label class="l-int" style="flex:1;min-width:140px">Drive<select id="l_mount" class="input mt-1">${mountOpts(l.mount)}</select></label>
+            <label style="flex:1;min-width:140px">Target type<select id="l_kind" class="input smt-1"><option value="file" ${l.url ? '' : 'selected'}>File / folder on drive</option>${!D.me || (D.me.capabilities || []).includes('serving.links') ? `<option value="url" ${l.url ? 'selected' : ''}>External URL</option>` : ''}</select></label>
+            <label class="l-int" style="flex:1;min-width:140px">Drive<select id="l_mount" class="input smt-1">${mountOpts(l.mount)}</select></label>
           </div>
-          <label class="wide l-int mt-2">Path<input id="l_path" class="input" value="${esc(l.path || '')}" style="margin-top:3px"></label>
+          <label class="wide l-int smt-2">Path<input id="l_path" class="input" value="${esc(l.path || '')}" style="margin-top:3px"></label>
           <label class="wide l-ext" style="display:none;margin-top:6px">URL<input id="l_url" class="input" value="${esc(l.url || '')}" placeholder="https://…" style="margin-top:3px"></label>
         </div>
-        <div class="share-url-box mt-2">
+        <div class="share-url-box smt-2">
           <div class="code small ell" id="l_preview" style="flex:1;padding:8px 10px"></div>
           <button class="btn btn-secondary" data-act="linkCopyDirect" style="flex:none">Copy direct link</button>
         </div>
@@ -642,12 +642,12 @@ function openLinkEditor(o, retried) {
           <div class="cap">Branded short link</div>
           <div class="small dim">Custom link with visitor counter, optional expiry, and access limits.</div>
         </div>
-        <div class="share-grid mt-2">
+        <div class="share-grid smt-2">
           <label>Short code
-            <span class="hrow"><input id="l_code" class="input" value="${esc(l.code || '')}" placeholder="Auto-generated" style="flex:1"><button class="pill" data-act="linkRandom" title="Random code">🎲 Random</button></span>
+            <span class="srow"><input id="l_code" class="input" value="${esc(l.code || '')}" placeholder="Auto-generated" style="flex:1"><button class="pill" data-act="linkRandom" title="Random code">🎲 Random</button></span>
           </label>
           <label>Expiration
-            <span class="hrow">${expiryFields('l', l.expires, l.code ? null : shareSeconds())}</span>
+            <span class="srow">${expiryFields('l', l.expires, l.code ? null : shareSeconds())}</span>
           </label>
           <label>Max clicks
             <input id="l_max" class="input" value="${esc(l.max_clicks || '')}" placeholder="Unlimited">
@@ -656,7 +656,7 @@ function openLinkEditor(o, retried) {
             <input id="l_note" class="input" value="${esc(l.note || '')}" placeholder="Optional reminder">
           </label>
         </div>
-        <div class="mt-2">
+        <div class="smt-2">
           <label class="dlg-check" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="m_dl" ${md.dl ? 'checked' : ''}> Force file download (instead of inline display)</label>
         </div>
       </div>
@@ -677,7 +677,7 @@ function openLinkEditor(o, retried) {
       <!-- Optional image & CDN transformations -->
       <details class="share-card share-modifiers-card">
         <summary style="cursor:pointer;font-weight:700;font-size:12px;color:var(--color-text)">Image &amp; CDN modifiers <span class="small dim">(Resize, format conversion, cache-bust)</span></summary>
-        <div class="share-grid mt-3">
+        <div class="share-grid smt-3">
           <label>Width<input id="m_w" class="input" value="${esc(md.w || '')}" placeholder="px"></label>
           <label>Height<input id="m_h" class="input" value="${esc(md.h || '')}" placeholder="px"></label>
           <label>Fit${sel('m_fit', [['', 'inside (default)'], ['cover', 'cover (crop)'], ['contain', 'contain (pad)'], ['fill', 'fill (stretch)']], md.fit)}</label>
@@ -803,7 +803,7 @@ function notifyRows(row) {
 }
 function uploadRows(row) {
   const me = D.me;
-  return `<div class="cap mt-2">Uploads</div>
+  return `<div class="cap smt-2">Uploads</div>
     ${row('Chunk size', 'Size of each upload request. Keep it under 100 MB for Cloudflare.', numIn('u_chunk', me.upload.chunk_mb, 60) + ' MiB')}
     ${row('Parallel requests', 'Chunks uploaded at the same time.', numIn('u_par', me.upload.parallel, 60))}
     ${row('Versions kept', 'Earlier versions kept per file.', numIn('u_keep', me.versions_keep, 60))}`;
@@ -811,7 +811,7 @@ function uploadRows(row) {
 function smartsortRows(row, toggle) {
   const ss = D.me.smartsort || {};
   const drives = (typeof served === 'function' ? served() : []).filter((m) => m.kind !== 'page');
-  return `<div class="cap mt-4">Smart-Sorting</div>
+  return `<div class="cap smt-4">Smart-Sorting</div>
     ${row('Home folder', 'Uploads to a drive root go here, sorted into type folders.', `<select id="ss_mount" class="input">${drives.map((m) => `<option value="${m.mount}" ${ss.home && +ss.home.mount === m.mount ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select> ${numIn('ss_home', ss.home ? ss.home.path : '', 150)}`)}
     ${row('Drive root to home', 'Off: uploads to a drive root stay there.', toggle(ss.root_to_home, 'ssRoot'))}
     ${row('Assets folder', 'In other folders, non-code files go into this folder, by type. HTML stays put.', numIn('ss_assets', ss.assets || 'assets', 120))}

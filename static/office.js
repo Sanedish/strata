@@ -174,7 +174,7 @@
     return `<div class="office-card office-manage"><div class="cap">${icon('shield', 'sm')} ${esc(p.user)}'s team access</div>
       ${p.manageable ? '' : '<p class="small dim">Only the owner can change another moderator.</p>'}
       <div class="cap-checks">${perms.map((x) => `<label class="cap-check" title="${esc(x.description)}"><input type="checkbox" name="om-cap" value="${esc(x.id)}" ${held.has(x.id) ? 'checked' : ''}${dis}><span>${esc(x.label)}</span></label>`).join('')}</div>
-      <div class="form mt-2">
+      <div class="form smt-2">
         <label>Job title<input class="input" id="om-title" maxlength="60" value="${esc(p.title || '')}"${dis}></label>
         <label>Department<input class="input" id="om-dept" maxlength="60" value="${esc(p.department || '')}"${dis}></label>
       </div>

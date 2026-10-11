@@ -650,7 +650,7 @@
       <div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);flex:none">
         <div class="cap red">${esc(h.state || '?')}${h.severity ? ' · ' + esc(h.severity) : ''}</div>
         <h5 style="margin:3px 0 2px;font-size:15px;word-break:break-all">${esc(h.path)}</h5>
-        <div class="act-row mt-2">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
+        <div class="act-row smt-2">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
       </div>
       <div class="scroll" style="padding:2px 16px 14px" data-scroll="md-aside">
         <div class="cap" style="margin:8px 0 2px">Findings · ${fmt.n(h.findings.length)} · redacted</div>
@@ -700,10 +700,10 @@
     const body = `<div style="display:flex;gap:26px;margin:2px 0 6px">${big('Configured', N.configured)}${big('Effective', N.effective, diff && N.configured !== 'auto')}</div>
       <div class="small dim">${esc(NEG_HELP[N.effective] || '')}</div>
       ${why ? `<p class="small hot" style="margin:8px 0 0">${esc(why)}</p>` : ''}
-      <div class="cap mt-3">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
+      <div class="cap smt-3">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
       ${rules.map(([k, v]) => `<div class="logline"><span>${esc(k)}</span><span class="${v === 'installed' ? '' : 'hot'}">${esc(v)}</span></div>`).join('')}
-      ${edgeErr ? `<div class="small hot mt-1">${esc(edgeErr)}</div>` : ''}
-      <div class="cap mt-3">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
+      ${edgeErr ? `<div class="small hot smt-1">${esc(edgeErr)}</div>` : ''}
+      <div class="cap smt-3">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
       ${needs.length ? `<p class="small" style="margin:8px 0 0">Add to the Cloudflare token (zone ${esc(INST.zone)}): <b>${esc(needs.join(', '))}</b></p>` : ''}`;
     return panelH('Negotiation', 'AVIF / WebP for canonical image URLs', body);
   }
@@ -913,7 +913,7 @@
           and the worker, and renders the file policy, media routes and scan gate into Caddy, validated before the reload.</li>
         <li>The switch-on time becomes the <i>cutover</i>: older files stay online while their first scan runs.</li>
       </ol>
-      ${tools ? `<div class="cap mt-3">Tools on this machine</div>${tools}` : ''}
+      ${tools ? `<div class="cap smt-3">Tools on this machine</div>${tools}` : ''}
       <div class="act-row"><button class="btn btn-secondary" data-act="mdRefresh">Check again</button>
         ${disabled ? `<button class="btn btn-secondary" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>Preview the file policy</button>` : ''}
         <span class="small dim">${D.md.at ? 'checked ' + esc(fmt.ago(D.md.at)) : ''}</span></div>

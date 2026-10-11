@@ -488,7 +488,7 @@ function folderAside() {
   return `<aside class="aside">
     <div class="pad"><div class="cap red">${esc(mountName(S.fmount))}</div><h5>${disk ? esc(fmt.pct(share(disk.used, disk.total))) + ' used' : 'Drive'}</h5></div>
     <div style="padding:0 16px 10px;flex:none">${disk ? segs(share(disk.used, disk.total), 24, 90, 's7') : ''}
-      <div class="small dim mt-1">${disk ? esc(fmt.bytes(disk.free)) + ' free of ' + esc(fmt.bytes(disk.total)) : ''}</div></div>
+      <div class="small dim smt-1">${disk ? esc(fmt.bytes(disk.free)) + ' free of ' + esc(fmt.bytes(disk.total)) : ''}</div></div>
     ${sel.length ? `<div class="sect"><span class="cap">Selection</span><span class="small dim">${sel.length} item(s) · ${esc(fmt.bytes(selBytes))}</span></div>` : ''}
     <div class="sect"><span class="cap">Uploads</span><button class="link small" data-act="go" data-arg="upload">open uploader →</button></div>
     <div class="uploads" id="fupmini">${miniQueue()}</div>
@@ -1321,7 +1321,7 @@ function vUpload() {
     </section>
     <section class="panel span2" style="min-height:260px">
       <div class="ph"><h5>Queue</h5><span class="small" id="uptotals">${totalsLine()}</span>
-        <span class="hrow"><button class="pill" data-act="upPauseAll">Pause all</button><button class="pill" data-act="upResumeAll">Resume all</button><button class="pill" data-act="upClear">Clear finished</button></span></div>
+        <span class="srow"><button class="pill" data-act="upPauseAll">Pause all</button><button class="pill" data-act="upResumeAll">Resume all</button><button class="pill" data-act="upClear">Clear finished</button></span></div>
       <div id="upqueue" class="scroll" data-scroll="upqueue">${queueRows()}</div>
     </section>
     <section class="panel">
@@ -1542,10 +1542,10 @@ function anTabBody() {
   }
   return `<div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))">${A.drives.map((d) => `<section class="panel"><div class="ph"><h5>${esc(d.name)}</h5><span class="small dim">${esc(d.kind)}${d.enabled ? '' : ' · disabled'}</span></div>
       <div class="small dim" style="word-break:break-all">${esc(d.path)}</div>
-      ${d.disk ? segs(share(d.disk.used, d.disk.total), 24, 90, 's7') + `<div class="small dim mt-1">${esc(fmt.bytes(d.disk.free))} free of ${esc(fmt.bytes(d.disk.total))}</div>` : '<div class="small hot">offline</div>'}
-      <div class="cap mt-2">Indexed</div><div class="h800">${esc(fmt.bytes(d.bytes))} · ${fmt.n(d.files)} files</div>
-      <span class="mix mt-2">${Object.entries(d.cats || {}).sort((a, b) => b[1] - a[1]).map(([c, b]) => `<i title="${esc(c)} ${esc(fmt.bytes(b))}" style="flex:${b};background:${CAT_COLOR[c] || CAT_COLOR.other}"></i>`).join('')}</span>
-      <div class="small dim mt-2">scanned ${esc(fmt.ago(d.scanned))}</div></section>`).join('')}</div>`;
+      ${d.disk ? segs(share(d.disk.used, d.disk.total), 24, 90, 's7') + `<div class="small dim smt-1">${esc(fmt.bytes(d.disk.free))} free of ${esc(fmt.bytes(d.disk.total))}</div>` : '<div class="small hot">offline</div>'}
+      <div class="cap smt-2">Indexed</div><div class="h800">${esc(fmt.bytes(d.bytes))} · ${fmt.n(d.files)} files</div>
+      <span class="mix smt-2">${Object.entries(d.cats || {}).sort((a, b) => b[1] - a[1]).map(([c, b]) => `<i title="${esc(c)} ${esc(fmt.bytes(b))}" style="flex:${b};background:${CAT_COLOR[c] || CAT_COLOR.other}"></i>`).join('')}</span>
+      <div class="small dim smt-2">scanned ${esc(fmt.ago(d.scanned))}</div></section>`).join('')}</div>`;
 }
 Object.assign(ACT, {
   anMount(m) {
