@@ -69,7 +69,7 @@ Layout conventions (DESIGN 13.3) the view follows:
 * At 1100 px and below, the grid is one column (the existing breakpoints).
 
 The holds columns are ordered so that State, Severity, Path, Findings, Size, Scanned and the action buttons fit
-the ~1024 css px `#main` at the default 130 % zoom. The drive column comes last.
+the ~1024 css px `#main` at 130 % zoom. The drive column comes last.
 
 ## 3. CSP
 
