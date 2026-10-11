@@ -254,7 +254,8 @@ def resolve(mount_conf, url_path):
         if any(_bad_segment(p) for p in parts):
             return None, None
         full = os.path.normpath(os.path.join(root, *parts))
-        if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+        # compare with the root as commonpath spells it: on POSIX it drops the second slash of a //server/share root
+        if os.path.commonpath([full.lower(), root.lower()]) != os.path.commonpath([root.lower()]):
             return None, None
         return full, "/" + "/".join(parts)
     except (ValueError, TypeError, UnicodeDecodeError):
