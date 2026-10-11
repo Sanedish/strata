@@ -87,7 +87,7 @@ const store = {
 // every key here is a preference: saved in this browser and, with Settings › Preferences › Sync on, in the account
 const PREFS = {
   view: 'summary', deep: false, range: 'live', nobots: false, rate: 1000, widths: {}, fields: false, scale: null,
-  autofit: true, reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
+  scale100: false, reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
   zebra: false, navCollapsed: false, navHidden: [], navPinned: [], landing: '', vitals: ['reqs', 'bytes', 'uniq', 'errors', 'latency', 'tunnel'],
   clock24: true, relTimes: true, hiddenPause: true, notify: false, savedFilters: [], syncPrefs: false, palRecent: [],
   confirmDelete: true, vitalsAll: false,
@@ -120,23 +120,32 @@ async function pullPrefs() {
     const r = await get('/api/prefs');
     if (r && r.prefs && r.prefs.syncPrefs) {
       Object.entries(r.prefs).forEach(([k, v]) => { if (k in PREFS) S[k] = v; });
+      const moved = scaleMigrate(r.prefs);
       Object.keys(PREFS).forEach((k) => store.set(k, S[k]));
+      if (moved) pushPrefs();
       applyScale(); applyAppearance(); render(true);
     }
   } catch { /* not synced */ }
 }
 
-/* UI scale: CSS zoom on <html>. 130 % is the default on desktop-sized windows (tuned on a 25" 1440p screen);
-   auto-fit shrinks it (never below 100 %) so the desktop layout keeps at least FIT_WIDTH css px. */
-const SCALE_MIN = 0.75, SCALE_MAX = 2, SCALE_DEFAULT = 1.3, FIT_WIDTH = 1400; // 1240 left side panels too little room
+/* UI scale: CSS zoom on <html>, 100 % unless you pick another size. It applies as chosen on every window size, like
+   browser zoom, except on phones. */
+const SCALE_MIN = 0.75, SCALE_MAX = 2, SCALE_DEFAULT = 1;
 const SCALE_PRESETS = [1, 1.15, 1.25, 1.3, 1.4, 1.5, 1.75];
 const clampScale = (v) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(v * 100) / 100));
-if (typeof S.scale !== 'number') S.scale = innerWidth >= 1100 ? SCALE_DEFAULT : 1;
+// 130 % was the default until October 2026 and was saved with every other preference: move those to the new default
+// once. `prefs` is where the scale came from (this browser, or the account when preferences sync).
+function scaleMigrate(prefs) {
+  if (prefs.scale100) return false;
+  if (S.scale === 1.3) S.scale = SCALE_DEFAULT;
+  S.scale100 = true;
+  return true;
+}
+if (typeof S.scale !== 'number') S.scale = SCALE_DEFAULT;
+if (scaleMigrate({ scale100: S.scale100 })) { store.set('scale', S.scale); store.set('scale100', true); }
 let zoomNow = 1;
 function effectiveScale() {
-  let z = S.scale;
-  if (S.autofit && innerWidth >= 1100 && z > 1) z = Math.min(z, Math.max(1, innerWidth / FIT_WIDTH));
-  if (innerWidth < 760) z = Math.min(z, 1); // a desktop zoom synced to a phone would leave ~300 css px to work with
+  const z = innerWidth < 760 ? Math.min(S.scale, 1) : S.scale; // a desktop zoom synced to a phone would leave ~300 css px
   return Math.round(z * 1000) / 1000;
 }
 function applyScale() {
@@ -1177,7 +1186,7 @@ function vSettings() {
   const L = D.live || {}, c = L.caddy || {}, t = L.tunnel || {}, db = L.db || {}, cs = L.compress || {};
   const row = setRow;
   const effNote = eff !== pct
-    ? `Showing ${eff} % right now: auto-fit keeps at least ${FIT_WIDTH} px of layout in this ${innerWidth} px wide window.`
+    ? `Showing ${eff} % here: narrow screens always use 100 %.`
     : `Applied. ${Math.round(innerWidth / zoomNow)} px of layout fit in this window.`;
   const acc = S.accent || INST.accent || '#ec3013';
   const allViews = NAV_GROUPS.flatMap(([g, ids]) => ids.map((v) => [g, v]));
@@ -1209,7 +1218,7 @@ function vSettings() {
       ${row('Reduce motion', 'Turn off row flashes, spinners and transitions.', toggle(S.reduceMotion, 'reduceMotion'))}
     </section>
     <section class="panel span2">
-      <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} % on desktop-sized windows</span></div>
+      <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} %</span></div>
       <div class="scale-hero">
         <div><div class="big-num" id="scale-val">${pct} %</div><div class="small dim">${esc(effNote)}</div></div>
         <div class="scale-demo">Aa<span>Strata body text at the current size</span></div>
@@ -1220,7 +1229,6 @@ function vSettings() {
         <button class="pill" data-act="scaleStep" data-arg="5" title="Larger">+</button>
       </div>
       <div class="presets">${SCALE_PRESETS.map((p) => `<button class="pill ${Math.round(p * 100) === pct ? 'on' : ''}" data-act="setScale" data-arg="${p}">${Math.round(p * 100)} %${p === SCALE_DEFAULT ? ' · default' : ''}</button>`).join('')}</div>
-      ${row('Auto-fit narrow windows', `Shrink toward 100 % (never below) when the window can't fit the full ${FIT_WIDTH} px layout at your chosen size.`, toggle(S.autofit, 'autofit'))}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin, hide and order the sidebar</span></div>
@@ -1699,7 +1707,6 @@ const ACT = {
   // settings
   setScale(v) { S.scale = clampScale(+v); applyScale(); persist(); render(true); },
   scaleStep(d) { ACT.setScale(S.scale + (+d) / 100); },
-  autofit(v) { setPref('autofit', !!v); },
   reduceMotion(v) { setPref('reduceMotion', !!v); },
   setTheme(v) { setPref('theme', v); },
   setAccent(v) { setPref('accent', v || null); },
