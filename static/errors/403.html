@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>403 Forbidden</title>
+<!-- Strata error page. Colours are set in :root, the text is in <main>. -->
+<style>
+:root { --bg: #0b0b0d; --text: #ececf1; --dim: rgba(236, 236, 241, .7); --line: rgba(236, 236, 241, .18); --accent: #e65a46;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+@media (prefers-color-scheme: light) { :root { --bg: #f6f6f8; --text: #18181b; --dim: rgba(24, 24, 27, .68); --line: rgba(24, 24, 27, .16); } }
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; min-height: 100%; color: var(--text); }
+body { min-height: 100vh; display: grid; place-items: center; padding: 24px; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { width: min(620px, 100%); border-top: 4px solid var(--accent); padding: 20px 24px 24px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.code { font: 700 96px/1 var(--mono); letter-spacing: -.02em; margin: 0; color: var(--text); }
+h1 { font-size: 22px; margin: 16px 0 4px; }
+p { margin: 0; color: var(--dim); }
+.path { margin-top: 20px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font: 13px/1.4 var(--mono); color: var(--dim); word-break: break-all; }
+.path b { color: var(--text); font-weight: 400; }
+a { display: inline-block; margin-top: 20px; color: var(--text); font: 700 13px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; text-decoration: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px; }
+a:hover { color: var(--accent); }
+/* background: a 40 x 24 image stretched to the window and blurred; backgrounds.py makes them */
+.bg { position: fixed; inset: -60px; z-index: -1; background: /*BG0*/url("data:image/webp;base64,UklGRpAAAABXRUJQVlA4IIQAAADQBgCdASooABgAPpU2mkgloqKhNVQMALASiUAXZli3roJ2FJRyr2xGuGmdT+plbPgEu8e/P2pcLIzkEtbruoAA/ve+k0bHWslqsqov7mmi598jj9Wq8IbF/Tj6Xg0SaCksMnycyIo1wFaaiMsipibrKHEq7Rk6FgdpMRVSYDUO0t2AAAA=")/*BG0*/ center / cover no-repeat;
+  filter: blur(32px); opacity: .5; }
+@media (prefers-color-scheme: light) { .bg { opacity: .35; } }
+.bg.photo { filter: blur(10px); opacity: .7; }
+</style>
+</head>
+<body>
+<div class="bg" id="bg"></div>
+<main>
+  <p class="code">403</p>
+  <h1>Forbidden</h1>
+  <p>You don't have permission to access this page.</p>
+  <div class="path" id="where" hidden>URL: <b id="path"></b></div>
+  <a href="/">Go to the home page</a>
+</main>
+<script>
+document.getElementById("path").textContent = location.pathname; document.getElementById("where").hidden = false;
+// Background photos, each under 500 KB (?w=1920&fm=webp). One is picked at random and replaces the generated
+// background once it has loaded. Leave the list empty to use only the generated backgrounds.
+var photos = [
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/20260930_112019_procara.png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/download%20(4).png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/h5n3v925j76d.png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/image.png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/IMG_0586.JPG?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/IMGL0830.JPG?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/IMGL0885.JPG?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/link-preview-selene.png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/P1013253.JPG?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/selene_copernicus_lines_5120x2880.png?w=1920&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/selene_montes-riphaeus_lines_3840x2160.png?w=1280&fm=webp",
+  "https://cdn.boykisser.cloud/share/eric/image/no-copyright/selene_oceanus-procellarum_terrace_5120x2880.png?w=1920&fm=webp"
+];
+var bgs = [/*BG*/"data:image/webp;base64,UklGRpAAAABXRUJQVlA4IIQAAADQBgCdASooABgAPpU2mkgloqKhNVQMALASiUAXZli3roJ2FJRyr2xGuGmdT+plbPgEu8e/P2pcLIzkEtbruoAA/ve+k0bHWslqsqov7mmi598jj9Wq8IbF/Tj6Xg0SaCksMnycyIo1wFaaiMsipibrKHEq7Rk6FgdpMRVSYDUO0t2AAAA=","data:image/webp;base64,UklGRpQAAABXRUJQVlA4IIgAAABwBQCdASooABgAPpE8l0glo6IhNVQMALASCWMAnTOAgRt96w5Jr+FvGFa/IgwxnxJtO/6wAP7oEVk19O+fzdI4W64TfOWpVYD9+DBFADeR1pMWD2Ac5AsoqkyiMsHLhay5N+c30/UER7ABTiu6gOA6+YI6IxWG90BFhEPKVHT2KhvL4ol7opAA","data:image/webp;base64,UklGRq4AAABXRUJQVlA4IKIAAACwBgCdASooABgAPo0+l0glI6IhMBqtUKARiWQAnTLCQpgSAod+f+MoVxOoIMNWTeMpdgkwJjwjX+b+QyPmEAD7fU5SKCTarUBPxzXHqf+Yhe/vQ+9w7uNv/3B0wxkWNkSgCTOQFmC0TW9ORH6b4aeAxVQlbATvd9rbSn82Xr9Fy5f8pPsL5KNgfZQZ+m0JzxBGwMwQbx5BrY85nYSS2oAAAAA=","data:image/webp;base64,UklGRpwAAABXRUJQVlA4IJAAAACwBgCdASooABgAPpVCmkolo6IhqrgKALASiUAVJNgd/QJOVX+F3GZvRoBjNSayWsiyu2F2tEykTF6vkia4QAD+7qFRqbS3HP2tMK7v8OeTvq7HA2YMNWNZ9L7WoH5W9oaNXGUB/x88pkT9/3k3T3HzyQ2zXIOKMHi75he6O4XADMhzu1L311wC4bE0cQMAAAA=","data:image/webp;base64,UklGRqAAAABXRUJQVlA4IJQAAAAwBgCdASooABgAPpU8mUkloyIhMBVaqLASiWIAuzNtSIALlQeWz/zyT2L7fp0oBZIyJsevMkB2RUV6AP7xmWszbFUlgf2tCHl8xGWFJXrTtWPFWnOL2bIF6r3CKNnCSI9WVuT73qFUp+oHJOhW5eX0vLAMrwk09hYJFAPlehiCfB0MDJCDMY/99BYHaj6vdPdEyAAA"/*BG*/];
+var bg = document.getElementById("bg");
+bg.style.backgroundImage = 'url("' + bgs[Math.floor(Math.random() * bgs.length)] + '")';
+if (photos.length) {
+  var img = new Image(), src = photos[Math.floor(Math.random() * photos.length)];
+  img.onload = function () { bg.style.backgroundImage = 'url("' + src + '")'; bg.className = "bg photo"; };
+  img.src = src;
+}
+</script>
+</body>
+</html>

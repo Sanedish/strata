@@ -54,30 +54,55 @@ stays as it was. Earlier configs are kept, and you can roll back to one from the
 
 Files that shrink by enough get a Brotli copy next to them, which Caddy then serves to browsers that accept it.
 
-### Ready-made pages: errors, galleries and the audio player
+### Error pages, galleries and the audio player
 
-Strata ships three kinds of visitor-facing pages that work as soon as you switch them on. Each one is a plain HTML
-file you can restyle without touching Strata's code or rebuilding anything.
+Strata includes three kinds of pages for visitors. Each is a plain HTML file that you can edit without changing
+Strata's code.
 
 | Page | Switch it on | What visitors get | The file to edit |
 |---|---|---|---|
-| **Error pages** | Site › Serving › Site › Error pages | Your own page for 404 (missing or hidden files), 403 (blocked, or in the trash) and 502/503/504 (a proxied service is down) instead of Caddy's plain text | An HTML file on one of your drives, `/errors/<code>.html` by default |
+| **Error pages** | Site › Serving › Site › Error pages | A custom page for 404 (missing or hidden files), 403 (blocked or in the trash) and 502/503/504 (proxied service unavailable) instead of Caddy's plain text | An HTML file on one of your drives, copied from the defaults in `static/errors/` |
 | **Gallery** | An access rule with the action **Gallery view**, e.g. `/photos/*` | A thumbnail grid with sorting, three tile sizes and a full-screen viewer, instead of a 404 for the folder | `gallery/gallery.html` |
 | **Audio player** | An access rule with the action **Audio player**, e.g. `/music/*` | A full-page player with the cover art, title, artist and a visualizer when a desktop browser opens an audio file | `player/player.html` |
 
-**Error pages** are the easiest to change. Click **Edit** next to a code: the first time, Strata writes a small
-starter page to the drive you picked and opens it in the dashboard's editor. Change the text and colours, save, and
-use **Preview** to see it in a new tab. Error pages are never cached, so visitors see a change right away. Leave the
-502 field empty to keep Caddy's plain text.
+<table>
+<tr>
+<td width="33%"><img src="docs/images/error-404.png" alt="The 404 page: Not Found, the requested URL and a link to the home page"></td>
+<td width="33%"><img src="docs/images/error-403.png" alt="The 403 page: Forbidden"></td>
+<td width="33%"><img src="docs/images/error-502.png" alt="The 502 page: Bad Gateway"></td>
+</tr>
+</table>
 
-**Gallery and player** are Caddy templates. Colours, fonts and spacing are CSS variables at the top of each file
-(`--bg`, `--accent` and friends in the gallery, `--ink`, `--red` and `--mono` in the player), so most restyling is
-a few lines. Caddy reads both files on every request: save, reload the page, and the change is live.
-- The gallery's thumbnails come from Strata's link modifiers (`?w=`, `&fm=`), so Cloudflare caches them. The folder
-  listing itself is never cached at the edge, so new uploads show up straight away.
-- The player looks for a `cover.jpg`, `folder.jpg` or similar next to the track. Tracks without one get a random
-  picture from a placeholder folder set on the rule. Phones, `<audio>` embeds, link previews and `?dl=1` still get
-  the plain file, and `?raw=1` always does.
+**Error pages.** Click **Edit** next to a status code. If the page doesn't exist yet, Strata copies the default
+page from `static/errors/` to the selected drive, then opens it in the editor. Colours are set by five CSS variables
+(`--bg`, `--text`, `--dim`, `--line`, `--accent`). **Preview** opens the page in a new tab. Error pages are not
+cached. If the 502 field is empty, Caddy returns plain text. The pages support light and dark mode and use no
+external resources.
+
+Each page contains five background images, 40 × 24 px WebP files of about 250 bytes each, embedded as data URIs.
+The page shows one at random, scaled to the window and blurred. To change the colours, edit the palettes in
+`static/errors/backgrounds.py` and run it; it rewrites the images in the three pages.
+
+The pages also load a background photo from the Strata CDN: `var photos = [...]` near the end of each page lists
+12 images, each requested as WebP under 500 KB (`?w=1920&fm=webp`). The page picks one at random, shows the generated
+background until it has loaded, then shows the photo with a lighter blur. Replace the URLs with your own, or leave
+the list empty to use only the generated backgrounds.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/gallery.png" alt="The gallery: a folder of wallpapers and videos as a thumbnail grid, with a filter, sorting by name, date or size, three tile sizes, fit and file names"></td>
+<td width="50%"><img src="docs/images/music.png" alt="The audio player: the album cover on a blurred background, title and artist, playback and volume controls, and a spectrum visualizer along the bottom"></td>
+</tr>
+</table>
+
+**Gallery and player.** Both are Caddy templates. Colours, fonts and spacing are CSS variables at the top of each
+file (for example `--bg` and `--accent` in the gallery, `--ink`, `--red` and `--mono` in the player). Caddy reads
+both files on every request, so changes apply on the next page load.
+- Gallery thumbnails use Strata's link modifiers (`?w=`, `&fm=`) and are cached by Cloudflare. The folder listing
+  is not cached.
+- The player uses a `cover.jpg`, `folder.jpg` or similar file next to the track as cover art. Without one, it
+  shows a random image from the placeholder folder set on the rule. Phones, `<audio>` elements, link previews and
+  `?dl=1` receive the file itself, as does `?raw=1`.
 
 ### Traffic
 

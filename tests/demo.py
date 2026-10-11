@@ -25,6 +25,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -147,6 +148,9 @@ def make_files(root):
     put("/downloads/press-kit.zip", buf.getvalue(), "application/zip")
     put("/downloads/handbook.pdf", b"%PDF-1.4\n" + os.urandom(340000), "application/pdf")
     put("/robots.txt", b"User-agent: *\nAllow: /\n", "text/plain")
+    for code in ("403", "404", "502"):  # the default error pages, at the paths the site settings use
+        with open(os.path.join(ra.CODE, "static", "errors", code + ".html"), "rb") as f:
+            put("/404/%s.html" % code, f.read(), "text/html")
     return out
 
 
@@ -315,6 +319,10 @@ def main():
     c.close()
     token = ra.session(db, "alex")
     proxy = signed_in_proxy(token)
+    req = urllib.request.Request("http://127.0.0.1:%d/api/serving/site" % PORT, method="POST",
+                                 data=json.dumps({"error_page_502": "/404/502.html"}).encode(),
+                                 headers={"X-Strata": "1", "Origin": "http://127.0.0.1:%d" % PORT, "Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=30).read()  # the 404 and 403 pages already sit at the default paths
 
     stop = threading.Event()
 

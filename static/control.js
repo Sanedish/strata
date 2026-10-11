@@ -391,36 +391,16 @@ Object.assign(ACT, {
       await mutate('/api/serving/rule', { name: 'Hide everything else', mount: m.mount, action: 'hide', patterns: ['/*'] }, 'Only ' + m.path + ' is served now');
     } catch { /* shown */ }
   },
-  // opens an error page in the Files editor, creating it from a starter template the first time
+  // opens an error page in the Files editor; creates it from the default page if it doesn't exist
   async errorPageEdit(id, el) {
     const code = el.dataset.code;
     const mount = $('#s_emount').value, input = $('#' + id);
     if (!input.value) input.value = `/errors/${code}.html`;
     const path = input.value;
     if (!mount) return note('Pick a drive first', { err: true });
-    const title = { 403: 'Access denied', 502: 'This service is down for a moment' }[code] || 'Page not found';
-    const text = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${code} · ${title}</title>
-<style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; background: #111; color: #eee; }
-  main { text-align: center; padding: 24px; }
-  h1 { font-size: 64px; margin: 0; }
-  a { color: inherit; }
-</style>
-</head>
-<body>
-<main>
-  <h1>${code}</h1>
-  <p>${title}.</p>
-  <p><a href="/">Back to the home page</a></p>
-</main>
-</body>
-</html>
-`;
+    let text;  // the default page from static/errors/, copied to the drive
+    try { const r = await fetch('errors/' + code + '.html', { cache: 'no-cache' }); if (!r.ok) throw new Error(); text = await r.text(); }
+    catch { return note("Couldn't load the default page. Reload and try again.", { err: true }); }
     try { await post('/api/files/text', { mount, path, text, create: true }); note(`Created ${path}. Save the site settings to use it.`); }
     catch (e) { if (!/exists/.test(e.message)) return note(e.message, { err: true }); }
     openEditor(mount, path);
