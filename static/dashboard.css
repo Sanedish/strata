@@ -491,7 +491,7 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   .upview, .angrid, .form, .twofa, .fbuild { grid-template-columns: 1fr !important; }
   .upview .span2 { grid-column: auto; }
   .sheet, .sheet.wide, .picker { width: calc(96 * var(--vw)); }
-  .settings { grid-template-columns: 1fr; }
+  .settings { grid-template-columns: 1fr !important; }
   .settings .span2 { grid-column: auto; }
   .ins { grid-template-columns: 1fr; }
   .ins .span2 { grid-column: auto; }
