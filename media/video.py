@@ -1,4 +1,5 @@
-"""Strata Media video - ffprobe / ffmpeg WebM variants (AV1 via SVT-AV1, VP9 fallback, Opus audio).
+"""Strata Media video - ffprobe / ffmpeg variants: WebM (AV1 via SVT-AV1, VP9 fallback, Opus audio) or, with
+video.format = "mp4", MP4 (H.264 via libx264, AAC audio) that every player and device takes.
 
 Why it looks like this (media/DESIGN.md 7.6):
   * Video only ever runs in the background worker. Every ffprobe / ffmpeg call goes through sandbox.run (Job
@@ -7,7 +8,7 @@ Why it looks like this (media/DESIGN.md 7.6):
   * Inputs are untrusted uploads. A file named .mp4 can really be an HLS/concat playlist that makes ffmpeg read
     other local files or URLs into the output, so inputs are opened as `file:<path>` with
     -protocol_whitelist file and -format_whitelist limited to the real video demuxers we transcode.
-  * Output is WebM (what browsers play natively): the picture is kept (resolution, fps, all audio tracks), only
+  * Output is WebM or MP4 (video.format): the picture is kept (resolution, fps, all audio tracks), only
     metadata goes (-map_metadata -1 drops titles, GPS "location" atoms, encoder tags).
   * The encode writes to <dst>.part and is renamed only when ffmpeg succeeded, so a crash or kill never leaves
     a truncated file that looks like a finished variant.
@@ -24,12 +25,15 @@ try:
 except ImportError:  # parallel development / partial install: every call below then reports tool_missing
     sandbox = None
 
-VIDEO_DEFAULTS = {"enabled": True, "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32, "audio_kbps": 128,
-                  "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30, "min_saving": 0.10,
-                  "timeout_factor": 15}
+VIDEO_DEFAULTS = {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+                  "crf_h264": 23, "preset_h264": "medium", "audio_kbps": 128, "threads": 2, "cpu_pct": 50,
+                  "max_seconds": 10800, "max_bytes": 8 << 30, "min_saving": 0.10, "timeout_factor": 15}
+FORMATS = ("webm", "mp4")
 CONTENT_TYPE = "video/webm"
 SOURCE_EXT = {"mp4", "m4v", "mov", "mkv", "avi", "wmv", "flv"}
-SKIP_CODECS = {"av1", "vp9"}
+# sources already in a codec at least as efficient as the output: re-encoding would only lose quality
+SKIP_CODECS = {"webm": {"av1", "vp9"}, "mp4": {"av1", "vp9", "hevc"}}
+H264_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow")
 # Demuxers ffmpeg may use on an input (av_match_list: "mov" matches "mov,mp4,m4a,3gp,3g2,mj2" etc.).
 DEMUXERS = "mov,matroska,avi,asf,flv"
 OPUS_LAYOUTS = "mono|stereo|3.0|quad|5.0|5.1|6.1|7.1"   # what libopus' Vorbis mapping (family 1) accepts
@@ -51,7 +55,10 @@ def video_conf(conf):
     """Video tunables from a full media config (or a video sub-dict / None), defaults filled in."""
     conf = conf or {}
     sub = conf.get("video") if isinstance(conf.get("video"), dict) else conf
-    return dict(VIDEO_DEFAULTS, **{k: v for k, v in sub.items() if k in VIDEO_DEFAULTS or k == "mem_mb"})
+    out = dict(VIDEO_DEFAULTS, **{k: v for k, v in sub.items() if k in VIDEO_DEFAULTS or k == "mem_mb"})
+    if out["format"] not in FORMATS:
+        out["format"] = "webm"
+    return out
 
 
 def _which(name, conf):
@@ -70,7 +77,7 @@ def _run(cmd, timeout, mem_mb, cpu_pct):
 
 
 def beneficial(src_bytes, out_bytes, conf):
-    """DESIGN 7.6: not beneficial if the WebM is >= 90 % (1 - min_saving) of the source."""
+    """DESIGN 7.6: not beneficial if the variant is >= 90 % (1 - min_saving) of the source."""
     if not src_bytes or out_bytes is None:
         return False
     return out_bytes < src_bytes * (1 - float(video_conf(conf)["min_saving"]))
@@ -106,11 +113,13 @@ def reset_cache():
         _enc_cache.clear()
 
 
-def available(conf):
-    """{"ffmpeg", "ffprobe", "av1", "vp9", "opus", "codec" (effective), "ok", "error"} - cached 10 min."""
+def available(conf, fmt=None):
+    """{"ffmpeg", "ffprobe", "av1", "vp9", "opus", "h264", "aac", "format", "codec" (effective), "ok", "error"} for
+    fmt (default video.format) - the encoder list is cached 10 min."""
     vc = video_conf(conf)
+    fmt = fmt if fmt in FORMATS else vc["format"]
     out = {"ffmpeg": _which("ffmpeg", conf), "ffprobe": _which("ffprobe", conf), "av1": False, "vp9": False,
-           "opus": False, "codec": None, "ok": False, "error": ""}
+           "opus": False, "h264": False, "aac": False, "format": fmt, "codec": None, "ok": False, "error": ""}
     if not out["ffmpeg"] or not out["ffprobe"]:
         out["error"] = "ffmpeg missing" if not out["ffmpeg"] else "ffprobe missing"
         return out
@@ -119,7 +128,14 @@ def available(conf):
     except VideoError as e:
         out["error"] = str(e)
         return out
-    out.update(av1="libsvtav1" in names, vp9="libvpx-vp9" in names, opus="libopus" in names)
+    out.update(av1="libsvtav1" in names, vp9="libvpx-vp9" in names, opus="libopus" in names,
+               h264="libx264" in names, aac="aac" in names)
+    if fmt == "mp4":
+        out["codec"] = "h264" if out["h264"] else None
+        out["ok"] = bool(out["h264"] and out["aac"])
+        if not out["ok"]:
+            out["error"] = "no libx264 encoder" if not out["h264"] else "no aac encoder"
+        return out
     if vc["codec"] == "vp9":
         out["codec"] = "vp9" if out["vp9"] else ("av1" if out["av1"] else None)
     else:
@@ -196,9 +212,10 @@ def probe(path, conf):
         raise VideoError("probe_error", "bad ffprobe json: %s" % e) from e
 
 
-def skip_reason(info, conf):
-    """Why no WebM variant is made (None = transcode): disabled, webm, no_video, already_av1|vp9, too_long, too_big."""
+def skip_reason(info, conf, fmt=None):
+    """Why no variant is made (None = transcode): disabled, webm, no_video, already_av1|vp9|hevc, too_long, too_big."""
     vc = video_conf(conf)
+    fmt = fmt if fmt in FORMATS else vc["format"]
     if not vc["enabled"]:
         return "disabled"
     if (info.get("ext") or "").lower() == "webm":
@@ -206,7 +223,7 @@ def skip_reason(info, conf):
     v = info.get("video")
     if not v:
         return "no_video"
-    if v.get("codec") in SKIP_CODECS:
+    if v.get("codec") in SKIP_CODECS[fmt]:
         return "already_" + v["codec"]
     if (info.get("duration") or 0) > vc["max_seconds"]:
         return "too_long"
@@ -215,19 +232,24 @@ def skip_reason(info, conf):
     return None
 
 
-def plan(info, conf, avail=None):
-    """Transcode plan (dict) or None when the source is skipped (see skip_reason). `avail` = available(conf)."""
-    if skip_reason(info, conf):
-        return None
+def plan(info, conf, avail=None, fmt=None):
+    """Transcode plan (dict) or None when the source is skipped (see skip_reason). `avail` = available(conf, fmt)."""
     vc = video_conf(conf)
+    fmt = fmt if fmt in FORMATS else vc["format"]
+    if skip_reason(info, conf, fmt):
+        return None
     if avail is None:
-        avail = available(conf)
-    codec = avail.get("codec") or vc["codec"]
+        avail = available(conf, fmt)
+    codec = "h264" if fmt == "mp4" else avail.get("codec") or vc["codec"]
     threads = max(1, int(vc["threads"]))
     v = info["video"]
     fps = v.get("fps") or 30.0
     gop = max(1, int(round(min(fps, 60.0) * 10)))   # keyframe every ~10 s (<= 600 frames: bogus timebases)
-    if codec == "vp9":
+    if codec == "h264":   # High profile, 4:2:0 8-bit: plays on every browser, phone, TV and Discord embed
+        preset = vc["preset_h264"] if vc["preset_h264"] in H264_PRESETS else "medium"
+        vargs = ["-c:v", "libx264", "-preset", preset, "-crf", str(int(vc["crf_h264"])), "-profile:v", "high",
+                 "-threads", str(threads)]
+    elif codec == "vp9":
         vargs = ["-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1",
                  "-crf", str(int(vc["crf_vp9"])), "-b:v", "0", "-threads", str(threads)]
     else:
@@ -238,10 +260,14 @@ def plan(info, conf, avail=None):
     if (v.get("width") or 0) % 2 or (v.get("height") or 0) % 2:
         vargs += ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]   # 4:2:0 needs even sizes (drops at most 1 px)
     audio = info.get("audio") or []
+    acodec = "aac" if fmt == "mp4" else "opus"
     if not audio:
         aargs, amode = [], None
-    elif all(a.get("codec") == "opus" for a in audio):
+    elif all(a.get("codec") == acodec for a in audio):
         aargs, amode = ["-c:a", "copy"], "copy"
+    elif fmt == "mp4":
+        ch = max(a.get("channels") or 2 for a in audio)
+        aargs, amode = ["-c:a", "aac", "-b:a", "%dk" % min(512, int(vc["audio_kbps"]) * max(1, math.ceil(ch / 2)))], "aac"
     else:
         ch = max(a.get("channels") or 2 for a in audio)
         kbps = min(512, int(vc["audio_kbps"]) * max(1, math.ceil(ch / 2)))
@@ -250,7 +276,7 @@ def plan(info, conf, avail=None):
             aargs += ["-mapping_family", "1", "-af", "aformat=channel_layouts=" + OPUS_LAYOUTS]
     duration = float(info.get("duration") or 0)
     pixels = (v.get("width") or 0) * (v.get("height") or 0)
-    return {"codec": codec, "video_index": int(v.get("index") or 0), "video_args": vargs, "audio_args": aargs,
+    return {"format": fmt, "codec": codec, "video_index": int(v.get("index") or 0), "video_args": vargs, "audio_args": aargs,
             "audio": amode, "threads": threads, "fps": fps, "gop": gop, "duration": duration,
             "src_bytes": int(info.get("size") or 0),
             "timeout": max(600, int(math.ceil(duration * float(vc["timeout_factor"])))),
@@ -265,7 +291,10 @@ def command(ffmpeg, src, out, p):
              "-protocol_whitelist", "file", "-format_whitelist", DEMUXERS, "-i", "file:" + src,
              "-map", "0:v:%d" % p["video_index"], "-map", "0:a?"]
             + list(p["video_args"]) + list(p["audio_args"])
-            + ["-map_metadata", "-1", "-f", "webm", "file:" + out])
+            + ["-map_metadata", "-1"]
+            # MP4: the index goes to the front, so a player can start before the whole file has arrived
+            + (["-movflags", "+faststart", "-f", "mp4"] if p.get("format") == "mp4" else ["-f", "webm"])
+            + ["file:" + out])
 
 
 def result_kind(r):

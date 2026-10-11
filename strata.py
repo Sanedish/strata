@@ -15,6 +15,7 @@ Processes / ports per instance (everything here is loopback or LAN - never publi
 Config: <home>/strata.json (see core.DEFAULTS). First run: `python setup.py`, or open /setup from this machine.
 """
 import json
+import base64
 import hashlib
 import ipaddress
 import os
@@ -30,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import alerts
 import analyze
+import backup
 import accounts
 import auth
 import cloudflare
@@ -46,14 +48,15 @@ import rules
 from core import CFG, log
 
 STATIC = os.path.join(core.ROOT, "static")
-PUBLIC_STATIC = {"/styles.css", "/favicon.ico", "/login.js", "/boot.js"}
+PUBLIC_STATIC = {"/styles.css", "/favicon.ico", "/login.js", "/boot.js", "/custom.css"}
+BRAND_FILES = ("custom.css", "brand.png")  # Settings › Branding: a copy in the instance home replaces the built-in file
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 RAW_CSP = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png",
-         ".webp": "image/webp"}
+         ".webp": "image/webp", ".jpg": "image/jpeg"}
 DUMMY_HASH = auth.hash_password(secrets.token_urlsafe(24))  # login timing for accounts without a password
 IDE_LOCK = threading.RLock()
 IDE_EXTS = {".py", ".js", ".mjs", ".cjs", ".css", ".html", ".htm", ".json", ".md", ".svg", ".txt", ".xml"}
@@ -64,16 +67,19 @@ SETUP_ERRORS = {"user": "Usernames are 2 to 60 letters, digits, dots, dashes or 
                 "password": "Use at least 12 characters for the password.",
                 "repeat": "The two passwords don't match.",
                 "email": "Enter a valid e-mail address.",
-                "mail": "Sign-in codes are sent by e-mail: enter a Resend API key and a sender address."}
-SETUP_MAIL = ('<p class="note">Strata e-mails a code at every sign-in, sent through '
-              '<a href="https://resend.com" target="_blank" rel="noopener">Resend</a>.</p>'
-              '<label>Resend API key<input name="resend_key" autocomplete="off" spellcheck="false" required></label>'
-              '<label>Send codes from<input name="mail_from" type="email" placeholder="strata@example.com" required></label>')
+                "mail": "Sign-in codes are sent by e-mail: enter a sender address and an SMTP server or a Resend API key."}
+SETUP_MAIL = ('<p class="note">Strata e-mails a code at every sign-in. Use the SMTP server of any mail provider or your own '
+              'mail server, or a <a href="https://resend.com" target="_blank" rel="noopener">Resend</a> API key.</p>'
+              '<label>Send codes from<input name="mail_from" type="email" placeholder="strata@example.com" required></label>'
+              '<label>SMTP server<input name="smtp_host" placeholder="smtp.example.com" autocomplete="off" spellcheck="false"></label>'
+              '<label>SMTP port<input name="smtp_port" inputmode="numeric" placeholder="587 (STARTTLS) or 465 (TLS)"></label>'
+              '<label>SMTP user name<input name="smtp_user" autocomplete="off" spellcheck="false"></label>'
+              '<label>SMTP password<input name="smtp_password" type="password" autocomplete="off"></label>'
+              '<label>Or: Resend API key<input name="resend_key" autocomplete="off" spellcheck="false"></label>')
 
 
 def mail_configured():
-    a = CFG.get("alerts", {})
-    return bool(a.get("resend_api_key") and a.get("from"))
+    return alerts.mail_ready()
 
 
 class DBSessions(auth.Sessions):
@@ -191,6 +197,7 @@ def instance_info():
     except Exception:
         cdn = ""
     return {"id": inst.get("id") or "", "name": inst.get("name") or CFG["cloudflare"].get("zone_name") or "Strata",
+            "brand": inst.get("brand") or "Strata", "login_text": inst.get("login_text") or "",
             "accent": inst.get("accent") or "", "siblings": inst.get("siblings") or [],
             "zone": CFG["cloudflare"].get("zone_name") or "", "hosts": hosts,
             "cdn_host": cdn or next((h for h in hosts if h.startswith("cdn.")), hosts[0] if hosts else ""),
@@ -198,7 +205,25 @@ def instance_info():
             "home": core.HOME, "code": core.ROOT, "config": core.CONFIG_PATH,
             "token_env": inst.get("token_env") or "CF_API_TOKEN", "cloudflared_config": CFG["cloudflared_config"],
             "cloudflared_metrics": CFG["cloudflared_metrics"], "dry_run": bool(inst.get("dry_run")),
-            "tunnel_restart": inst.get("tunnel_restart") or {}}
+            "tunnel_restart": inst.get("tunnel_restart") or {}, "version": core.VERSION, "update": newer_release()}
+
+
+def newer_release():
+    """{"tag", "url"} of a GitHub release newer than this code, else None."""
+    db = core.connect()
+    try:
+        rel = core.get_meta(db, "latest_release") or {}
+    finally:
+        db.close()
+    newer = core.version_tuple(rel.get("tag")) > core.version_tuple(core.VERSION)
+    return {"tag": rel["tag"], "url": rel["url"]} if newer else None
+
+
+def icon_sprite():
+    """static/icons.svg inlined into the dashboard: an external <use href="icons.svg#..."> stays blank until that file
+    has been fetched again, which left icons missing from freshly rendered buttons."""
+    with open(os.path.join(STATIC, "icons.svg"), encoding="utf-8") as f:
+        return f.read().replace('style="display:none"', 'aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"', 1)
 
 
 def page_vars():
@@ -206,7 +231,43 @@ def page_vars():
     import html
     info = instance_info()
     return {"{{SITE}}": html.escape(info["name"]), "{{INSTANCE}}": html.escape(json.dumps(info), quote=True),
-            "{{ACCENT}}": html.escape(info["accent"] or "")}
+            "{{ACCENT}}": html.escape(info["accent"] or ""), "{{BRAND}}": html.escape(info["brand"]),
+            "<!--LOGIN_TEXT-->": '<p class="foot">%s</p>' % html.escape(info["login_text"]) if info["login_text"] else "",
+            "<!--VERSION-->": "Strata %s%s" % (html.escape(info["version"]), ' · <a href="%s" target="_blank" rel="noopener">%s available</a>' % (
+                html.escape(info["update"]["url"]), html.escape(info["update"]["tag"])) if info["update"] else "")}
+
+
+def branding():
+    """Settings › Branding: what the editor shows (name and sign-in text live in strata.json, files in the home)."""
+    css = core.home_path("custom.css")
+    return {"brand": CFG["instance"].get("brand") or "", "login_text": CFG["instance"].get("login_text") or "",
+            "css": open(css, encoding="utf-8").read() if os.path.isfile(css) else "",
+            "logo": os.path.isfile(core.home_path("brand.png"))}
+
+
+def save_branding(b):
+    inst = {k: str(b[k] or "").strip()[:n] for k, n in (("brand", 40), ("login_text", 300)) if k in b}
+    if inst:
+        core.save_config({"instance": inst})
+    files_ = {}
+    if "css" in b:
+        files_["custom.css"] = str(b["css"] or "").encode("utf-8")
+    if "logo" in b:
+        files_["brand.png"] = base64.b64decode(b["logo"] or "", validate=True)
+        if files_["brand.png"] and files_["brand.png"][:8] != bytes.fromhex("89504e470d0a1a0a"):  # PNG signature
+            raise files.FileError(415, "the logo has to be a PNG")
+    for name, data in files_.items():
+        if len(data) > 256 << 10:
+            raise files.FileError(413, "%s is larger than 256 KB" % ("the logo" if name == "brand.png" else "the CSS"))
+        full = core.home_path(name)
+        if not data:  # empty: back to the built-in logo / no custom CSS
+            if os.path.isfile(full):
+                os.remove(full)
+            continue
+        with open(full + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(full + ".tmp", full)
+    return branding()
 
 
 def smart_home(user):
@@ -247,6 +308,7 @@ ROUTE_CAPS = {
     "/api/settings/links": "system.settings", "/api/settings/smartsort": "system.settings",
     "/api/settings/upload": "system.settings", "/api/compress/run": "system.compression",
     "/api/settings/autoban": "security.autoban",
+    "/api/backup": "system.backup", "/api/backup/restore": "system.backup",  # the whole database: owner only
     # own account
     "/api/me": "account.self", "/api/instance": "account.self", "/api/prefs": "account.self", "/api/password": "account.self",
     "/api/privacy/accept": "account.self", "/api/audit": "account.self", "/api/audit/events": "account.self",
@@ -288,7 +350,8 @@ def route_cap(path, method, q, body):
     if path.startswith("/api/ide/"):
         return "code.write" if write and path.endswith("/save") else "code.read"
     if path == "/api/alerts/config":  # the sender that delivers sign-in codes: whoever controls it can read them
-        return "mail.manage" if any(k in body for k in ("resend_api_key", "clear_key", "from")) else "alerts.config"
+        # webhooks too: a URL of the owner's choosing receives every security alert
+        return "mail.manage" if any(k in body for k in ("resend_api_key", "clear_key", "from", "webhooks", "smtp", "provider")) else "alerts.config"
     if path == "/api/logs":
         return {"access": "logs.access", "activity": "audit.read"}.get(q.get("source"), "logs.runtime")
     if path.startswith("/api/audit/"):
@@ -439,10 +502,12 @@ class Handler(BaseHTTPRequestHandler):
     def static(self, path):
         name = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
         full = os.path.normpath(os.path.join(STATIC, name))
-        if not full.startswith(STATIC + os.sep) or not os.path.isfile(full) or re.match(r"login.*\.html$", name):
+        if name in BRAND_FILES and os.path.isfile(core.home_path(name)):
+            full = core.home_path(name)
+        elif not full.startswith(STATIC + os.sep) or not os.path.isfile(full) or re.match(r"login.*\.html$", name):
             return self.json({"error": "not found"}, 404)
         if name == "index.html":
-            return self.html_page(name, page_vars())
+            return self.html_page(name, dict(page_vars(), **{"<!--ICONS-->": icon_sprite()}))
         with open(full, "rb") as f:
             body = f.read()
         self.send_response(200)
@@ -792,6 +857,17 @@ class Handler(BaseHTTPRequestHandler):
                         compress=App.compressor.status(), user=user, sessions=App.sessions.count(),
                         alerts=open_alerts, blacklist=bl, totp=bool(CFG["auth"].get("totp_secret")))
             return self.json(snap)
+        if path == "/api/backup":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", "attachment; filename=%s" % backup.name())
+            self.send_header("Cache-Control", "no-store")
+            self.common_headers()
+            self.end_headers()
+            self.close_connection = True
+            backup.write(self.wfile)
+            core.audit(self.client_ip(), user, "backup", "")
+            return None
         if path.startswith("/api/files/zip/"):
             z = files.zip_take(path.rsplit("/", 1)[-1])
             self.send_response(200)
@@ -871,6 +947,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alerts": lambda: alerts.q_alerts(q),
             "/api/me": lambda: self.me(user),
             "/api/instance": instance_info,
+            "/api/branding": branding,  # not in ROUTE_CAPS: administrators only
             "/api/settings/signups": lambda: {"allowed": accounts.signups_allowed(), "locked_by_env": bool(__import__("os").environ.get("ALLOW_SIGNUPS") is not None or __import__("os").environ.get("STRATA_ALLOW_SIGNUPS") is not None)},
             "/api/accounts": lambda: self.accounts_list(user),
             "/api/office": lambda: self.office_state(user),
@@ -1255,6 +1332,30 @@ class Handler(BaseHTTPRequestHandler):
                     raise files.FileError(400, str(e))
                 core.audit(ip, user, "account.avatar.set", "")
                 return self.json({"avatar": ((accounts.get(user) or {}).get("avatar") or "")[:8]})
+            if path == "/api/backup/restore":  # raw zip body, streamed to disk
+                if not self.authorize(user, path, "POST", q):
+                    self.drain()
+                    return self.json({"error": "only the owner can restore a backup"}, 403)
+                left = int(self.headers.get("Content-Length") or 0)
+                if not left:
+                    raise files.FileError(400, "choose a backup zip")
+                fd, tmp = tempfile.mkstemp(prefix=".strata-upload-", suffix=".zip", dir=os.path.dirname(core.DB_PATH))
+                try:
+                    with os.fdopen(fd, "wb") as f:
+                        while left > 0:
+                            buf = self.rfile.read(min(left, 1 << 20))
+                            if not buf:
+                                raise files.FileError(400, "the upload stopped early")
+                            f.write(buf)
+                            left -= len(buf)
+                    backup.restore(tmp)
+                except ValueError as e:
+                    raise files.FileError(400, str(e))
+                finally:
+                    os.remove(tmp)
+                rules.APPLY_SOON.set()  # Caddy config from the restored drives and rules
+                core.audit(ip, user, "backup.restore", "")
+                return self.json({"restored": True})
             m = re.fullmatch(r"/api/upload/([0-9a-f]{24})/(complete|abort)", path)
             if m:
                 if not self.authorize(user, path, "POST", q):
@@ -1437,7 +1538,7 @@ class Handler(BaseHTTPRequestHandler):
             link = self.dashboard_base() + "/enroll?token=" + urllib.parse.quote(token)
             email_sent = False
             target_email = str(b.get("email") or "").strip().lower()
-            if target_email and App.alerts and CFG.get("alerts", {}).get("resend_api_key"):
+            if target_email and App.alerts and mail_configured():
                 import html
                 body = "Complete your Strata account setup within 24 hours: " + link
                 html_body = "<p>An administrator invited you to Strata.</p><p><a href=\"%s\">Set your password and review the privacy note</a>. The invite expires in 24 hours.</p>" % html.escape(link, quote=True)
@@ -1524,7 +1625,7 @@ class Handler(BaseHTTPRequestHandler):
             link = self.dashboard_base() + "/enroll?token=" + urllib.parse.quote(token)
             email_sent = False
             target_email = str(acct.get("email") or "").strip().lower()
-            if target_email and App.alerts and CFG.get("alerts", {}).get("resend_api_key"):
+            if target_email and App.alerts and mail_configured():
                 import html
                 body = "Reset your Strata account password: " + link
                 html_body = "<p>An administrator initiated a password reset for your Strata account.</p><p><a href=\"%s\">Set your new password</a>. The link expires in 24 hours.</p>" % html.escape(link, quote=True)
@@ -1739,6 +1840,10 @@ class Handler(BaseHTTPRequestHandler):
             A("scan", "all drives")
             return {"queued": True}
         # serving control
+        if b.get("preview") and path in ("/api/serving/mount", "/api/serving/rule", "/api/serving/site"):
+            # the diff of the Caddy config the change would produce; nothing is saved, applied or audited
+            save = {"mount": rules.save_mount, "rule": rules.save_rule, "site": rules.save_site}[path.rsplit("/", 1)[1]]
+            return {"diff": save(user, b)["diff"]}
         if path == "/api/serving/mount":
             r = rules.save_mount(user, b)
             A("drive-save", b.get("name", ""))
@@ -1842,11 +1947,34 @@ class Handler(BaseHTTPRequestHandler):
                 upd["resend_api_key"] = ""
             if "from" in b:
                 upd["from"] = str(b["from"]).strip()[:120]
+            if "provider" in b:
+                if b["provider"] not in ("smtp", "resend"):
+                    raise files.FileError(400, "provider is smtp or resend")
+                upd["provider"] = b["provider"]
+            if isinstance(b.get("smtp"), dict):  # any SMTP server: a provider's relay or a self-hosted one
+                sm, old = b["smtp"], CFG["alerts"].get("smtp") or {}
+                host = str(sm.get("host") or "").strip().lower()
+                if host and not re.fullmatch(r"[a-z0-9.-]{1,253}|\[[0-9a-f:.]+\]", host):
+                    raise files.FileError(400, "SMTP host: a host name or address, without port or scheme")
+                if str(sm.get("security") or "starttls") not in alerts.SMTP_SECURITY:
+                    raise files.FileError(400, "SMTP security is starttls, tls or none")
+                port = int(sm.get("port") or 0)
+                if not 0 <= port <= 65535:
+                    raise files.FileError(400, "SMTP port is 1 to 65535")
+                upd["smtp"] = {"host": host, "port": port, "security": str(sm.get("security") or "starttls"),
+                               "user": str(sm.get("user") or "").strip()[:200],
+                               # empty keeps the stored password, like the Resend key
+                               "password": "" if not host else str(sm["password"])[:500] if sm.get("password") else old.get("password", "")}
             if "to" in b:
                 to = [t.strip() for t in re.split(r"[,\s;]+", str(b["to"])) if t.strip()]
                 if any(not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", t) for t in to):
                     raise files.FileError(400, "invalid e-mail address")
                 upd["to"] = to[:10]
+            if "webhooks" in b:  # the owner's own LAN (a self-hosted ntfy) is a fine target, so no public-address check
+                hooks = [u.strip() for u in re.split(r"[\s,]+", str(b["webhooks"] or "")) if u.strip()]
+                if any(not re.match(r"^https?://[^\s/]+", u) or len(u) > 500 for u in hooks):
+                    raise files.FileError(400, "webhooks must be http:// or https:// addresses")
+                upd["webhooks"] = hooks[:5]
             for k in ("min_severity", "digest"):
                 if k in b:
                     upd[k] = str(b[k])
@@ -1857,9 +1985,14 @@ class Handler(BaseHTTPRequestHandler):
             A("alerts-config", ", ".join(k for k in upd))
             return alerts.q_alerts({})
         if path == "/api/alerts/test":
-            App.alerts.send("[Strata] Test message", "This is a test from Strata.",
-                            "<p>This is a test from <b>Strata</b>.</p>")
-            return {"sent": True}
+            try:
+                n = App.alerts.notify("[Strata] Test message", "This is a test from Strata.",
+                                      "<p>This is a test from <b>Strata</b>.</p>", "info")
+            except RuntimeError as e:
+                raise files.FileError(502, str(e))
+            if not n:
+                raise files.FileError(400, "set up e-mail delivery or add a webhook first")
+            return {"sent": n}
         # account + security
         if path == "/api/2fa/begin":
             secret = auth.totp_secret()
@@ -1909,6 +2042,10 @@ class Handler(BaseHTTPRequestHandler):
             App.sessions.drop_user(user)
             A("password-change", user)
             return {"changed": True, "note": "all sessions were signed out"}
+        if path == "/api/branding":
+            r = save_branding(b)
+            A("branding", ", ".join(sorted(b))[:200])
+            return r
         if path == "/api/settings/autoban":
             ab = {k: b[k] for k in ("enabled", "probes", "window_minutes", "ban_hours") if k in b}
             for k in ("probes", "window_minutes", "ban_hours"):
@@ -2045,11 +2182,15 @@ class Handler(BaseHTTPRequestHandler):
         password = form.get("password") or ""
         email = str(form.get("email") or "").strip().lower()
         key, sender = str(form.get("resend_key") or "").strip(), str(form.get("mail_from") or "").strip()
+        smtp_host = str(form.get("smtp_host") or "").strip().lower()
+        smtp_port = int(form.get("smtp_port")) if str(form.get("smtp_port") or "").isdigit() else 0
+        if smtp_host and not re.fullmatch(r"[a-z0-9.-]{1,253}", smtp_host):
+            smtp_host = ""
         problem = ("user" if not accounts.USER_RE.fullmatch(user) else
                    "password" if len(password) < 12 else
                    "repeat" if password != form.get("password2") else
                    "email" if not accounts.EMAIL_RE.fullmatch(email) else
-                   "mail" if not mail_configured() and not (key and accounts.EMAIL_RE.fullmatch(sender)) else "")
+                   "mail" if not mail_configured() and not ((key or smtp_host) and accounts.EMAIL_RE.fullmatch(sender)) else "")
         if problem:
             return self.redirect("/setup?e=" + problem)
         with SETUP_LOCK:
@@ -2057,8 +2198,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect("/login")
             update = {"auth": {"user": user, "password_hash": auth.hash_password(password)},
                       "alerts": {"to": [email] + [t for t in CFG["alerts"].get("to") or [] if t != email]}}
-            if key:
-                update["alerts"].update(resend_api_key=key, **{"from": sender})
+            if smtp_host:
+                update["alerts"].update({"from": sender, "provider": "smtp", "smtp": {
+                    "host": smtp_host, "port": smtp_port, "security": "tls" if smtp_port == 465 else "starttls",
+                    "user": str(form.get("smtp_user") or "").strip()[:200], "password": str(form.get("smtp_password") or "")[:500]}})
+            elif key:
+                update["alerts"].update(resend_api_key=key, provider="resend", **{"from": sender})
             core.save_config(update)
             accounts.bootstrap()
         core.audit(self.client_ip(), user, "owner-setup", "")
@@ -2096,11 +2241,11 @@ class Handler(BaseHTTPRequestHandler):
         tok = App.pending.create(username, ip, ttl=600)
         pending_cookie = self.cookie(auth.PENDING_COOKIE, tok, 600)
         email = str(acct.get("email") or "").strip().lower()
-        mail_ready = bool(CFG.get("alerts", {}).get("resend_api_key") and CFG.get("alerts", {}).get("from"))
+        mail_ready = mail_configured()
         if acct.get("role") == "root" and (not accounts.EMAIL_RE.fullmatch(email) or not mail_ready):
             App.pending.drop(tok)
             App.limiter.fail(ip)
-            core.audit(ip, username, "email-otp.unavailable", "login", ok=False, note="root email or resend not configured via CLI")
+            core.audit(ip, username, "email-otp.unavailable", "login", ok=False, note="root email or mail provider not configured via CLI")
             return self.redirect("/login?e=setup_required")
         if not accounts.EMAIL_RE.fullmatch(email) or not mail_ready:
             App.pending.drop(tok)
@@ -2200,12 +2345,19 @@ class Housekeeping(threading.Thread):
     daemon = True
 
     def run(self):
+        hours = 0
         while True:
             try:
                 files.up_gc()
                 files.sync_all_bins()  # trash edited by hand, expired 404 tombstones
             except Exception:
                 log("housekeeping error:\n" + traceback.format_exc())
+            if hours % 24 == 0:
+                try:
+                    core.check_update()
+                except Exception as e:
+                    log("update check failed: %s" % e)
+            hours += 1
             time.sleep(3600)
 
 

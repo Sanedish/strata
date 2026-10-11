@@ -18,7 +18,7 @@ Job params (job.params, written by media.py / the bridge):
   image  JSON {"want": "avif"|"webp", "spec": <cache spec, default "auto:<want>:v1">,
                "tf": {w, h, fit, fm, q} for a deferred explicit transform (then pass the hot path's "spec")};
          a bare "avif" / "webp" or "want=webp" works too.
-  video  optional JSON {"spec"} (default "auto:webm:v1").
+  video  optional JSON {"want": "webm"|"mp4", "spec"} (default: video.format, spec "auto:<want>:v1").
   scan   none.
 Meta written: worker_heartbeat (every 5 s), tools (every 10 min), cost_model (CostModel.to_dict after every automatic
 encode, read back at start), worker_prune (last prune).
@@ -733,7 +733,9 @@ class Worker:
         if not video.video_conf(conf)["enabled"]:
             self._finish(run, {"skipped": "disabled"})
             return
-        spec = _job_params(j.get("params")).get("spec") or AUTO_SPEC % "webm"
+        jp = _job_params(j.get("params"))
+        fmt = jp.get("want") if jp.get("want") in video.FORMATS else video.video_conf(conf)["format"]
+        spec = jp.get("spec") or AUTO_SPEC % fmt
         key = self.cache.key(j["mount"], j["path"], st.st_size, st.st_mtime, spec)
         if self._cached(key):
             self._finish(run, {"cached": True})
@@ -741,17 +743,17 @@ class Worker:
         t0 = time.monotonic()
         tmp = None
         try:
-            avail = video.available(conf)
+            avail = video.available(conf, fmt)
             if not avail.get("ok"):
                 raise video.VideoError("tool_missing", avail.get("error") or "ffmpeg missing")
             info = video.probe(full, conf)
-            plan = video.plan(info, conf, avail)
+            plan = video.plan(info, conf, avail, fmt)
             if plan is None:
-                reason = video.skip_reason(info, conf)
+                reason = video.skip_reason(info, conf, fmt)
                 self._not_beneficial(key, j, st, spec, "vid")
                 self._finish(run, {"variant": "orig", "reason": reason})
                 return
-            tmp = self.cache.tmp_path(".webm")
+            tmp = self.cache.tmp_path("." + fmt)
             r = video.transcode(full, tmp, plan, conf)
             kind = video.result_kind(r)
             if kind:
@@ -763,20 +765,20 @@ class Worker:
             if run.lost:
                 return
             if not video.beneficial(st.st_size, out, conf):
-                self._not_beneficial(key, j, st, spec, "vid", fmt="webm", out_bytes=out, secs=secs)
+                self._not_beneficial(key, j, st, spec, "vid", fmt=fmt, out_bytes=out, secs=secs)
                 self._finish(run, {"variant": "orig", "reason": "not_beneficial", "bytes": out,
                                    "src_bytes": st.st_size, "secs": round(secs, 1)})
                 return
-            rel = self.cache.adopt(key, "webm", "vid", tmp)
+            rel = self.cache.adopt(key, fmt, "vid", tmp)
             self.store.put_variant(key, mount=j["mount"], path=j["path"], src_size=st.st_size, src_mtime=st.st_mtime,
-                                   kind="vid", fmt="webm", spec=spec, file=rel, bytes=out, src_bytes=st.st_size,
+                                   kind="vid", fmt=fmt, spec=spec, file=rel, bytes=out, src_bytes=st.st_size,
                                    secs=round(secs, 3), beneficial=1)
-            self._finish(run, {"variant": "webm", "file": rel, "bytes": out, "src_bytes": st.st_size,
+            self._finish(run, {"variant": fmt, "file": rel, "bytes": out, "src_bytes": st.st_size,
                                "secs": round(secs, 1), "codec": plan.get("codec")})
         except video.VideoError as e:
             if e.kind == "tool_missing":   # no retry until the tools change (store.NO_RETRY / retry_failed)
                 self.events.emit_every(TOOLS_EVERY, "tool.missing", "warning", key="ffmpeg", tool="ffmpeg",
-                                       needed_for="video transcodes (WebM variants)", detail=e.detail[:200])
+                                       needed_for="video transcodes (%s variants)" % fmt.upper(), detail=e.detail[:200])
             if self._fail(run, str(e), e.kind) == "failed" and e.kind in ("probe_error", "encode_error"):
                 self._not_beneficial(key, j, st, spec, "vid", secs=time.monotonic() - t0)
         finally:

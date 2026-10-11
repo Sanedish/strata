@@ -30,7 +30,7 @@ Worth knowing before you report:
 
 ## Running Strata safely
 
-- Keep `strata.json` private. It holds the Cloudflare token, the Resend key and the signing secrets, and it is
+- Keep `strata.json` private. It holds the Cloudflare token, the mail credentials (SMTP password or Resend key) and the signing secrets, and it is
   listed in `.gitignore`.
 - Give the Cloudflare API token only the permissions the installer lists, scoped to your zone.
 - Don't publish the dashboard port through the tunnel. Use your LAN, a VPN, or Tailscale to reach it from elsewhere.

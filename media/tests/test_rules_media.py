@@ -207,7 +207,7 @@ class TestRegexes(unittest.TestCase):
         u = "https://cdn.example.com/general/photo.png"
         self.assertEqual(media_rules.variant_urls(u), [u + "?_v=avif", u + "?_v=webp", u + "?_v=orig"])
         self.assertEqual(media_rules.variant_urls(u.replace(".png", ".MP4")),
-                         [u.replace(".png", ".MP4") + "?_v=webm", u.replace(".png", ".MP4") + "?_v=orig"])
+                         [u.replace(".png", ".MP4") + "?_v=" + v for v in ("webm", "mp4", "orig")])
         self.assertEqual(media_rules.variant_urls(u + "?w=10"), [])
         self.assertEqual(media_rules.variant_urls(u.replace(".png", ".pdf")), [])
 
@@ -277,8 +277,9 @@ class TestRender(unittest.TestCase):
         self.assertEqual(text.count("error @mfu_"), 2)
 
     def test_negotiation_route_per_mode(self):
-        """off: none. edge: only for ?w= (Cloudflare rewrites query-less requests) + Vary: Accept on the canonical
-        original. redirect: every request without variant / explicit / version / download parameters."""
+        """off: none. edge: requests with a query (Cloudflare rewrites only query-less ones: ?w=, ?t=, ?v= are left to
+        the origin) + Vary: Accept on the canonical original. redirect: every request without variant / explicit /
+        version / download parameters, plus WebM for <video> players (the edge rule's job in edge mode)."""
         self.db.execute("DELETE FROM meta WHERE k='media_negotiation_effective'")
         text = self.render(negotiation="off")
         self.assertNotIn("@neg", text)
@@ -288,9 +289,27 @@ class TestRender(unittest.TestCase):
             text = self.render(**over)
             neg = text[text.index("@neg%d_1 {" % MID):]
             neg = neg[:neg.index("\n\t\t}")]
-            self.assertIn('{query.w} != ""', neg, over)
+            self.assertIn('{http.request.uri.query} != ""', neg, over)
+            self.assertNotIn('{query.w} != ""', neg, over)   # an image with ?t=1 is negotiated too, not only ?w=
             self.assertIn("header @nv%d_1 +Vary Accept" % MID, text)
             self.assertIn("@mv%d_" % MID, text)
+            self.assertNotIn("@nvid", text)                    # videos: Cloudflare's WebM rule
+        text = self.render(negotiation="redirect")
+        vid = text[text.index("@nvid%d_1 {" % MID):]
+        vid = vid[:vid.index("\n\t\t}")]
+        for want in ("mp4|m4v|mov", "Sec-Fetch-Dest video", "(chrome|firefox)/", "not header_regexp", "(crios|fxios)",
+                     '{http.request.uri.query} == ""'):
+            self.assertIn(want, vid)
+        self.assertIn("reverse_proxy @nvid%d_1" % MID, text)
+        self.assertNotIn("@nvid", self.render(negotiation="redirect", video={"enabled": False}))
+        # MP4 plays everywhere: every client of a query-less video is sent to ?_v=mp4, not only Chrome/Firefox players
+        text = self.render(negotiation="redirect", video={"enabled": True, "format": "mp4"})
+        vid = text[text.index("@nvid%d_1 {" % MID):]
+        vid = vid[:vid.index("\n\t\t}")]
+        self.assertIn("mp4|m4v|mov", vid)
+        self.assertNotIn("Sec-Fetch-Dest", vid)
+        self.assertNotIn("User-Agent", vid)
+        self.assertIn('{query._v} == "mp4"', text)          # @mv takes the variant URL
         text = self.render(negotiation="redirect")
         neg = text[text.index("@neg%d_1 {" % MID):]
         neg = neg[:neg.index("\n\t\t}")]

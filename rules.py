@@ -16,6 +16,7 @@ Cloudflare-CDN-Cache-Control). Browsers revalidate, Cloudflare keeps files long 
 import base64
 import collections
 import concurrent.futures
+import difflib
 import hashlib
 import hmac
 import ipaddress
@@ -523,7 +524,7 @@ def site_default():
     return {
         "listen": CFG["instance"].get("cdn_listen") or ":8080", "log_file": CFG["access_log"], "roll_size": "50MiB",
         "roll_keep": 10, "roll_keep_for": "720h", "encode": ["gzip", "zstd"], "nosniff": True, "hide_server": True,
-        "error_mount": 1, "error_page": "/404/404.html", "error_page_403": "/404/403.html",
+        "error_mount": 1, "error_page": "/404/404.html", "error_page_403": "/404/403.html", "error_page_502": "",
         "unknown_host": "404 - Unknown host",
         "quiet": [{"host": sh, "paths": ["/api/live", "/api/stats"]}] if sh else [],
         "link_prefix": "/l/",
@@ -1219,6 +1220,11 @@ def render(db):
         no_store(2)
         error_page(2, S["error_page_403"], 403, "Forbidden")
         o.add(1, "}")
+    if em and S.get("error_page_502"):  # a proxied service (or Transform, or the gate) is down or too slow
+        o.add(1, "handle_errors 502 503 504 {")
+        no_store(2)
+        error_page(2, S["error_page_502"], "{err.status_code}", "")
+        o.add(1, "}")
     o.add(1, "handle_errors {")
     no_store(2)
     o.add(2, "respond `{err.status_code} {err.status_text}`")
@@ -1309,10 +1315,19 @@ def apply(db, user="", reason="", force=False):
         return {"changed": True, "sha": sha}
 
 
-def mutate(user, reason, fn):
-    """Run fn(db) in a transaction, then apply. If Caddy refuses the result, the DB change is rolled back."""
+def mutate(user, reason, fn, preview=False):
+    """Run fn(db) in a transaction, then apply. If Caddy refuses the result, the DB change is rolled back.
+    preview: render the change and return its diff against the live config; nothing is committed."""
     db = connect()
     try:
+        if preview:
+            try:
+                fn(db)
+                text = render(db)
+            finally:
+                db.rollback()
+            cur = open(GEN_FILE, encoding="utf-8").read() if os.path.exists(GEN_FILE) else ""
+            return {"diff": "".join(difflib.unified_diff(cur.splitlines(True), text.splitlines(True), "live", "new", n=2))}
         with db:
             out = fn(db)
             res = apply(db, user, reason)
@@ -1406,7 +1421,7 @@ def save_mount(user, d):
         db.executemany("INSERT INTO gate_user(mount, user, hash, totp, created) VALUES(?,?,?,?,?)",
                        [(mid, u, h, tp, t) for _, u, h, tp in rows])
         return mid
-    res = mutate(user, "drive %s saved" % c["name"], fn)
+    res = mutate(user, "drive %s saved" % c["name"], fn, d.get("preview"))
     res["enrol"] = enrol
     return res
 
@@ -1446,7 +1461,7 @@ def save_rule(user, d):
         cur = db.execute("INSERT INTO rule(name,mount,patterns,action,params,enabled,expires,note,updated,sort,created) "
                          "VALUES(?,?,?,?,?,?,?,?,?,?,?)", vals + [sort, t])
         return cur.lastrowid
-    return mutate(user, "rule %s saved" % c["name"], fn)
+    return mutate(user, "rule %s saved" % c["name"], fn, d.get("preview"))
 
 
 def delete_rule(user, rid):
@@ -1589,7 +1604,7 @@ def save_site(user, d):
             v = str(d["unknown_host"])[:120]
             bq(v)
             s["unknown_host"] = v
-        for k in ("error_page", "error_page_403"):
+        for k in ("error_page", "error_page_403", "error_page_502"):
             if k in d:
                 v = str(d[k] or "")
                 if v and not PATH_PAT_RE.match(v):
@@ -1599,7 +1614,7 @@ def save_site(user, d):
             s["error_mount"] = int(d["error_mount"]) if d["error_mount"] else None
         set_meta(db, "site", s)
         return s
-    return mutate(user, "site settings", fn)
+    return mutate(user, "site settings", fn, d.get("preview"))
 
 
 def rollback(user, hid):

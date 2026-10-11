@@ -489,13 +489,24 @@ def step_tokens(cfg, raw):
         merge(cfg["update"], {"cloudflare": {"api_token": token, "zone_id": zone_id, "zone_name": zone_name}})
 
     alerts = raw.get("alerts") or {}
-    say("\n  Strata e-mails a sign-in code at every login, through Resend (https://resend.com, free tier is enough).")
-    key = secret("Resend API key (Enter to %s)" % ("keep the current one" if alerts.get("resend_api_key") else "skip"))
+    say("\n  Strata e-mails a sign-in code at every login: through any SMTP server (your mail provider's or your own),")
+    say("  or through Resend (https://resend.com, free tier is enough).")
+    smtp = alerts.get("smtp") or {}
     sender = ask("Send e-mail from", alerts.get("from") or "strata@" + cfg["site"]["domain"])
-    if key:
-        merge(cfg["update"], {"alerts": {"resend_api_key": key, "from": sender}})
-    elif not alerts.get("resend_api_key"):
-        say("  Without it nobody can sign in. Add it later with: python auth.py --resend <key> <from>")
+    host = ask("SMTP server (Enter to use Resend instead)", smtp.get("host") or "").strip().lower()
+    if host:
+        port = int(ask("SMTP port (587 = STARTTLS, 465 = TLS)", str(smtp.get("port") or 587)) or 587)
+        user = ask("SMTP user name", smtp.get("user") or sender)
+        pw = secret("SMTP password (Enter to %s)" % ("keep the current one" if smtp.get("password") else "send none"))
+        merge(cfg["update"], {"alerts": {"from": sender, "provider": "smtp", "smtp": {
+            "host": host, "port": port, "security": "tls" if port == 465 else "starttls", "user": user,
+            "password": pw or smtp.get("password") or ""}}})
+    else:
+        key = secret("Resend API key (Enter to %s)" % ("keep the current one" if alerts.get("resend_api_key") else "skip"))
+        if key:
+            merge(cfg["update"], {"alerts": {"resend_api_key": key, "from": sender, "provider": "resend"}})
+        elif not alerts.get("resend_api_key"):
+            say("  Without e-mail nobody can sign in. Add it later with: python auth.py --smtp <host> <port> <user> <from>")
 
     auth = raw.get("auth") or {}
     if auth.get("password_hash") and yes("Keep the owner account \"%s\"?" % auth.get("user")):

@@ -12,7 +12,7 @@
   const has = (cap) => !!D.me && (D.me.capabilities || []).includes(cap);
   const stamp = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '—';
   const status = (ok, yes = 'Healthy', no = 'Unavailable') => `<span class="sys-status ${ok ? 'ok' : 'hot'}"><i></i>${ok ? yes : no}</span>`;
-  const chip = (label, value, sub = '') => `<div class="sys-kpi"><span class="cap">${esc(label)}</span><b>${esc(value)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+  const stat = (label, value, sub = '', title = '') => `<div class="sys-stat"${title ? ` title="${esc(title)}"` : ''}><span class="cap">${esc(label)}</span><span><b>${esc(value)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span></div>`;
   const adminErr = (msg) => `<section class="panel"><div class="empty big">${icon('shield-alert', 'xl')}<b>${esc(msg || 'This view is unavailable for this account.')}</b></div></section>`;
 
   async function loadSystem() {
@@ -27,25 +27,31 @@
     const tables = (s.tables || []).map((t) => `<tr><td>${esc(t.name)}</td><td class="r">${fmt.bytes(t.bytes)}</td></tr>`).join('');
     const counts = Object.entries(c).map(([k, v]) => `<div class="sys-count"><span>${esc(k.replaceAll('_', ' '))}</span><b>${fmt.n(v)}</b></div>`).join('');
     return `<div class="sys-page">
-      <div class="sys-hero"><div><div class="cap">${esc(s.instance?.name || 'Strata')} · system health</div><h3>Instance overview</h3><p>Process reachability, database footprint and retention in one place.</p></div>
-        <button class="btn btn-secondary" data-act="sysRefresh">${icon('refresh-cw', 'sm')} Refresh</button></div>
-      <div class="sys-kpis">${chip('Database', fmt.bytes(s.db?.size), `${fmt.n(s.db?.rows)} raw requests`)}${chip('Raw retention', (s.raw_retention_days ?? '—') + ' days', 'request detail')}${chip('Aggregate retention', (s.retention_days ?? '—') + ' days', 'rollups')}${chip('Runtime log', fmt.bytes(r.bytes), r.path || 'not created yet')}${chip('Process', 'PID ' + s.pid, 'Python ' + s.python)}${chip('Uptime', fmt.dur(Date.now() / 1000 - s.started), 'since process start')}</div>
+      <section class="panel sys-overview"><div class="ph"><h5>${icon('cpu')} ${esc(s.instance?.name || 'Strata')}</h5><button class="pill" data-act="sysRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>
+        <div class="sys-stats">${stat('Database', fmt.bytes(s.db?.size), fmt.n(s.db?.rows) + ' requests')}${stat('Running', fmt.dur(Date.now() / 1000 - s.started), 'PID ' + s.pid + ' · Python ' + s.python)}${stat('Runtime log', fmt.bytes(r.bytes), r.path ? r.path.split(/[\\/]/).pop() : 'not created yet', r.path)}</div></section>
       <div class="sys-grid"><section class="panel sys-panel"><div class="ph"><h5>${icon('activity')} Service health</h5><span class="small dim">local listeners</span></div><div class="sys-services">${services || '<div class="empty">No local services are configured.</div>'}</div></section>
         <section class="panel sys-panel"><div class="ph"><h5>${icon('database')} Stored records</h5><span class="small dim">live table counts</span></div><div class="sys-counts">${counts}</div></section>
-        <section class="panel sys-panel"><div class="ph"><h5>${icon('hard-drive')} Largest database tables</h5><span class="small dim">SQLite page allocation</span></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Table</th><th class="r">Allocated</th></tr></thead><tbody>${tables || '<tr><td colspan="2">SQLite dbstat is not available.</td></tr>'}</tbody></table></div></section>
+        ${tables ? `<section class="panel sys-panel"><div class="ph"><h5>${icon('hard-drive')} Largest database tables</h5><span class="small dim">SQLite page allocation</span></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Table</th><th class="r">Allocated</th></tr></thead><tbody>${tables}</tbody></table></div></section>` : ''}
         <section class="panel sys-panel"><div class="ph"><h5>${icon('settings')} Retention & maintenance</h5><span class="small dim">database controls</span></div>
           <p class="small dim">Raw requests are capped at ${fmt.n(s.raw_max)} retained rows. Rollups keep longer-range charts efficient.</p>
-          <div class="sys-retention"><label>Raw request days<input id="sys-raw-days" type="number" min="1" max="3650" value="${esc(s.raw_retention_days ?? 30)}" ${has('system.manage') ? '' : 'disabled'}></label><label>Aggregate days<input id="sys-agg-days" type="number" min="7" max="3650" value="${esc(s.retention_days ?? 400)}" ${has('system.manage') ? '' : 'disabled'}></label></div>
-          <div class="admin-actions">${has('system.manage') ? `<button class="btn btn-primary" data-act="sysRetention">Save retention</button><button class="btn btn-secondary" data-act="sysOptimize">Optimize database</button>` : '<span class="small dim">You have read-only system access.</span>'}</div>
+          <div class="sys-retention"><label>Raw request days<input id="sys-raw-days" class="input" type="number" min="1" max="3650" value="${esc(s.raw_retention_days ?? 30)}" ${has('system.retention') ? '' : 'disabled'}></label><label>Aggregate days<input id="sys-agg-days" class="input" type="number" min="7" max="3650" value="${esc(s.retention_days ?? 400)}" ${has('system.retention') ? '' : 'disabled'}></label></div>
+          <div class="admin-actions">${has('system.retention') ? '<button class="btn btn-primary" data-act="sysRetention">Save retention</button>' : ''}${has('system.optimize') ? '<button class="btn btn-secondary" data-act="sysOptimize">Optimize database</button>' : ''}${has('system.retention') || has('system.optimize') ? '' : '<span class="small dim">You have read-only system access.</span>'}</div>
           <p class="small dim">Database optimization runs SQLite ANALYZE and a WAL checkpoint. Keep a current backup before changing retention.</p></section>
         ${versionsPanel()}
+        ${meOwner() ? backupPanel() : ''}
       </div></div>`;
+  }
+  function backupPanel() {
+    return `<section class="panel sys-panel"><div class="ph"><h5>${icon('archive')} Backup</h5><span class="small dim">owner only</span></div>
+      <p class="small dim">Settings without keys or passwords, plus the database. The database holds password hashes, so keep the file private.</p>
+      <div class="admin-actions"><a class="btn btn-primary" href="/api/backup" download>${icon('download', 'sm')} Download backup</a><label class="btn btn-secondary ${A.restoreBusy ? 'disabled' : ''}">${icon('upload', 'sm')}<span>${A.restoreBusy ? 'Restoring…' : 'Restore…'}</span><input type="file" accept=".zip,application/zip" data-change="sysRestore" hidden ${A.restoreBusy ? 'disabled' : ''}></label></div></section>`;
   }
   // moved here from Settings: what this instance runs
   function versionsPanel() {
     const L = D.live || {}, c = L.caddy || {}, t = L.tunnel || {}, cs = L.compress || {};
     return `<section class="panel sys-panel"><div class="ph"><h5>${icon('server')} Versions</h5><span class="small dim">this instance</span></div>
       <div class="kv" style="padding:4px 0 0">
+        <span>Strata</span><span>${esc(INST.version || '—')}${INST.update ? `, <a href="${esc(INST.update.url)}" target="_blank" rel="noopener">${esc(INST.update.tag)} available</a>` : ''}</span>
         <span>Site</span><span>${esc(INST.name || '—')}, instance ${esc(INST.id || '—')}</span>
         <span>Caddy</span><span>${esc(c.version || '—')}, ${c.up ? 'up ' + esc(fmt.dur(c.uptime)) : 'unreachable'}</span>
         <span>cloudflared</span><span>${esc(t.version || '—')}, ${t.up ? t.ha + '/4 links, up ' + esc(fmt.dur(t.uptime)) : 'unreachable'}</span>
@@ -425,6 +431,20 @@
     async sysRetention() {
       try { A.system = await post('/api/settings/retention', { raw_retention_days: +$('#sys-raw-days').value, retention_days: +$('#sys-agg-days').value }); note('Retention settings saved'); render(true); }
       catch (e) { note(e.message, { err: true }); }
+    },
+    async sysRestore(_, el) {
+      const file = el.files && el.files[0];
+      if (!file) return;
+      const ok = await ask({ kicker: 'Restore backup', title: 'Replace this instance’s data with ' + file.name + '?', danger: true, ok: 'Restore',
+        text: 'Accounts, drives, rules, links and statistics are replaced, and the settings in the backup are applied. Keys and passwords on this machine stay. Restart Strata afterwards.' });
+      if (!ok) { el.value = ''; return; }
+      A.restoreBusy = true; render(true);
+      try {
+        const r = await fetch('/api/backup/restore', { method: 'POST', body: file, credentials: 'same-origin', headers: { 'X-Strata': '1', 'Content-Type': 'application/zip' } });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'Restore failed (' + r.status + ')');
+        note('Backup restored. Restart Strata to finish.');
+      } catch (e) { note('Couldn’t restore: ' + e.message, { err: true }); } finally { A.restoreBusy = false; el.value = ''; render(true); }
     },
     async sysOptimize() {
       try { A.system = await post('/api/system/optimize', {}); note('Database optimization finished'); render(true); }

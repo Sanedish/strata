@@ -482,6 +482,19 @@ class Service(Base):
         for accept, want in cases.items():
             self.assertEqual(media.negotiate_format(accept), want, accept)
 
+    def test_video_player_negotiates_webm(self):
+        """Redirect mode sends query-less videos from <video> players here: 302 ?_v=webm (never AVIF/WebP by Accept);
+        while no WebM exists that URL answers 302 ?_v=orig. ?nocompress keeps the original."""
+        with open(os.path.join(self.mnt, "clip.mp4"), "wb") as f:
+            f.write(b"\0\0\0\x18ftypmp42" + b"\0" * 2048)
+        st, h, _ = self.media_req("/clip.mp4", {"X-Strata-Negotiate": "1", "Accept": AVIF_ACCEPT})
+        self.assertEqual((st, h["location"].rsplit("?", 1)[-1]), (302, "_v=webm"))
+        self.assertEqual(h["cache-control"], "private, no-store")
+        st, h, _ = self.media_req("/clip.mp4?_v=webm")
+        self.assertEqual((st, h["location"].rsplit("?", 1)[-1]), (302, "_v=orig"))
+        st, h, _ = self.media_req("/clip.mp4?nocompress=1", {"X-Strata-Negotiate": "1"})
+        self.assertNotEqual(st, 302)
+
     def test_bypass_reason(self):
         from email.message import Message
         def hdrs(**kw):

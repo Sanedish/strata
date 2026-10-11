@@ -48,6 +48,11 @@ NEG_IMG = ("png", "jpg", "jpeg", "jfif", "gif", "bmp", "tif", "tiff", "webp")
 # transforms keep their legacy meaning, ?ver= is a stored version, ?dl=1 a download of the original file
 NEG_EXCLUDE = ("_v", "fm", "h", "q", "fit", "ver", "dl")
 VIDEO_EXT = ("mp4", "m4v", "mov", "mkv", "avi", "wmv", "flv")
+# videos offered as WebM, and to which players: the same test as media_edge's Cloudflare rule (mkv/avi/wmv/flv are
+# downloads; Safari and iOS browsers get the original)
+NEG_VID_RX = "mp4|m4v|mov"
+VIDEO_PLAYER_UA = "(?i)(chrome|firefox)/"
+VIDEO_PLAYER_NOT = "(?i)(crios|fxios)"
 
 # Gate categories -> extensions (DESIGN 5.1). Must stay equal to media/config.py CATEGORIES (unit-tested); only
 # the categories listed in CFG.media.gate.categories are gated.
@@ -99,6 +104,12 @@ def enabled():
 
 def listen():
     return _m().get("listen") or DEFAULT_LISTEN
+
+
+def video_format():
+    """media.video.format: "webm" (AV1/VP9, Chrome/Firefox players only) or "mp4" (H.264, every client)."""
+    f = (_m().get("video") or {}).get("format")
+    return f if f in ("webm", "mp4") else "webm"
 
 
 def effective_negotiation(db=None):
@@ -310,10 +321,13 @@ def render_media_routes(o, m, up, db=None, negotiation=None):
     """Step 5 for a files mount with transforms on, to media on CFG.media.listen:
       `@neg<id>` (first) negotiable image whose query names no variant / explicit transform / version / download:
                  redirect mode -> every such request (canonical URL, ?w=, unrelated parameters like ?t=);
-                 edge mode     -> only ?w= requests (Cloudflare rewrites query-less ones before its cache, but its
-                                  rules cannot add _v to a URL that already has a query)
+                 edge mode     -> every such request *with* a query (Cloudflare rewrites query-less ones before its
+                                  cache, but its rules cannot add _v to a URL that already has one: ?w=, ?t=, ?v=)
                  media answers 302 ?[w=<rung>&]_v=avif|webp|orig by Accept (private, no-store, Vary: Accept).
-      `@mv<id>`  media extension AND (`_v` in avif|webp|webm OR any of w/h/fm/q/fit): the variant itself.
+      `@nvid<id>` redirect mode, video on: a query-less mp4/m4v/mov -> 302 ?_v=<video.format> (what the edge rule
+                 does in edge mode). WebM: only for a <video> element in Chrome / Firefox; MP4: every client.
+                 media answers ?_v=orig until the variant exists.
+      `@mv<id>`  media extension AND (`_v` in avif|webp|webm|mp4 OR any of w/h/fm/q/fit): the variant itself.
     In edge mode the canonical original additionally gets `Vary: Accept` (Cloudflare rewrote it by Accept).
     Returns True so render() skips the old @tf block (explicit ?w= now goes to media); ?ver= stays on Strata
     Transform. `?_v=orig` alone is deliberately not matched: gate + drive serve the untouched original."""
@@ -326,12 +340,23 @@ def render_media_routes(o, m, up, db=None, negotiation=None):
     if mode in ("redirect", "edge"):
         n = o.name("neg%d" % m["id"])
         cond = " && ".join('{query.%s} == ""' % k for k in NEG_EXCLUDE)
-        if mode == "edge":
-            cond += ' && {query.w} != ""'
+        if mode == "edge":   # query-less ones were rewritten at the edge already
+            cond += ' && {http.request.uri.query} != ""'
         o.matcher(2, n, [rules.host_cond(m["hosts"])] + pc + ["path_regexp %s %s" % (n, neg_rx),
                                                               "expression %s" % rules.bq(cond)])
         # media answers 302 / 403 / 503 (or the original for Cache-Control: no-transform); the accel/orig blocks
         # are a safety net so an empty 200 never leaks
+        _media_proxy(o, n, m, up, ["header_up X-Strata-Negotiate 1"])
+    if mode == "redirect" and (_m().get("video") or {}).get("enabled", True):
+        n = o.name("nvid%d" % m["id"])
+        conds = [rules.host_cond(m["hosts"])] + pc + [
+            "path_regexp %s %s" % (n, rules.bq("(?i)\\.(%s)$" % NEG_VID_RX)),
+            "expression `{http.request.uri.query} == \"\"`"]
+        if video_format() == "webm":   # MP4 plays everywhere: every client gets it; WebM only Chrome/Firefox players
+            conds += ["header Sec-Fetch-Dest video",
+                      "header_regexp %s User-Agent %s" % (o.name("nvua"), rules.bq(VIDEO_PLAYER_UA)),
+                      "not header_regexp %s User-Agent %s" % (o.name("nvua"), rules.bq(VIDEO_PLAYER_NOT))]
+        o.matcher(2, n, conds)
         _media_proxy(o, n, m, up, ["header_up X-Strata-Negotiate 1"])
     if mode == "edge":
         n = o.name("nv%d" % m["id"])
@@ -342,7 +367,7 @@ def render_media_routes(o, m, up, db=None, negotiation=None):
     o.matcher(2, n, [rules.host_cond(m["hosts"])] + pc + [
         "path_regexp %s %s" % (n, rules.bq("(?i)\\.(%s)$" % MEDIA_EXT_RX)),
         "expression %s" % rules.bq(
-            '{query._v} == "avif" || {query._v} == "webp" || {query._v} == "webm" || '
+            '{query._v} == "avif" || {query._v} == "webp" || {query._v} == "webm" || {query._v} == "mp4" || '
             '{query.w} != "" || {query.h} != "" || {query.fm} != "" || {query.q} != "" || {query.fit} != ""')])
     _media_proxy(o, n, m, up)
     return True
@@ -463,7 +488,7 @@ def variant_urls(url):
     if ext in NEG_IMG:
         return [path + "?_v=avif", path + "?_v=webp", path + "?_v=orig"]
     if ext in VIDEO_EXT:
-        return [path + "?_v=webm", path + "?_v=orig"]
+        return [path + "?_v=webm", path + "?_v=mp4", path + "?_v=orig"]
     return []
 
 

@@ -17,6 +17,7 @@ import re
 import secrets
 import time
 
+import alerts
 import auth
 import core
 
@@ -81,7 +82,7 @@ GROUPS = {"files": "Files (inside assigned storage zones)", "insight": "Read acc
           "office": "Team"}
 # Capabilities that can create or take over identities, or run code on this machine. They are never stored on an
 # account: only the root account (and CLI-issued API keys) holds them, so no grant can lead to privilege escalation.
-ROOT_ONLY = {"accounts.manage", "code.write", "mail.manage"}
+ROOT_ONLY = {"accounts.manage", "code.write", "mail.manage", "system.backup"}
 # Older coarse ids (still valid in stored grants) and what they mean in fine-grained terms.
 LEGACY = {
     "files.write": {"files.upload", "files.mkdir", "files.rename", "files.move", "files.copy", "files.edit",
@@ -539,8 +540,8 @@ def hmac_code(user, email, code, purpose):
 def send_code(user, email, sender, ip="", purpose="login"):
     if not EMAIL_RE.fullmatch(str(email or "")):
         raise ValueError("Add a valid e-mail address before signing in")
-    if not core.CFG.get("alerts", {}).get("resend_api_key") or not core.CFG.get("alerts", {}).get("from"):
-        raise ValueError("E-mail OTP is not configured. Ask the root administrator to configure Resend from the local network.")
+    if not alerts.mail_ready():
+        raise ValueError("E-mail OTP is not configured. Ask the root administrator to set up e-mail from the local network.")
     code = "%06d" % secrets.randbelow(1000000)
     expiry = time.time() + 600
     db = core.connect()

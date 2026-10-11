@@ -1,7 +1,7 @@
 'use strict';
 /* Strata - CDN monitor front end. Renders strata.py's /api/* into the Strata System Monitor layout.
    Everything that comes from the access log is attacker-controlled (paths, user agents, referrers):
-   it only ever reaches the DOM through esc(). Icons: Lucide (ISC), static/icons.svg. */
+   it only ever reaches the DOM through esc(). Icons: Lucide (ISC), static/icons.svg, inlined into the page by the server. */
 
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -9,7 +9,7 @@ const enc = encodeURIComponent;
 // which site this dashboard manages (strata.py fills index.html's meta tag from the instance's strata.json)
 const INST = (() => { try { return JSON.parse(document.querySelector('meta[name="strata-instance"]').content); } catch { return {}; } })();
 const cdnHost = () => INST.cdn_host || location.hostname;
-const icon = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="icons.svg#i-${name}"/></svg>`;
+const icon = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 const VIEWS = {
   summary: ['Summary', 'Traffic and health at a glance', 'layout-dashboard'],
@@ -18,7 +18,7 @@ const VIEWS = {
   content: ['Content', 'Most requested files', 'file-text'],
   visitors: ['Visitors', 'Countries, networks and clients', 'earth'],
   insights: ['Insights', 'Patterns over time', 'lightbulb'],
-  files: ['Files', 'Browse and manage your drives', 'folder-open'],
+  files: ['Browse', 'Browse and manage your drives', 'folder-open'],
   upload: ['Upload', 'Add files to a drive', 'upload'],
   analyze: ['Analyze', 'Disk usage and growth', 'chart-pie'],
   serving: ['Serving', 'Drives, rules and error pages', 'server'],
@@ -35,7 +35,8 @@ const VIEWS = {
   edge: ['Edge', 'Cloudflare cache and threats', 'cloud'],
   system: ['System', 'Processes, database and retention', 'cpu'],
   accounts: ['Accounts', 'Users, permissions and storage access', 'key-round'],
-  office: ['Team', 'People, noticeboard and notes', 'users'],
+  // ponytail: Team (office.js) is hidden for now; to bring it back restore this line and 'office' in NAV_GROUPS
+  // office: ['Team', 'People, noticeboard and notes', 'users'],
   ide: ['Code', 'Edit Strata’s source', 'code'],
   settings: ['Settings', 'Your preferences', 'settings'],
   // hubs: one sidebar entry, a tab row for their views. S.view is always a view, never a hub.
@@ -58,7 +59,7 @@ const hubTarget = (h) => { const t = hubTabs(h); return t.includes(S.hubLast?.[h
 const navLeaves = (ids) => ids.flatMap((id) => (HUBS[id] ? hubTabs(id) : [id]));
 // grouped by task. Upload is not listed: the header's Upload button opens it from every view.
 const NAV_GROUPS = [
-  ['', ['summary', 'office']],
+  ['Overview', ['summary']],
   ['Monitor', ['traffic', 'guard', 'health']],
   ['Manage', ['drive', 'site', 'network']],
   ['Admin', ['accounts', 'ide']],
@@ -103,7 +104,7 @@ const PREFS = {
   reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
   zebra: false, navCollapsed: false, navHidden: [], navPinned: [], landing: '', vitals: ['reqs', 'bytes', 'uniq', 'errors', 'latency', 'tunnel'],
   clock24: true, relTimes: true, hiddenPause: true, notify: false, savedFilters: [], syncPrefs: false, palRecent: [],
-  confirmDelete: true, vitalsAll: false, hubLast: {},
+  confirmDelete: true, vitalsAll: false, hubLast: {}, navOpen: {},
 };
 const S = {};
 for (const [k, d] of Object.entries(PREFS)) S[k] = store.get(k, d);
@@ -424,10 +425,20 @@ function refreshForView() {
 
 /* ------------------------------------------------------------------ chrome */
 
-function navItem(id, badge, alert) {
+function navItem(id, badge, alert, cls = '') {
   const on = S.view === id || hubOf(S.view) === id;
-  return `<button class="nav-item ${on ? 'on' : ''}" data-act="go" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
+  return `<button class="nav-item ${cls} ${on ? 'on' : ''}" data-act="go" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
     <span class="mark"></span>${icon(VIEWS[id][2])}<span>${VIEWS[id][0]}</span><span class="badge ${alert ? 'alert' : ''}">${esc(badge ?? '')}</span></button>`;
+}
+// a hub is a drop-down in the sidebar: its header (chevron) folds its views in and out; open unless folded by hand
+const navOpen = (h) => S.navOpen?.[h] ?? true;
+function navHub(h, b, alert) {
+  const tabs = hubTabs(h);
+  if (tabs.length < 2) return navItem(h, b[h], alert[h]);
+  const open = navOpen(h), here = hubOf(S.view) === h;
+  return `<div class="nav-group" id="navgrp-${h}"><button class="nav-item nav-drop ${here && !open ? 'on' : ''}" data-act="navToggle" data-arg="${h}" aria-expanded="${open}" title="${open ? 'Fold' : 'Unfold'} ${esc(VIEWS[h][0])}">
+    <span class="mark"></span>${icon(VIEWS[h][2])}<span>${esc(VIEWS[h][0])}</span><span class="badge ${!open && alert[h] ? 'alert' : ''}">${open ? '' : esc(b[h] ?? '')}</span>${icon(open ? 'chevron-down' : 'chevron-right', 'chev')}</button>
+    ${open ? tabs.map((v) => navItem(v, b[v], alert[v], 'nav-child')).join('') : ''}</div>`;
 }
 // a view shows when the account holds any of its capabilities (the server enforces each request separately)
 const VIEW_NEEDS = { summary: ['analytics.read'], requests: ['analytics.visitors'], logs: ['logs.runtime', 'logs.access', 'audit.read'],
@@ -477,7 +488,7 @@ function renderNav() {
   const navTop = navEl ? navEl.scrollTop : 0;
   const head = (title) => title ? `<div class="cap nav-h">${esc(title)}</div>` : '';
   patch(navEl, visibleNav().map(([title, ids], gi) => `<div class="${gi ? 'nav-deep' : ''}">${head(title)}` +
-    ids.map((id) => navItem(id, b[id], alert[id])).join('') + '</div>').join(''));
+    ids.map((id) => HUBS[id] ? navHub(id, b, alert) : navItem(id, b[id], alert[id])).join('') + '</div>').join(''));
   if (navEl && navEl.scrollTop !== navTop) navEl.scrollTop = navTop;
 
   const c = $('#conn');
@@ -597,10 +608,12 @@ function auxPanel(a) {
   </aside>`;
 }
 function tblView(o) {
-  const tabs = o.tabs ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div style="flex:1"></div><button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>` : '';
+  const csv = o.tabs ? `<button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button>` : '';
+  // no tab pills: the CSV button joins the title line instead of sitting alone in an empty bar
+  const tabs = o.tabs?.length ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div style="flex:1"></div>${csv}</div>` : '';
   return `<div class="split" style="grid-template-columns:1fr 300px">
     <section class="aside">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>${esc(o.title)}</h5><span class="small dim ell">${esc(o.note || '')}</span></div>
+      <div class="ph" style="padding:14px 18px 8px;margin:0;gap:12px;align-items:center"><h5>${esc(o.title)}</h5><span class="small dim ell" style="margin-left:auto">${esc(o.note || '')}</span>${tabs ? '' : csv}</div>
       <div style="border-top:2px solid var(--color-divider)"></div>${tabs}
       ${table(o.key, o.labels, o.rows, o)}
     </section>
@@ -1208,7 +1221,7 @@ function vSettings() {
   const vitalSlots = Array.from({ length: 8 }, (_, i) => `<select class="input" data-change="vitalSlot" data-arg="${i}">
     <option value="">— empty —</option>${Object.entries(VITALS).map(([k, [l]]) => `<option value="${k}" ${(S.vitals || [])[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`).join('');
   const q = (S.setQ || '').trim(), tab = S.setTab || 'prefs';
-  const head = `<div class="set-head span2"><nav class="hubtabs" role="tablist">${[['prefs', 'Preferences', 'sliders-horizontal'], ['account', 'Account', 'user']].map(([k, l, ic]) =>
+  const head = `<div class="set-head span2"><nav class="hubtabs" role="tablist">${[['prefs', 'Preferences', 'sliders-horizontal'], ['account', 'Account', 'user'], ['about', 'About', 'info']].map(([k, l, ic]) =>
     `<button class="${!q && tab === k ? 'on' : ''}" data-act="setTab" data-arg="${k}" role="tab" aria-selected="${!q && tab === k}">${icon(ic, 'sm')}${l}</button>`).join('')}</nav>
     <label class="set-q">${icon('search')}<input id="setq" class="input" placeholder="Filter settings" value="${esc(S.setQ || '')}" autocomplete="off" spellcheck="false" aria-label="Filter settings"></label></div>`;
   const account = SETTINGS_PANELS.map((f) => { try { return f(row, toggle, seg); } catch (e) { return `<section class="panel"><div class="empty">${esc(e.message)}</div></section>`; } }).join('');
@@ -1224,6 +1237,7 @@ function vSettings() {
       ${row('Typeface', 'Mono lines up numbers.', seg([['archivo', 'Archivo'], ['system', 'System'], ['mono', 'Mono']], S.font, 'setFont'))}
       ${row('Striped tables', 'Alternate row shading in long tables.', toggle(S.zebra, 'setZebra'))}
       ${row('Reduce motion', 'No row flashes, spinners or transitions.', toggle(S.reduceMotion, 'reduceMotion'))}
+      ${['root', 'admin'].includes(D.me?.role) ? row('Branding', 'Name, logo, sign-in text and custom CSS for everyone on this site.', sheetBtn('branding', 'Edit')) : ''}
     </section>
     <section class="panel span2">
       <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} %</span></div>
@@ -1246,7 +1260,7 @@ function vSettings() {
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">tiles above the traffic pages</span></div>
-      ${row('Show everywhere', 'Also on Team, Files, settings pages and Admin.', toggle(S.vitalsAll, 'setVitalsAll'))}
+      ${row('Show everywhere', 'Also on Files, settings pages and Admin.', toggle(S.vitalsAll, 'setVitalsAll'))}
       <div class="form" style="grid-template-columns:1fr 1fr;margin-top:8px">${vitalSlots}</div>
       <div class="act-row"><button class="pill" data-act="vitalsReset">${icon('rotate-ccw', 'sm')}Default six</button><button class="pill" data-act="vitalsNone">${icon('eye-off', 'sm')}Hide the strip</button></div>
     </section>
@@ -1272,8 +1286,39 @@ function vSettings() {
       ${row('Export or import', 'A JSON file with every preference.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
       ${row('Reset everything', 'Back to the defaults in this browser.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
     </section>
-` : ''}
+` : ''}${q || tab === 'about' ? aboutPanel(row) : ''}
   </div>`;
+}
+
+// Settings › About: the author and every project whose code or data Strata ships with or drives
+const CREDITS = [
+  ['Caddy', 'Web server Strata configures · Apache 2.0', 'https://caddyserver.com'],
+  ['cloudflared', 'Cloudflare Tunnel client · Apache 2.0', 'https://github.com/cloudflare/cloudflared'],
+  ['FFmpeg', 'Video and audio processing · LGPL / GPL', 'https://ffmpeg.org'],
+  ['Python', 'Runtime and standard library · PSF', 'https://www.python.org'],
+  ['SQLite', 'Database · public domain', 'https://sqlite.org'],
+  ['Pillow', 'Image processing · MIT-CMU', 'https://python-pillow.github.io'],
+  ['Brotli', 'Compression, by Google · MIT', 'https://github.com/google/brotli'],
+  ['python-zstandard', 'Compression, by Gregory Szorc · BSD', 'https://github.com/indygreg/python-zstandard'],
+  ['qrcode', 'QR codes, by Lincoln Loop · BSD', 'https://github.com/lincolnloop/python-qrcode'],
+  ['colorama', 'Console colours, by Jonathan Hartley · BSD', 'https://github.com/tartley/colorama'],
+  ['CodeMirror', 'Code editor, by Marijn Haverbeke and contributors · MIT', 'https://codemirror.net/5/'],
+  ['Lucide', 'Icons, by the Lucide contributors · ISC', 'https://lucide.dev'],
+  ['Archivo', 'Typeface, by Omnibus-Type · SIL OFL', 'https://fonts.google.com/specimen/Archivo'],
+];
+function aboutPanel(row) {
+  const ext = (href, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+  return `<section class="panel span2">
+      <div class="ph"><h5>${icon('info')}About</h5><span class="small dim">${esc($('.ver')?.textContent || '')}</span></div>
+      <div class="about-banner"><div class="about-card"><img class="av lg" src="/media/fallback.jpg" alt="" width="88" height="88" style="object-position:50% 20%"><div>
+        <div class="cap">Strata is made by:</div><b>Sanedish</b>
+        <p>This interface is a solo passion project, and if you enjoy it, I would love for you to star it on GitHub! It would mean the world to me to get this project out to more people! &lt;3</p>
+        <div class="acct-actions"><a class="btn btn-secondary" href="https://github.com/Sanedish/strata" target="_blank" rel="noopener noreferrer">${icon('star', 'sm')}<span>Star on GitHub</span></a></div></div></div></div>
+    </section>
+    <section class="panel span2">
+      <div class="ph"><h5>${icon('code')}Credits</h5><span class="small dim">thank you</span></div>
+      ${CREDITS.map(([n, d, u]) => row(n, d, ext(u, u.replace(/^https:\/\/(www\.)?|\/$/g, '')))).join('')}
+    </section>`;
 }
 
 function filterSettings() {
@@ -1663,6 +1708,7 @@ const ACT = {
   },
   themeCycle() { const order = ['auto', 'light', 'dark']; setPref('theme', order[(order.indexOf(S.theme) + 1) % 3]); note('Theme: ' + ({ auto: 'follows the system', light: 'light', dark: 'dark' }[S.theme])); },
   navCollapse() { setPref('navCollapsed', !S.navCollapsed); },
+  navToggle(h) { S.navOpen = { ...S.navOpen, [h]: !navOpen(h) }; persist(); renderNav(); },
   help() { S.help = true; renderOverlay(); },
   helpClose(_, el, e) { if (!e || e.target === el || el.dataset.act === 'helpClose') { S.help = false; renderOverlay(); } },
   siteMenu(_, el, e) { const m = MENUS.site(); const r = el.getBoundingClientRect(); S.menu = Object.assign(m, { x: r.left / zoomNow, y: r.bottom / zoomNow + 4 }); renderOverlay(); },

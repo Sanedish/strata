@@ -42,6 +42,16 @@
     off: 'Only explicit ?fm= / ?_v= URLs get AVIF / WebP; canonical URLs serve the original.',
   };
   const THRESHOLDS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
+  // videos are converted in the background (idle priority, video.cpu_pct cap); the first viewers get the original
+  const VIDEO_FORMATS = [['webm', 'WebM (AV1)'], ['mp4', 'MP4 (H.264)']];
+  const VIDEO_HELP = {
+    webm: [['Benefits', 'Smallest files: AV1 is roughly 30–50 % smaller than H.264 at the same quality.'],
+      ['Downsides', 'Only <video> players in Chrome and Firefox get it. Safari, iPhones, Discord embeds, direct opens and downloads keep the original. Slow to encode.'],
+      ['Hardware', 'Roughly 4+ modern cores; 1080p encodes at about a third to half of real time on 2 threads; 2–3 GB RAM per job.']],
+    mp4: [['Benefits', 'Plays on every browser, phone, TV and embed, so every viewer gets the compressed copy. About 2–3× faster to encode than AV1.'],
+      ['Downsides', 'Roughly 30–50 % larger than AV1. Sources that are already lean H.264, or HEVC / AV1 / VP9, keep the original.'],
+      ['Hardware', 'Roughly 2+ modern cores; 1080p encodes at about real time on 2 threads; ~1 GB RAM per job; 4K is about 4× slower.']],
+  };
   const THRESHOLD_HELP = {
     low: 'Hold on any finding, even private IPs, e-mail addresses or GPS tags: strictest, most false positives.',
     medium: 'Hold on medium findings and above: passwords, public IPs, active content, unscannable files. Default.',
@@ -321,7 +331,8 @@
     const s = ST(), c = asObj(s.settings), g = asObj(first(s.gate, conf('gate'))), sc = asObj(first(s.scan, conf('scan')));
     const leg = first(c.gate_legacy, c.legacy_while_pending, g.legacy_while_pending);
     return { negotiation: first(c.negotiation, negotiation().configured),
-      gate_legacy: leg === undefined ? undefined : yes(leg) ? '1' : '0', hold_threshold: first(c.hold_threshold, sc.hold_threshold) };
+      gate_legacy: leg === undefined ? undefined : yes(leg) ? '1' : '0', hold_threshold: first(c.hold_threshold, sc.hold_threshold),
+      video_format: first(c.video_format, asObj(conf('video')).format, 'webm') };
   }
   function edgeWord(N) {
     const e = N.edge, t = asObj(N.caps.transform);
@@ -766,6 +777,8 @@
         : leg === '0' ? 'Legacy files answer 503 until scanned: safest, but old links fail for a while.' : 'Serve files born before the cutover before their first scan?',
       seg('gate_legacy', [['1', 'Serve'], ['0', 'Block']])) +
       setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
+      setRow('Video compression', 'Convert videos on the fly to WebM or to MP4. ?nocompress always gets the original.', seg('video_format', VIDEO_FORMATS)) +
+      kvHtml(VIDEO_HELP[val('video_format')] || VIDEO_HELP.webm, 'padding:0 0 8px') +
       `<div class="act-row"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>Save & apply</button>
         ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot" style="align-self:center">unsaved changes</span>' : ''}</div>`;
     return panelH('Settings', 'saved to strata.json · Caddy config re-rendered and validated', body, 'md-set');
@@ -1026,7 +1039,7 @@
     },
     mdSet(arg) {
       const s = String(arg || ''), i = s.indexOf(':'), k = s.slice(0, i), v = s.slice(i + 1);
-      const allowed = { negotiation: NEG_MODES, gate_legacy: [['1'], ['0']], hold_threshold: THRESHOLDS }[k];
+      const allowed = { negotiation: NEG_MODES, gate_legacy: [['1'], ['0']], hold_threshold: THRESHOLDS, video_format: VIDEO_FORMATS }[k];
       if (!allowed || !allowed.some((a) => a[0] === v)) return;
       if (String(settingsNow()[k]) === v) delete S.md.draft[k]; else S.md.draft[k] = v;
       render(true);
@@ -1047,6 +1060,10 @@
         body.hold_threshold = d.hold_threshold;
         lines.push(`hold threshold ${cur.hold_threshold || '?'} → ${d.hold_threshold}`);
         if ((SEV[d.hold_threshold] || 0) > (SEV[cur.hold_threshold] || 2)) warn.push('fewer files are held back' + (d.hold_threshold === 'high' ? ', unscannable ones get published' : ''));
+      }
+      if ('video_format' in d) {
+        body.video_format = d.video_format;
+        lines.push(`video compression ${cur.video_format || 'webm'} → ${d.video_format} (videos are converted again as they are requested)`);
       }
       const ok = await ask({ kicker: 'Media settings', title: 'Save and apply?', ok: 'Save & apply', danger: warn.length > 0,
         text: lines.join(' · ') + '. Saved to strata.json; the Caddy config is re-rendered and validated before it is applied.' +

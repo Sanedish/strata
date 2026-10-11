@@ -1,12 +1,17 @@
 """A demo instance with a week of made-up traffic, for screenshots and for clicking around.
 
-    python tests/demo.py            starts it on http://127.0.0.1:8290 and prints a sign-in link; Ctrl+C stops it
+    python tests/demo.py            starts it on http://127.0.0.1:8290, already signed in as alex; Ctrl+C stops it
 
 Everything lives in a temp folder: sample files (generated images, a site, a zip), a Caddy access log written in
 Caddy's JSON format, and the stub Caddy from run_all.py. Visitors use documentation address ranges (192.0.2.0/24,
 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32), so nothing here points at a real person. Traffic keeps trickling
 in while it runs, so the live views move.
+
+No sign-in: Strata itself listens on 8291 with its sign-in untouched, and a small proxy on 8290 (in this file only,
+never in Strata) adds alex's session cookie to every request. Nothing about this reaches a real installation.
 """
+import http.client
+import http.server
 import io
 import json
 import math
@@ -25,7 +30,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import run_all as ra  # noqa: E402
 
-PORT = 8290
+PORT = 8290          # the proxy you open: already signed in
+STRATA_PORT = 8291   # Strata itself, sign-in as in production
 DAYS = 7
 rnd = random.Random(7)
 
@@ -47,6 +53,51 @@ REFERRERS = ["", "", "", "", "https://www.google.com/", "https://news.ycombinato
              "https://duckduckgo.com/", "https://github.com/", "https://example.com/blog/"]
 PROBES = ["/.env", "/wp-login.php", "/.git/config", "/wp-admin/setup-config.php", "/phpmyadmin/index.php",
           "/.aws/credentials", "/admin.php", "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php", "/../../etc/passwd"]
+
+
+def signed_in_proxy(token):
+    """Forward http://127.0.0.1:PORT to Strata on STRATA_PORT with alex's session cookie on every request."""
+    cookie = "strata_session=" + token
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):
+            pass
+
+        def forward(self):
+            if self.path.split("?")[0] == "/logout":  # signing out would end the only session the demo has
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            headers = {k: v for k, v in self.headers.items() if k.lower() not in ("cookie", "connection", "keep-alive")}
+            others = [c.strip() for c in (self.headers.get("Cookie") or "").split(";")
+                      if c.strip() and not c.strip().startswith("strata_session=")]
+            headers["Cookie"] = "; ".join(others + [cookie])
+            up = http.client.HTTPConnection("127.0.0.1", STRATA_PORT, timeout=120)
+            try:
+                up.request(self.command, self.path, body or None, headers)  # Host stays as the browser sent it
+                r = up.getresponse()
+                data = r.read()
+            finally:
+                up.close()
+            self.send_response(r.status, r.reason)
+            for k, v in r.getheaders():
+                if k.lower() not in ("transfer-encoding", "connection", "content-length", "keep-alive"):
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
+        do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = forward
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Proxy)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
 
 
 def make_files(root):
@@ -235,7 +286,7 @@ def main():
     import auth  # noqa: E402
     cfg = {"instance": {"id": "example", "name": "example.com", "dry_run": True, "cdn_listen": ":18280",
                         "accent": "#e65a46"},
-           "listen": "127.0.0.1:%d" % PORT, "feed_listen": "127.0.0.1:18281", "transform_listen": "127.0.0.1:18283",
+           "listen": "127.0.0.1:%d" % STRATA_PORT, "feed_listen": "127.0.0.1:18281", "transform_listen": "127.0.0.1:18283",
            "gate_listen": "127.0.0.1:18285", "media": {"listen": "127.0.0.1:18284"},
            "caddy_exe": ra.stub_caddy(os.path.join(root, "bin")), "caddyfile": caddyfile, "access_log": access_log,
            "caddy_metrics": "http://127.0.0.1:%d/caddy" % METRICS_PORT,
@@ -253,8 +304,7 @@ def main():
               "sys.argv = [sys.argv[1]] + sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')")
     proc = subprocess.Popen([sys.executable, "-c", launch, os.path.join(ra.CODE, "strata.py"), "--home", home], cwd=ra.CODE,
                             env=dict(os.environ, STRATA_HOME=home), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-    base = "http://127.0.0.1:%d" % PORT
-    ra.BASE = base
+    ra.BASE = "http://127.0.0.1:%d" % STRATA_PORT
     if not ra.wait_up(proc):
         sys.exit("demo server did not start")
     db = os.path.join(home, "data", "strata.db")
@@ -263,8 +313,7 @@ def main():
     c.commit()
     c.close()
     token = ra.session(db, "alex")
-    with open(os.path.join(root, "session.txt"), "w") as f:
-        f.write(token)
+    proxy = signed_in_proxy(token)
 
     stop = threading.Event()
 
@@ -273,15 +322,14 @@ def main():
             with open(access_log, "a") as f:
                 f.write(line(time.time(), files, 2400) + "\n")
     threading.Thread(target=trickle, daemon=True).start()
-    print("demo: %s   (instance folder %s)" % (base, home))
-    print("session cookie: strata_session=%s" % token)
-    print("in the browser console on that page:  document.cookie = 'strata_session=%s; path=/'" % token)
+    print("demo: http://127.0.0.1:%d   signed in as alex   (instance folder %s)" % (PORT, home))
     try:
         proc.wait()
     except KeyboardInterrupt:
         pass
     finally:
         stop.set()
+        proxy.shutdown()
         proc.terminate()
         proc.wait(10)
         shutil.rmtree(root, ignore_errors=True)

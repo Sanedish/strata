@@ -1036,7 +1036,8 @@ class Bridge(threading.Thread):
         c = self.conf
         return {"negotiation": c.get("negotiation") or "auto",
                 "gate_legacy": bool((c.get("gate") or {}).get("legacy_while_pending", True)),
-                "hold_threshold": (c.get("scan") or {}).get("hold_threshold") or "medium"}
+                "hold_threshold": (c.get("scan") or {}).get("hold_threshold") or "medium",
+                "video_format": "mp4" if (c.get("video") or {}).get("format") == "mp4" else "webm"}
 
     def config_summary(self):
         """What the UI may show - never the admin token or anything secret."""
@@ -1050,7 +1051,7 @@ class Bridge(threading.Thread):
                          "legacy_while_pending": g.get("legacy_while_pending", True)},
                 "lane": dict(c.get("lane") or {}),
                 "image": {k: img.get(k) for k in ("sync_budget_s", "sync_max_mp", "prewarm_uploads", "prewarm_popular")},
-                "video": {k: v.get(k) for k in ("enabled", "codec")},
+                "video": {k: v.get(k) for k in ("enabled", "codec", "format")},
                 "file_policy": {"enabled": bool((c.get("file_policy") or {}).get("enabled"))}}
 
     def tools(self):
@@ -1367,8 +1368,13 @@ def _post_settings(b, user, body, A):
             raise ValueError("hold_threshold must be low, medium or high")
         media["scan"] = {"hold_threshold": body["hold_threshold"]}
         upd["hold_threshold"] = body["hold_threshold"]
+    if "video_format" in body:
+        if body["video_format"] not in ("webm", "mp4"):
+            raise ValueError("video_format must be webm or mp4")
+        media["video"] = {"format": body["video_format"]}
+        upd["video_format"] = body["video_format"]
     if not media:
-        raise ValueError("nothing to change (negotiation, gate_legacy, hold_threshold)")
+        raise ValueError("nothing to change (negotiation, gate_legacy, hold_threshold, video_format)")
     core.save_config({"media": media})
     A("media-settings", ", ".join("%s=%s" % kv for kv in sorted(upd.items())))
     res = None
@@ -1378,6 +1384,6 @@ def _post_settings(b, user, body, A):
         except Exception as e:
             res = {"error": str(e)[:300]}
             b.apply_soon()
-        if "negotiation" in upd:
+        if "negotiation" in upd or "video_format" in upd:   # the edge video rule rewrites to _v=webm or _v=mp4
             b.request_negotiation()
     return {"ok": True, "settings": b.settings(), "apply": res}

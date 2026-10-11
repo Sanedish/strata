@@ -154,8 +154,10 @@ def spec_tf(p, ver=None):
     return s + (",ver=%d" % ver if ver is not None else "") + ":v1"
 
 
-def spec_webm(codec):
-    return "webm:%s:v1" % codec
+def spec_video(fmt):
+    """The video variant's spec - the same string the worker stores it under (worker.AUTO_SPEC). These two once
+    differed ("webm:<codec>:v1" here), so every finished WebM was looked up under a key nothing ever wrote."""
+    return "auto:%s:v1" % fmt
 
 
 def is_loopback(host):
@@ -934,11 +936,11 @@ class Service:
         q = ctx.q
         fm, v = (q.get("fm") or "").lower(), (q.get("_v") or "").lower()
         if fm == "webm":
-            return self.webm(ctx, explicit=True)
-        if v == "webm" and not ctx.bypass:
-            return self.webm(ctx, explicit=False)
-        if v not in ("", "orig", "avif", "webp", "webm"):
-            return ("text", 400, "_v must be avif, webp, webm or orig")
+            return self.video_variant(ctx, "webm", explicit=True)
+        if v in video.FORMATS and not ctx.bypass:
+            return self.video_variant(ctx, v, explicit=False)
+        if v not in ("", "orig", "avif", "webp") + video.FORMATS:
+            return ("text", 400, "_v must be avif, webp, webm, mp4 or orig")
         ctx.negotiated = v in ("avif", "webp")
         explicit = any(q.get(k) for k in ("h", "fit", "fm", "q"))
         if ctx.bypass:   # the untouched original, never generated / promoted / stored under this request
@@ -996,7 +998,9 @@ class Service:
                 width = self.width_rung(ctx)
             except ValueError as e:
                 return ("text", 400, str(e))
-        want = negotiate_format(accept) if ext in config.NEGOTIABLE or width else "orig"
+        # a video only gets here from Caddy's video matcher (redirect mode): its WebM / MP4, once there is one
+        want = (video.video_conf(ctx.conf)["format"] if ext in config.VIDEO_EXT and not width else
+                negotiate_format(accept) if ext in config.NEGOTIABLE or width else "orig")
         self.count("negotiate." + want)
         self.metric("image_optimizer_negotiations_total", format=want)
         keep = [(k, v) for k, v in ctx.q.items() if k not in ("w", "_v")]
@@ -1372,9 +1376,10 @@ class Service:
                                                  "fmt": fmt, "bytes": len(data), "src_bytes": ctx.st.st_size,
                                                  "etag": etag})
 
-    def webm(self, ctx, explicit):
-        """_v=webm / fm=webm: a ready, beneficial variant -> accel; otherwise queue it and 302 ?_v=orig (never mp4
-        bytes under the webm URL: a playback spanning the variant's arrival would mix two files' byte ranges)."""
+    def video_variant(self, ctx, fmt, explicit):
+        """_v=webm|mp4 / fm=webm: a ready, beneficial variant -> accel; otherwise queue it (only the configured
+        video.format is ever built) and 302 ?_v=orig - never the original's bytes under the variant URL: a playback
+        spanning the variant's arrival would mix two files' byte ranges."""
         ext = config.ext_of(ctx.rel)
         if ext not in config.VIDEO_EXT:
             if explicit and ext != "webm":
@@ -1382,27 +1387,24 @@ class Service:
             g = self.gate_check(ctx)
             if g:
                 return g
-            return ("orig", "orig;reason=webm", False) if ext == "webm" else ("redirect", "orig", False)
+            return ("orig", "orig;reason=" + fmt, False) if ext == fmt else ("redirect", "orig", False)
         g = self.gate_check(ctx)
         if g:
             return g
+        key = self.cache.key(ctx.mid, ctx.rel, ctx.st.st_size, ctx.st.st_mtime, spec_video(fmt))
+        try:
+            row = self.store.variant(key)
+        except Exception as e:
+            self.fail("store", e)
+            row = None
+        if row and not row.get("beneficial"):
+            return ("redirect", "orig", False)       # decided: the original stays the only copy
+        if row and row.get("file") and self.cache.exists(row["file"]):
+            self.cache.touch(key)
+            return ("accel", row["file"], fmt, "hit")
         vc = video.video_conf(ctx.conf)
-        for codec in [vc["codec"]] + [x for x in ("av1", "vp9") if x != vc["codec"]]:
-            key = self.cache.key(ctx.mid, ctx.rel, ctx.st.st_size, ctx.st.st_mtime, spec_webm(codec))
-            try:
-                row = self.store.variant(key)
-            except Exception as e:
-                self.fail("store", e)
-                row = None
-            if not row:
-                continue
-            if not row.get("beneficial"):
-                return ("redirect", "orig", False)       # decided: the original stays the only copy
-            if row.get("file") and self.cache.exists(row["file"]):
-                self.cache.touch(key)
-                return ("accel", row["file"], "webm", "hit")
-        if vc["enabled"]:
-            self.enqueue("video", ctx.mid, ctx.rel, ctx.st, {"want": "webm"}, 40)
+        if vc["enabled"] and fmt == vc["format"]:
+            self.enqueue("video", ctx.mid, ctx.rel, ctx.st, {"want": fmt}, 40)
         return ("redirect", "orig", False)
 
     # ------------------------------------------------------------ /_stats
@@ -1652,7 +1654,8 @@ class Handler(BaseHTTPRequestHandler):
         ctx.st = self._stat(full)
         if ctx.st is None:
             return None
-        # redirect-mode negotiation: Caddy only sends query-less (or ?w= only + unrelated parameters) images here
+        # redirect-mode negotiation: Caddy only sends query-less (or ?w= only + unrelated parameters) images, and
+        # query-less videos requested by a <video> player, here
         if self.headers.get("X-Strata-Negotiate") == "1" and not any(q.get(k) for k in ("_v",) + TF_KEYS[1:]):
             return self.render(ctx, svc.negotiate(ctx, self.headers.get("Accept")))
         return self.render(ctx, svc.variant(ctx))

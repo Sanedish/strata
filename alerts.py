@@ -1,24 +1,105 @@
-"""Alerts: security + health events, stored in SQLite, shown in the UI, e-mailed through Resend once configured.
+"""Alerts: security + health events, stored in SQLite, shown in the UI, e-mailed once a mail provider is configured.
 
 Configure in strata.json (or Security › Alerts › Delivery):
-    "alerts": {"resend_api_key": "re_...", "from": "Strata <alerts@yourdomain>", "to": ["you@..."],
+    "alerts": {"from": "Strata <alerts@yourdomain>", "to": ["you@..."],
+               "smtp": {"host": "smtp.example.com", "port": 587, "security": "starttls", "user": "...", "password": "..."},
                "min_severity": "warning", "max_per_hour": 12, "digest": "daily", "digest_hour": 8}
-Without a key everything still works - alerts are kept in the database and listed in the Alerts view.
+Mail goes out over SMTP when smtp.host is set (any provider or a self-hosted server), otherwise through the Resend API
+("resend_api_key": "re_..."). Without either everything still works - alerts are kept in the database and listed in
+the Alerts view.
+"webhooks": ["https://..."] also posts each batch to Discord, Slack, ntfy (by host name) or any other URL as JSON.
 """
 import collections
 import html
 import json
+import smtplib
+import ssl
 import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 import core
 from core import CFG, connect, get_meta, log, rows_of, set_meta
 
 SEV = {"info": 0, "warning": 1, "critical": 2}
 RESEND = "https://api.resend.com/emails"
+NTFY_PRIORITY = {"info": "3", "warning": "4", "critical": "5"}
+SMTP_SECURITY = {"starttls": 587, "tls": 465, "none": 25}  # default port per mode
+
+
+def provider(a=None):
+    """'smtp', 'resend' or '' - which way e-mail leaves this server: the one chosen under Delivery ("provider"),
+    or for older configs without a choice SMTP when a host is set, else Resend; '' while the chosen one lacks its setup."""
+    a = CFG["alerts"] if a is None else a
+    host = (a.get("smtp") or {}).get("host")
+    want = a.get("provider") or ("smtp" if host else "resend")
+    return ("smtp" if host else "") if want == "smtp" else ("resend" if a.get("resend_api_key") else "")
+
+
+def mail_ready(a=None):
+    """Sign-in codes and invitations can be sent: a provider and a sender address."""
+    a = CFG["alerts"] if a is None else a
+    return bool(provider(a) and a.get("from"))
+
+
+def send_smtp(smtp, sender, recipients, subject, text, body_html):
+    msg = EmailMessage()  # its default policy refuses line breaks in headers
+    msg["From"], msg["To"], msg["Subject"] = sender, ", ".join(recipients), subject
+    msg["Date"], msg["Message-ID"] = formatdate(localtime=True), make_msgid(domain=sender.rpartition("@")[2].strip("> "))
+    msg.set_content(text)
+    msg.add_alternative(body_html, subtype="html")
+    mode = smtp.get("security") if smtp.get("security") in SMTP_SECURITY else "starttls"
+    host, port = smtp["host"], int(smtp.get("port") or SMTP_SECURITY[mode])
+    if mode == "none" and smtp.get("user"):
+        raise RuntimeError("SMTP: a password is never sent unencrypted; use STARTTLS or TLS")
+    ctx = ssl.create_default_context()
+    try:
+        with (smtplib.SMTP_SSL(host, port, timeout=20, context=ctx) if mode == "tls" else smtplib.SMTP(host, port, timeout=20)) as c:
+            if mode == "starttls":
+                c.starttls(context=ctx)
+            if smtp.get("user"):
+                c.login(smtp["user"], smtp.get("password") or "")
+            c.send_message(msg)
+    except (smtplib.SMTPException, OSError) as e:
+        raise RuntimeError("SMTP %s:%s: %s" % (host, port, e))
+
+
+def hook_kind(url):
+    # ponytail: picked by host name; a self-hosted ntfy needs "ntfy" in its host name, everything else gets JSON
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host in ("discord.com", "discordapp.com"):
+        return "discord"
+    if host == "hooks.slack.com":
+        return "slack"
+    if host == "ntfy.sh" or "ntfy" in host.split(".")[0]:
+        return "ntfy"
+    return "json"
+
+
+def post_hook(url, title, text, severity="warning"):
+    """One webhook POST in the format its service expects. Raises on any failure."""
+    kind = hook_kind(url)
+    headers = {"User-Agent": "Strata/1", "Content-Type": "application/json"}
+    if kind == "ntfy":
+        data = text.encode()
+        headers.update({"Content-Type": "text/plain; charset=utf-8", "Title": title.encode("ascii", "replace").decode(),
+                        "Priority": NTFY_PRIORITY.get(severity, "3")})
+    elif kind == "discord":
+        data = json.dumps({"content": ("**%s**\n%s" % (title, text))[:2000]}).encode()
+    elif kind == "slack":
+        data = json.dumps({"text": "*%s*\n%s" % (title, text)}).encode()
+    else:  # title + message also suit Gotify, Home Assistant and n8n
+        data = json.dumps({"title": title, "message": text, "severity": severity, "source": "strata"}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers, method="POST"), timeout=15) as r:
+            r.read(1024)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError("%s webhook answered %s" % (kind, e.code))
 
 
 class Alerts(threading.Thread):
@@ -112,7 +193,7 @@ class Alerts(threading.Thread):
     # -- delivery
     def configured(self):
         a = CFG["alerts"]
-        return bool(a.get("resend_api_key") and a.get("from") and a.get("to"))
+        return bool(mail_ready(a) and a.get("to"))
 
     def send(self, subject, text, body_html):
         a = CFG["alerts"]
@@ -125,6 +206,10 @@ class Alerts(threading.Thread):
             self.sent.popleft()
         if len(self.sent) >= int(a.get("max_per_hour") or 12):
             raise RuntimeError("hourly e-mail limit reached")
+        if provider(a) == "smtp":
+            send_smtp(a["smtp"], a["from"], list(recipients or []), subject, text, body_html)
+            self.sent.append(now)
+            return
         req = urllib.request.Request(RESEND, method="POST", data=json.dumps({
             "from": a["from"], "to": list(recipients or []), "subject": subject, "text": text, "html": body_html}).encode(),
             headers={"Authorization": "Bearer " + a["resend_api_key"], "Content-Type": "application/json",
@@ -136,8 +221,32 @@ class Alerts(threading.Thread):
             raise RuntimeError("Resend %s: %s" % (e.code, e.read()[:200].decode("utf-8", "replace")))
         self.sent.append(now)
 
+    def hooks(self):
+        return [u for u in CFG["alerts"].get("webhooks") or [] if u]
+
+    def notify(self, subject, text, body_html, severity="warning"):
+        """E-mail and every webhook; one channel failing doesn't stop the others. Raises only if all of them fail."""
+        errors, sent = [], 0
+        for url in self.hooks():
+            try:
+                post_hook(url, subject, text, severity)
+                sent += 1
+            except Exception as e:
+                errors.append("%s: %s" % (urllib.parse.urlsplit(url).hostname, e))
+        if self.configured():
+            try:
+                self.send(subject, text, body_html)
+                sent += 1
+            except Exception as e:
+                errors.append("e-mail: %s" % e)
+        for e in errors:
+            log("alert delivery failed: %s" % e)
+        if errors and not sent:
+            raise RuntimeError("; ".join(errors))
+        return sent
+
     def deliver(self):
-        if not self.configured():
+        if not (self.configured() or self.hooks()):
             return
         minsev = SEV.get(CFG["alerts"].get("min_severity"), 1)
         db = connect()
@@ -156,7 +265,8 @@ class Alerts(threading.Thread):
             body = "".join("<p><b>[%s] %s</b><br><small>%s</small><br>%s</p>" % (
                 html.escape(r["severity"].upper()), html.escape(r["title"]),
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])), html.escape(r["detail"])) for r in todo)
-            self.send(subject, text, "<div style='font-family:sans-serif'>%s</div>" % body)
+            top = max((r["severity"] for r in todo), key=lambda v: SEV.get(v, 0))
+            self.notify(subject, text, "<div style='font-family:sans-serif'>%s</div>" % body, top)
             with db:
                 db.executemany("UPDATE alert SET sent=1 WHERE id=?", [(r["id"],) for r in rows])
         except Exception as e:
@@ -166,7 +276,7 @@ class Alerts(threading.Thread):
 
     def digest(self):
         a = CFG["alerts"]
-        if not self.configured() or a.get("digest") not in ("daily", "weekly"):
+        if not (self.configured() or self.hooks()) or a.get("digest") not in ("daily", "weekly"):
             return
         lt = time.localtime()
         if lt.tm_hour != int(a.get("digest_hour", 8)) or (a["digest"] == "weekly" and lt.tm_wday != 0):
@@ -191,9 +301,9 @@ class Alerts(threading.Thread):
                  "New blacklist entries: %d" % bans,
                  "Alerts: " + (", ".join("%d %s" % (n, s) for s, n in al) or "none")]
         try:
-            self.send("[Strata] %s report" % ("Weekly" if span > 86400 else "Daily"), "\n".join(lines),
-                      "<div style='font-family:sans-serif'><h3>Strata %s report</h3><p>%s</p></div>" % (
-                          "weekly" if span > 86400 else "daily", "<br>".join(html.escape(l) for l in lines)))
+            self.notify("[Strata] %s report" % ("Weekly" if span > 86400 else "Daily"), "\n".join(lines),
+                        "<div style='font-family:sans-serif'><h3>Strata %s report</h3><p>%s</p></div>" % (
+                            "weekly" if span > 86400 else "daily", "<br>".join(html.escape(l) for l in lines)), "info")
         except Exception as e:
             log("digest failed: %s" % e)
 
@@ -217,11 +327,16 @@ def q_alerts(q):
     finally:
         db.close()
     a = CFG["alerts"]
+    smtp = a.get("smtp") or {}
     return {"alerts": rows, "open": dict(open_), "config": {
-        "configured": bool(a.get("resend_api_key") and a.get("from") and a.get("to")),
+        "configured": bool(mail_ready(a) and a.get("to")), "provider": provider(a), "choice": a.get("provider") or "",
         "key_set": bool(a.get("resend_api_key")), "from": a.get("from", ""), "to": a.get("to", []),
+        "smtp": {"host": smtp.get("host", ""), "port": smtp.get("port") or "", "security": smtp.get("security") or "starttls",
+                 "user": smtp.get("user", ""), "password_set": bool(smtp.get("password"))},
         "min_severity": a.get("min_severity"), "digest": a.get("digest"), "digest_hour": a.get("digest_hour"),
-        "max_per_hour": a.get("max_per_hour")}}
+        "max_per_hour": a.get("max_per_hour"),
+        # the URLs carry their own secret (Discord, Slack): only host and format leave the server
+        "webhooks": [{"host": urllib.parse.urlsplit(u).hostname, "kind": hook_kind(u)} for u in a.get("webhooks") or []]}}
 
 
 def ack(ids):

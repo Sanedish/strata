@@ -683,13 +683,20 @@ class Api(Base):
                 mb.api_post("admin", "ip", "/api/media/settings", body)
         r = mb.api_post("admin", "ip", "/api/media/settings",
                         {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high"})
-        self.assertEqual(r["settings"], {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high"})
+        self.assertEqual(r["settings"], {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high",
+                                         "video_format": "webm"})
         self.assertEqual(self.saves, [{"media": {"negotiation": "redirect", "gate": {"legacy_while_pending": False},
                                                  "scan": {"hold_threshold": "high"}}}])
         self.assertEqual(self.applied, [("admin", "media settings")])
         self.assertEqual(r["apply"], {"changed": False})
         self.assertTrue(self.bridge._neg_request)
         self.assertEqual(self.audits(), ["media-settings"])
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "mkv"})
+        self.bridge._neg_request = False
+        mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "mp4"})
+        self.assertEqual(self.saves[-1], {"media": {"video": {"format": "mp4"}}})
+        self.assertTrue(self.bridge._neg_request)        # the edge video rule switches to _v=mp4
 
     def test_breaker(self):
         for body in ({"state": "half"}, {"state": "open"}, {"state": "open", "seconds": 5},

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Strata · Sign in</title>
+<title>{{BRAND}} · Sign in</title>
 <link rel="icon" href="/favicon.ico">
 <link rel="stylesheet" href="/styles.css">
 <meta name="strata-accent" content="{{ACCENT}}">
@@ -29,17 +29,19 @@
   .err { background: var(--color-accent); color: var(--color-bg); font-size: 12.5px; padding: 9px 20px; }
   .foot { padding: 10px 20px; border-top: 2px solid var(--color-divider); font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 </style>
+<link rel="stylesheet" href="/custom.css">
 </head>
 <body>
 <div class="wrap">
   <div class="lock">
-    <div class="head"><div><span>Strata</span><b>Sign in</b></div><div class="bar"><i></i><i></i><i></i></div></div>
+    <div class="head"><div><span>{{BRAND}}</span><b>Sign in</b></div><div class="bar"><i></i><i></i><i></i></div></div>
     <!--ERROR-->
     <form method="post" action="/login">
       <label>Username<input name="user" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button class="btn btn-primary btn-block" type="submit"><span>Sign in</span><span>→</span></button>
     </form>
+    <!--LOGIN_TEXT-->
   </div>
 </div>
 </body>

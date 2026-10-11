@@ -211,6 +211,7 @@ def main():
         c.close()
         proc = start()
         suites = [
+            ("smtp sender", py + [os.path.join(TESTS, "smtp_test.py")]),
             ("security", py + [os.path.join(TESTS, "sec_regress.py"), db]),
             ("permissions", py + [os.path.join(TESTS, "granular_regress.py"), db, files]),
             ("team", py + [os.path.join(TESTS, "office_regress.py"), db]),

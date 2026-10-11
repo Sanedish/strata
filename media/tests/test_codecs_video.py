@@ -44,6 +44,8 @@ ENC_HEAD = """Encoders:
 ENC_AV1 = ENC_HEAD + " V....D libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)\n"
 AVAIL_AV1 = {"codec": "av1", "ok": True, "av1": True, "vp9": True, "opus": True}
 AVAIL_VP9 = {"codec": "vp9", "ok": True, "av1": False, "vp9": True, "opus": True}
+AVAIL_MP4 = {"codec": "h264", "ok": True, "h264": True, "aac": True, "format": "mp4"}
+MP4 = {"video": dict(video.VIDEO_DEFAULTS, format="mp4"), "tools": {}}
 
 
 def ffprobe_json(vcodec="h264", w=1920, h=1080, fps="30000/1001", duration="120.5", size="50000000",
@@ -141,6 +143,17 @@ class TestAvailable(Base):
         self.assertEqual((a["codec"], a["ok"]), (None, False))
         self.assertTrue(a["error"])
 
+    def test_mp4(self):
+        self.fake()
+        a = video.available(MP4)
+        self.assertEqual((a["format"], a["codec"], a["h264"], a["aac"], a["ok"]), ("mp4", "h264", True, True, True))
+        self.assertEqual(video.available(CONF, "mp4")["codec"], "h264")      # the job's format wins
+        video.reset_cache()
+        self.fake(encoders=" ------\n V....D libsvtav1  x\n A....D aac  x\n")
+        a = video.available(MP4)
+        self.assertEqual((a["ok"], a["error"]), (False, "no libx264 encoder"))
+        self.assertEqual(video.video_conf({"video": {"format": "mkv"}})["format"], "webm")   # unknown -> default
+
     def test_tools_missing(self):
         self.fake(tools={})
         a = video.available(CONF)
@@ -198,6 +211,19 @@ class TestPlan(Base):
         for bad in (self.info(vcodec="av1"), self.info(path="x.webm")):
             self.assertIsNone(video.plan(bad, CONF, AVAIL_AV1))
         self.assertIsNone(video.skip_reason(self.info(vcodec="hevc", path="x.mov"), CONF))
+
+    def test_mp4_plan(self):
+        p = video.plan(self.info(), MP4, AVAIL_MP4)
+        self.assertEqual((p["format"], p["codec"]), ("mp4", "h264"))
+        self.assertEqual(p["video_args"], ["-c:v", "libx264", "-preset", "medium", "-crf", "23", "-profile:v", "high",
+                                           "-threads", "2", "-pix_fmt", "yuv420p", "-g", "300"])
+        self.assertEqual((p["audio"], p["audio_args"]), ("copy", ["-c:a", "copy"]))     # AAC stays AAC
+        p = video.plan(self.info(audio=(("opus", 6, "5.1"),)), MP4, AVAIL_MP4)
+        self.assertEqual(p["audio_args"], ["-c:a", "aac", "-b:a", "384k"])
+        # HEVC is skipped for MP4 (H.264 would rarely be smaller) but still goes to AV1/VP9 for WebM
+        self.assertEqual(video.skip_reason(self.info(vcodec="hevc"), MP4), "already_hevc")
+        self.assertIsNone(video.skip_reason(self.info(vcodec="hevc"), CONF))
+        self.assertEqual(video.plan(self.info(), CONF, AVAIL_MP4, "mp4")["codec"], "h264")   # per-job format
 
     def test_av1_plan(self):
         p = video.plan(self.info(), CONF, AVAIL_AV1)
@@ -266,6 +292,13 @@ class TestTranscode(Base):
         self.assertFalse(os.path.exists(dst + ".part"))
         with open(dst, "rb") as f:
             self.assertEqual(f.read(4), b"\x1a\x45\xdf\xa3")
+
+    def test_mp4_command(self):
+        fk = self.fake()
+        src, dst = os.path.join(self.tmp, "in.mov"), os.path.join(self.tmp, "out.mp4")
+        video.transcode(src, dst, video.plan(self.info(path=src), MP4, AVAIL_MP4), MP4)
+        cmd = fk.calls[-1]["cmd"]
+        self.assertEqual(cmd[-7:], ["-map_metadata", "-1", "-movflags", "+faststart", "-f", "mp4", "file:" + dst + ".part"])
 
     def test_failure_leaves_nothing(self):
         dst = os.path.join(self.tmp, "out.webm")
@@ -338,6 +371,36 @@ class TestRealTranscode(unittest.TestCase):
             out = video.probe(dst, conf)
             self.assertIn(out["video"]["codec"], ("av1", "vp9"))
             self.assertEqual([a["codec"] for a in out["audio"]], ["opus"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_roundtrip_mp4(self):
+        """video.format=mp4: H.264 + AAC in MP4, index at the front (+faststart), metadata gone."""
+        ffmpeg, _ = _real_tools()
+        tmp = tempfile.mkdtemp(prefix="strata-video-real-")
+        try:
+            src, dst = os.path.join(tmp, "src.mov"), os.path.join(tmp, "out.mp4")
+            r = real_sandbox.run([ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                                  "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=2",
+                                  "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                                  "-c:v", "mjpeg", "-q:v", "2", "-c:a", "pcm_s16le", "-shortest",
+                                  "-metadata", "title=StrataSecretTitle", src], 120, mem_mb=1024, cpu_pct=50)
+            if r.rc != 0:
+                self.skipTest("cannot make a test clip: %s" % r.err[-200:])
+            conf = {"video": dict(video.VIDEO_DEFAULTS, format="mp4"), "tools": {}}
+            info = video.probe(src, conf)
+            p = video.plan(info, conf)
+            if p is None or not video.available(conf)["ok"]:
+                self.skipTest("this ffmpeg has no libx264 / aac")
+            r = video.transcode(src, dst, p, conf)
+            self.assertIsNone(video.result_kind(r), r.err[-500:])
+            with open(dst, "rb") as f:
+                data = f.read()
+            self.assertLess(data.index(b"moov"), data.index(b"mdat"))     # playable before it has fully arrived
+            self.assertNotIn(b"StrataSecretTitle", data)
+            out = video.probe(dst, conf)
+            self.assertEqual((out["video"]["codec"], [a["codec"] for a in out["audio"]]), ("h264", ["aac"]))
+            self.assertLess(os.path.getsize(dst), os.path.getsize(src))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

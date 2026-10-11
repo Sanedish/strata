@@ -50,6 +50,7 @@ import urllib.request
 
 import instance
 
+VERSION = "0.1.0"                    # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")
@@ -68,6 +69,7 @@ DEFAULTS = {
         # how the tunnel is restarted after an ingress change: {"kind": "service"|"task", "name": "..."}
         "tunnel_restart": {},
         "dry_run": False,                # test instances: validate Caddy configs but never reload Caddy
+        "update_repo": "",               # "owner/name" on GitHub: once a day, look for a newer release ("" = never)
     },
     "listen": "127.0.0.1:8090",          # admin UI + API (Caddy exposes it to the LAN)
     "feed_listen": "127.0.0.1:8081",     # redacted feed for Strata Telemetry - loopback only
@@ -154,7 +156,8 @@ DEFAULTS = {
                 "never": ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "100.64.0.0/10", "127.0.0.0/8", "::1/128",
                           "fc00::/7"]},
     "alerts": {"resend_api_key": "", "from": "", "to": [], "min_severity": "warning", "max_per_hour": 12,
-               "digest_hour": 8, "digest": "daily"},
+               "provider": "", "smtp": {"host": "", "port": 0, "security": "starttls", "user": "", "password": ""},
+               "digest_hour": 8, "digest": "daily", "webhooks": []},
     # Strata Media (media/DESIGN.md): format negotiation, WebM variants, scan gate, circuit breaker.
     # rules.write_media_config() copies this section into media/media.json for media.py / worker.py.
     "media": {
@@ -191,7 +194,7 @@ DEFAULTS = {
                             "cpu_mb_per_s": 4, "demote_rate_per_day": 0.2, "demote_idle_days": 21,
                             "persistent_max_gb": 100, "ephemeral_max_age_days": 30, "tombstone_days": 30,
                             "failure_retry_h": 24, "upgrade_on_promote": True}},
-        "video": {"enabled": True, "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+        "video": {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
                   "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
                   "min_saving": 0.10, "timeout_factor": 15},
         "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed
@@ -793,6 +796,29 @@ def backfill_sus(db):
 def get_meta(db, k, default=None):
     row = db.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
     return json.loads(row[0]) if row else default
+
+
+def version_tuple(v):
+    """'v1.10.0' -> (1, 10, 0): numeric, so 1.10 sorts after 1.9."""
+    return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3])
+
+
+def check_update():
+    """Store the latest GitHub release tag in meta 'latest_release' (no-op without instance.update_repo)."""
+    repo = CFG["instance"].get("update_repo") or ""
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+        return
+    req = urllib.request.Request("https://api.github.com/repos/%s/releases/latest" % repo,
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "Strata/" + VERSION})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        rel = json.load(r)
+    db = connect()
+    try:
+        with db:
+            set_meta(db, "latest_release", {"tag": str(rel.get("tag_name") or "")[:40],
+                                            "url": "https://github.com/%s/releases/latest" % repo, "ts": time.time()})
+    finally:
+        db.close()
 
 
 def set_meta(db, k, v):

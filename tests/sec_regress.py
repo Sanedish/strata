@@ -3,7 +3,9 @@
 Creates an admin and an employee through root's API, activates them through /enroll, then checks that the
 escalation paths found in the 2026-10-10 audit are closed. Exit code 1 if any check fails."""
 import hashlib
+import io
 import json
+import os
 import secrets
 import sqlite3
 import sys
@@ -11,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 BASE = "http://127.0.0.1:8190"
 DB = sys.argv[1]
@@ -120,6 +123,8 @@ st, r, _ = call("POST", "/api/ide/save", a, {"path": "x.py", "text": "print(1)",
 check("admin cannot write code through the web IDE", st == 403, (st, r))
 st, r, _ = call("POST", "/api/alerts/config", a, {"resend_api_key": "re_attackerattacker1"})
 check("admin cannot swap the OTP e-mail sender key", st == 403, (st, r))
+st, r, _ = call("POST", "/api/alerts/config", a, {"smtp": {"host": "smtp.attacker.example", "user": "x", "password": "y"}})
+check("admin cannot point OTP mail at their own SMTP server", st == 403, (st, r))
 st, r, _ = call("POST", "/api/2fa/begin", a, {})
 check("admin cannot touch root 2FA", st == 403, (st, r))
 st, r, _ = call("POST", "/api/settings/signups", a, {"allowed": True})
@@ -145,6 +150,72 @@ st, r, _ = call("POST", "/api/upload/url", e, {"mount": 1, "dest": "/users/" + e
 check("remote upload refuses loopback (SSRF)", st == 400 and "non-public" in str(r), (st, r))
 st, r, _ = call("POST", "/api/upload/url", e, {"mount": 1, "dest": "/users/" + emp, "url": "http://192.168.1.50/"})
 check("remote upload refuses LAN (SSRF)", st == 400 and "non-public" in str(r), (st, r))
+
+# branding: administrators only, PNG logos only, custom.css and the name reach the sign-in page
+st, r, _ = call("POST", "/api/branding", e, {"css": "body { display: none }"})
+check("employee cannot change the branding", st == 403, (st, r))
+st, r, _ = call("POST", "/api/branding", root, {"logo": "PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+"})  # an SVG
+check("branding refuses a logo that isn't a PNG", st == 415, (st, r))
+st, r, _ = call("POST", "/api/branding", root, {"brand": "Acme <b>", "login_text": "Staff only", "css": ".lock { outline: 1px }"})
+st2, css, _ = call("GET", "/custom.css")
+st3, page, _ = call("GET", "/login")
+check("branding reaches custom.css and the sign-in page", st == 200 and ".lock" in css and "Acme &lt;b&gt;" in page
+      and "Staff only" in page, (st, r, css[:80]))
+call("POST", "/api/branding", root, {"brand": "", "login_text": "", "css": ""})
+st, css, _ = call("GET", "/custom.css")
+check("empty custom CSS falls back to the built-in file", st == 200 and ".lock" not in css, css[:80])
+
+# a 502 page is written into the Caddy config only when one is set
+st, r, _ = call("POST", "/api/serving/site", root, {"error_page_502": "/404/502.html"})
+cdn = open(os.path.join(os.path.dirname(os.path.dirname(DB)), "generated", "cdn.caddy"), encoding="utf-8").read()
+check("502 page adds handle_errors 502 503 504", st == 200 and "handle_errors 502 503 504" in cdn and "/404/502.html" in cdn, (st, r))
+call("POST", "/api/serving/site", root, {"error_page_502": ""})
+
+# config preview: a diff, and nothing saved or applied
+st, r, _ = call("POST", "/api/serving/site", root, {"error_page_502": "/404/502.html", "preview": True})
+site = json.loads(sqlite3.connect(DB).execute("SELECT v FROM meta WHERE k='site'").fetchone()[0])
+cdn2 = open(os.path.join(os.path.dirname(os.path.dirname(DB)), "generated", "cdn.caddy"), encoding="utf-8").read()
+check("config preview shows the diff and saves nothing", st == 200 and "+" in r.get("diff", "") and "/404/502.html" in r["diff"]
+      and not site.get("error_page_502") and "/404/502.html" not in cdn2, (st, r))
+st, r, _ = call("POST", "/api/serving/site", e, {"error_page_502": "/x.html", "preview": True})
+check("config preview needs the same permission as saving", st == 403, (st, r))
+
+# alert webhooks: owner only, http(s) only, the URL (it carries a secret) is never sent back
+st, r, _ = call("POST", "/api/alerts/config", a, {"webhooks": "https://example.test/hook"})
+check("admin cannot set alert webhooks", st == 403, (st, r))
+st, r, _ = call("POST", "/api/alerts/config", root, {"webhooks": "file:///etc/passwd"})
+check("webhooks must be http or https", st == 400, (st, r))
+st, r, _ = call("POST", "/api/alerts/config", root, {"webhooks": "https://ntfy.example.test/SECRET-topic"})
+st2, r2, _ = call("GET", "/api/alerts", a)
+check("webhook URLs stay on the server", st == 200 and r["config"]["webhooks"] == [{"host": "ntfy.example.test", "kind": "ntfy"}]
+      and "SECRET" not in json.dumps(r) + json.dumps(r2), (st, r))
+call("POST", "/api/alerts/config", root, {"webhooks": ""})
+
+# backup and restore: owner only, no secrets in the zip, a round trip works, junk is refused
+st, r, _ = call("GET", "/api/backup", a)
+check("admin cannot download a backup", st == 403, (st, r))
+st, r, _ = call("POST", "/api/backup/restore", a, {})
+check("admin cannot restore a backup", st == 403, (st, r))
+with urllib.request.urlopen(urllib.request.Request(BASE + "/api/backup", headers={
+        "X-Strata": "1", "Cookie": "%s=%s" % (COOKIE, root)}), timeout=60) as resp:
+    blob = resp.read()
+z = zipfile.ZipFile(io.BytesIO(blob))
+conf = z.read("strata.json").decode()
+check("backup holds the database and settings without secrets", {"strata.db", "strata.json"} <= set(z.namelist())
+      and "cookie_secret" not in conf and "sign_secret" not in conf and "password_hash" not in conf, z.namelist())
+req = urllib.request.Request(BASE + "/api/backup/restore", data=blob, method="POST", headers={
+    "X-Strata": "1", "Cookie": "%s=%s" % (COOKIE, root), "Content-Type": "application/zip"})
+with urllib.request.urlopen(req, timeout=60) as resp:
+    st, r = resp.status, json.loads(resp.read())
+st2, me2, _ = call("GET", "/api/me", root)
+check("owner can restore a backup and stays signed in", st == 200 and r.get("restored") and st2 == 200, (st, r, st2))
+try:
+    urllib.request.urlopen(urllib.request.Request(BASE + "/api/backup/restore", data=b"not a zip", method="POST", headers={
+        "X-Strata": "1", "Cookie": "%s=%s" % (COOKIE, root), "Content-Type": "application/zip"}), timeout=20)
+    st = 200
+except urllib.error.HTTPError as ex:
+    st = ex.code
+check("restore refuses a file that isn't a backup", st == 400, st)
 
 # a reset never re-enables a disabled account
 call("POST", "/api/accounts/status", root, {"user": emp, "enabled": False})

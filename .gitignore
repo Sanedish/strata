@@ -10,6 +10,7 @@ backups/
 *.db-wal
 *.log
 .env
+.claude/
 
 # third-party packages, installed by setup.py (pip install --target vendor -r requirements.txt)
 vendor/

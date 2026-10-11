@@ -39,7 +39,9 @@ VIEW_REFRESH.alerts = async () => { try { D.alerts = await get('/api/alerts'); }
 setInterval(() => { if ((S.view === 'blacklist' || S.view === 'links') && !S.paused && !$('#sheet')) loadServ().then(refreshControl); }, 20000);
 setInterval(() => { if (S.view === 'alerts' && !S.paused) VIEW_REFRESH.alerts(); }, 15000);
 
-async function mutate(url, body, okMsg) {
+// preview: show the diff of the Caddy config first; throws 'cancelled' if the user backs out (the sheet stays open)
+async function mutate(url, body, okMsg, preview) {
+  if (preview && !(await reviewDiff(url, body))) throw new Error('cancelled');
   try {
     const r = await post(url, body);
     if (okMsg) note(okMsg + (r.apply && r.apply.changed ? ' · Caddy updated (' + r.apply.sha + ')' : ''));
@@ -47,6 +49,14 @@ async function mutate(url, body, okMsg) {
     refreshControl();
     return r;
   } catch (e) { note(e.message); throw e; }
+}
+async function reviewDiff(url, body) {
+  let diff;
+  try { diff = (await post(url, Object.assign({}, body, { preview: true }))).diff; } catch (e) { note(e.message); return false; }
+  if (!diff) return true; // the change doesn't touch the Caddy config
+  const cls = (l) => (l.startsWith('+++') || l.startsWith('---') ? 'dim' : { '+': 'add', '-': 'del', '@': 'dim' }[l[0]] || '');
+  return !!(await ask({ kicker: 'Caddy config', title: 'Apply these changes?', ok: 'Apply',
+    html: `<pre class="diff">${diff.split('\n').map((l) => `<span class="${cls(l)}">${esc(l)}</span>`).join('\n')}</pre>` }));
 }
 const mountOpts = (sel, withAll) => (withAll ? `<option value="">all drives</option>` : '') +
   (D.serv?.mounts || []).map((m) => `<option value="${m.id}" ${String(sel) === String(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
@@ -174,9 +184,10 @@ function siteTab(V) {
     <div class="ph"><h5>Error pages</h5></div>
     <div class="set-row"><div><div class="h800">Drive</div><div class="small dim">Where your error pages are stored.</div></div>
       <div class="set-ctl"><select id="s_emount" class="input">${mountOpts(s.error_mount)}</select></div></div>
-    ${[['s_epage', '404 Not found', 'Missing and hidden files.', s.error_page, '404'], ['s_epage403', '403 Forbidden', 'Blocked requests and files in the trash.', s.error_page_403, '403']].map(([id, label, sub, val, code]) => `
+    ${[['s_epage', '404 Not found', 'Missing and hidden files.', s.error_page, '404'], ['s_epage403', '403 Forbidden', 'Blocked requests and files in the trash.', s.error_page_403, '403'],
+      ['s_epage502', '502 Service down', 'A proxied service isn’t answering. Empty: plain text.', s.error_page_502, '502']].map(([id, label, sub, val, code]) => `
     <div class="set-row"><div><div class="h800">${label}</div><div class="small dim">${sub}</div></div>
-      <div class="set-ctl" style="display:flex;gap:6px"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button></div></div>`).join('')}
+      <div class="set-ctl" style="display:flex;gap:6px"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
     <div class="ph"><h5>Other hosts</h5></div>
     <div class="set-row"><div><div class="h800">Unknown hostname</div><div class="small dim">Text answered for hosts no drive serves.</div></div>
       <div class="set-ctl"><input id="s_unknown" class="input" value="${esc(s.unknown_host)}" style="width:240px"></div></div>
@@ -338,7 +349,7 @@ Object.assign(ACT, {
       }
     }
     try {
-      const r = await mutate('/api/serving/mount', body, 'Drive saved');
+      const r = await mutate('/api/serving/mount', body, 'Drive saved', true);
       closeSheet(); loadDrives();
       if (r && r.enrol && r.enrol.length) {
         openSheet('Two-factor setup', 'Scan these now — they are shown only once', r.enrol.map((x) => `<div style="margin:10px 0"><div class="h800">${esc(x.user)}</div>
@@ -357,7 +368,7 @@ Object.assign(ACT, {
     if (ok) { try { await mutate('/api/serving/mount/delete', { id: +id }, 'Drive removed'); loadDrives(); } catch { /* shown */ } }
   },
   ruleEdit(id) { openRuleEditor(id ? JSON.parse(JSON.stringify(D.serv.rules.find((r) => r.id === +id))) : null); },
-  async ruleSave(id) { try { await mutate('/api/serving/rule', readRule(id), 'Rule saved'); closeSheet(); if (S.view === 'files') pollFiles(true); } catch { /* shown */ } },
+  async ruleSave(id) { try { await mutate('/api/serving/rule', readRule(id), 'Rule saved', true); closeSheet(); if (S.view === 'files') pollFiles(true); } catch { /* shown */ } },
   async ruleDelete(id) {
     const r = D.serv.rules.find((x) => x.id === +id);
     const ok = await ask({ kicker: 'Delete rule', title: r.name, danger: true, ok: 'Delete' });
@@ -386,7 +397,7 @@ Object.assign(ACT, {
     if (!input.value) input.value = `/errors/${code}.html`;
     const path = input.value;
     if (!mount) return note('Pick a drive first', { err: true });
-    const title = code === '403' ? 'Access denied' : 'Page not found';
+    const title = { 403: 'Access denied', 502: 'This service is down for a moment' }[code] || 'Page not found';
     const text = `<!doctype html>
 <html lang="en">
 <head>
@@ -413,9 +424,14 @@ Object.assign(ACT, {
     catch (e) { if (!/exists/.test(e.message)) return note(e.message, { err: true }); }
     openEditor(mount, path);
   },
+  errorPagePreview(id) {
+    const mount = $('#s_emount').value, path = $('#' + id).value;
+    if (!mount || !path) return note('Pick a drive and a page first', { err: true });
+    window.open(rawUrl(mount, path), '_blank', 'noopener');
+  },
   async siteSave() {
     const enc2 = [$('#s_gzip').checked ? 'gzip' : null, $('#s_zstd').checked ? 'zstd' : null].filter(Boolean);
-    try { await mutate('/api/serving/site', { error_mount: $('#s_emount').value, error_page: $('#s_epage').value, error_page_403: $('#s_epage403').value, unknown_host: $('#s_unknown').value, encode: enc2, nosniff: $('#s_nosniff').checked, hide_server: $('#s_hide').checked }, 'Site settings saved'); } catch { /* shown */ }
+    try { await mutate('/api/serving/site', { error_mount: $('#s_emount').value, error_page: $('#s_epage').value, error_page_403: $('#s_epage403').value, error_page_502: $('#s_epage502').value, unknown_host: $('#s_unknown').value, encode: enc2, nosniff: $('#s_nosniff').checked, hide_server: $('#s_hide').checked }, 'Site settings saved', true); } catch { /* shown */ }
   },
   async histView(id) {
     if (!id) { D.histView = null; return render(true); }
@@ -718,15 +734,17 @@ function vAlerts() {
   const rows = list.map((a) => ({ cells: [cell(fmt.dt(a.ts), 'dim'), hcell(`<span class="acc ${a.severity === 'info' ? 'dim' : 'hot'}">${esc(a.severity)}</span>`), cell(a.kind, 'dim'), cell(a.title, 'h800', a.title),
     cell(a.detail, 'dim', a.detail), cell(a.sent === 1 ? 'e-mailed' : a.sent === 2 ? 'below threshold' : A.config.configured ? 'pending' : '—', 'dim'),
     hcell(a.ack ? '<span class="dim small">done</span>' : `<button class="pill" data-act="alAck" data-arg="${a.id}">Done</button>`)] }));
-  const c = A.config;
-  return `<div class="split" style="grid-template-columns:1fr 320px"><section class="aside">
+  const c = A.config, hooks = (c.webhooks || []).map((h) => h.host), can = meCan('alerts.config');
+  // delivery state sits in the toolbar: a plain line once set up, a banner that opens the settings while nothing is
+  const state = c.configured || hooks.length
+    ? `<span class="small dim ell" style="flex:1">${c.configured ? `E-mailed to ${esc(c.to.join(', '))} via ${c.provider === 'smtp' ? 'SMTP' : 'Resend'} · ${esc(c.min_severity)} and above` : ''}${c.configured && hooks.length ? ' · ' : ''}${hooks.length ? 'Sent to ' + esc(hooks.join(', ')) : ''}</span>`
+    : can ? `<button class="al-banner" data-act="pageSheet" data-arg="delivery">${icon('triangle-alert', 'sm')}Action needed! Click to configure e-mail delivery</button>`
+      : '<span class="al-banner">E-mail delivery is not set up. Ask the owner.</span>';
+  return `<div class="split" style="grid-template-columns:1fr"><section class="aside">
     <div class="tbar">${[['open', 'Open'], ['all', 'All']].map(([k, l]) => `<button class="pill ${S.alFilter === k ? 'on' : ''}" data-act="alFilter" data-arg="${k}">${l}</button>`).join('')}
-      <div style="flex:1"></div><button class="pill" data-act="alAckAll">Mark all done</button>${meCan('alerts.config') ? sheetBtn('delivery', 'Delivery') : ''}</div>
+      ${state}<button class="pill" data-act="alAckAll">Mark all done</button>${can ? sheetBtn('delivery', 'Delivery') : ''}</div>
     ${table('alerts', [{ t: 'When', w: 110 }, { t: 'Level', w: 80 }, { t: 'Kind', w: 80 }, { t: 'Alert', w: 320 }, { t: 'Detail', w: 360 }, { t: 'Delivery', w: 110 }, { t: '', w: 70 }], rows,
-      { empty: 'No open alerts. Failed logins, auto-bans, outages, low disk space and error spikes show up here.' })}</section>
-    <aside class="aside"><div class="pad"><div class="cap red">E-mail</div><h5>${c.configured ? 'Resend is configured' : 'Not configured'}</h5></div>
-      <div style="padding:0 16px" class="small">${c.configured ? `E-mailed to ${esc(c.to.join(', '))} from ${esc(c.from)}: ${esc(c.min_severity)} and above, ${esc(c.digest)} summary.` : 'Alerts only show here until you add a Resend API key under Delivery. Then they are e-mailed too.'}
-      ${meCan('alerts.config') ? '<div class="act-row"><button class="btn btn-secondary" data-act="pageSheet" data-arg="delivery">Delivery settings</button></div>' : ''}</div></aside></div>`;
+      { empty: 'No open alerts. Failed logins, auto-bans, outages, low disk space and error spikes show up here.' })}</section></div>`;
 }
 Object.assign(ACT, {
   alFilter(f) { S.alFilter = f; render(true); },
@@ -763,13 +781,25 @@ SETTINGS_PANELS.push((row) => {
   </section>`;
 });
 
+let nProvider = 'smtp'; // the Custom SMTP / Resend switch in the open Delivery sheet
 function notifyRows(row) {
-  const cfg = D.alertsCfg || {}, owner = meOwner();
+  const cfg = D.alertsCfg || {}, owner = meOwner(), sm = cfg.smtp || {};
+  nProvider = cfg.choice || cfg.provider || (cfg.key_set ? 'resend' : 'smtp');
+  const only = (p, html) => `<div data-prov="${p}" ${nProvider === p ? '' : 'hidden'}>${html}</div>`;
   return `${row('To', 'Comma separated.', `<input id="n_to" class="input" value="${esc((cfg.to || []).join(', '))}" style="width:260px">`)}
     ${row('E-mail alerts from', 'Lower levels stay on the Alerts tab.', `<select id="n_sev" class="input">${['info', 'warning', 'critical'].map((s) => `<option ${cfg.min_severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}
     ${row('Summary e-mail', 'A report of the past day or week.', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input" value="${esc(cfg.digest_hour ?? 8)}" style="width:44px">:00`)}
-    ${owner ? row('Resend API key', cfg.key_set ? 'Set. Leave empty to keep it.' : 'Not set. Alerts only show on the Alerts tab.', `<input id="n_key" class="input" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off" style="width:200px">`) : ''}
-    ${owner ? row('Sender', 'An address on a domain verified in Resend. It also sends sign-in codes, so only the owner can change it.', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:260px">`) : ''}`;
+    ${owner ? row('Sender', 'An address your mail provider lets you send from. It also sends sign-in codes, so only the owner can change it.', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:260px">`) : ''}
+    ${owner ? row('E-mail provider', 'Any mail provider’s SMTP server or your own, or the Resend API.',
+      `<div class="seg-row" id="n_prov">${[['smtp', 'Custom SMTP'], ['resend', 'Resend']].map(([k, l]) => `<button class="${nProvider === k ? 'on' : ''}" data-act="nProv" data-arg="${k}">${l}</button>`).join('')}</div>`) : ''}
+    ${owner ? only('smtp', row('SMTP server', 'Host, port and encryption, from your provider’s settings.',
+      `<input id="n_smtp_host" class="input" value="${esc(sm.host || '')}" placeholder="smtp.example.com" spellcheck="false" style="width:170px"><input id="n_smtp_port" class="input" value="${esc(sm.port || '')}" placeholder="587" inputmode="numeric" style="width:58px">
+       <select id="n_smtp_sec" class="input">${[['starttls', 'STARTTLS'], ['tls', 'TLS'], ['none', 'None']].map(([k, l]) => `<option value="${k}" ${(sm.security || 'starttls') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)) : ''}
+    ${owner ? only('smtp', row('SMTP sign-in', sm.password_set ? 'Password set. Leave it empty to keep it.' : 'Leave both empty for a server that needs no sign-in.',
+      `<input id="n_smtp_user" class="input" value="${esc(sm.user || '')}" placeholder="user name" autocomplete="off" spellcheck="false" style="width:130px"><input id="n_smtp_pw" class="input" type="password" placeholder="${sm.password_set ? '•••••• (unchanged)' : 'password'}" autocomplete="new-password" style="width:124px">`)) : ''}
+    ${owner ? only('resend', row('Resend API key', (cfg.key_set ? 'Set. Leave empty to keep it.' : 'Not set.') + ' The sender must be on a domain verified in Resend.', `<input id="n_key" class="input" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off" style="width:200px">`)) : ''}
+    ${owner ? row('Webhooks', (cfg.webhooks || []).length ? 'Set: ' + cfg.webhooks.map((h) => `${h.host} (${h.kind})`).join(', ') + '. Leave empty to keep them.' : 'Discord, Slack, ntfy or any URL (sent as JSON). One per line.',
+      `<textarea id="n_hooks" class="input" rows="2" placeholder="https://ntfy.sh/my-topic" spellcheck="false" style="width:260px"></textarea>`) : ''}`;
 }
 function uploadRows(row) {
   const me = D.me;
@@ -819,21 +849,40 @@ function cloudflarePanel(row, toggle) {
       `<span class="${q.pending && q.ok === false ? 'hot' : ''} h800">${fmt.n(q.pending)}</span> <button class="pill" data-act="cfPurgeRetry" ${q.pending ? '' : 'disabled'}>Retry now</button>`) : ''}
     ${row('Purge now', 'Clear URLs from Cloudflare’s cache.', '<button class="pill" data-act="cfPurgeUrls">Purge URLs…</button> <button class="pill danger" data-act="cfPurgeAll">Purge everything</button>')}`, 'cloud');
 }
-// key: [kicker, title, load, rows, save actions, extra buttons]
+// Settings › Branding: one name, sign-in line, logo and stylesheet for everyone on this site (administrators only)
+function brandingRows() {
+  const b = D.branding;
+  return `<div class="form"><label class="wide">Dashboard name<input id="br_name" class="input" value="${esc(b.brand)}" maxlength="40" placeholder="Strata"></label>
+    <label class="wide">Sign-in text, shown under the form<input id="br_login" class="input" value="${esc(b.login_text)}" maxlength="300"></label>
+    <label class="wide">Logo: a square PNG up to 256 KB<input id="br_logo" class="input" type="file" accept="image/png"></label>
+    ${b.logo ? '<label class="dlg-check wide"><input type="checkbox" id="br_logo_reset"> Back to the Strata logo</label>' : ''}
+    <label class="wide">Custom CSS, loaded after the built-in styles<textarea id="br_css" class="input mono" rows="14" spellcheck="false" placeholder=":root { --color-accent: #0a7; }">${esc(b.css)}</textarea></label></div>`;
+}
+Object.assign(ACT, {
+  async brSave() {
+    const body = { brand: $('#br_name').value, login_text: $('#br_login').value, css: $('#br_css').value }, f = $('#br_logo').files[0];
+    if (f) body.logo = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.readAsDataURL(f); });
+    else if ($('#br_logo_reset')?.checked) body.logo = '';
+    try { await post('/api/branding', body); note('Branding saved'); setTimeout(() => location.reload(), 400); return true; } // name and CSS are in the page itself
+    catch (e) { note('Couldn’t save the branding: ' + e.message); }
+  },
+});
+// key: [kicker, title, load, rows, save actions, extra buttons, wide]
 const PAGE_SHEETS = {
   delivery: ['Alerts', 'Delivery', async () => { D.alertsCfg = (await get('/api/alerts')).config; }, notifyRows, ['nSave'],
-    () => `<button class="btn btn-secondary" data-act="nTest" ${D.alertsCfg?.configured ? '' : 'disabled'}>Send test</button>${D.alertsCfg?.key_set && meOwner() ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}`],
+    () => `<button class="btn btn-secondary" data-act="nTest" ${D.alertsCfg?.configured || D.alertsCfg?.webhooks?.length ? '' : 'disabled'}>Send test</button>${D.alertsCfg?.key_set && meOwner() ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}${D.alertsCfg?.webhooks?.length && meOwner() ? '<button class="btn btn-secondary" data-act="nClearHooks">Remove webhooks</button>' : ''}`],
   autoban: ['Blocklist', 'Auto-ban', loadMe, autobanRows, ['abSave']],
   links: ['Links', 'Link settings', loadMe, linkRows, ['lkSave']],
   files: ['Files', 'Upload settings', async () => { await loadMe(); if (!D.drives) await loadDrives(); },
     (row, toggle) => uploadRows(row) + (D.me.smartsort ? smartsortRows(row, toggle) : ''), ['uSave', 'ssSave']],
+  branding: ['Settings', 'Branding', async () => { D.branding = await get('/api/branding'); }, brandingRows, ['brSave'], null, true],
 };
 const sheetBtn = (k, label = 'Settings') => `<button class="pill" data-act="pageSheet" data-arg="${k}" title="${esc(PAGE_SHEETS[k][1])}">${icon('settings', 'sm')}${esc(label)}</button>`;
 Object.assign(ACT, {
   async pageSheet(k) {
-    const [kicker, title, load, rows, , extra] = PAGE_SHEETS[k];
+    const [kicker, title, load, rows, , extra, wide] = PAGE_SHEETS[k];
     try { await load(); } catch (e) { return note('Couldn’t load the settings: ' + e.message); }
-    openSheet(kicker, title, rows(setRow, toggle), `<button class="btn btn-primary" data-act="sheetSave" data-arg="${k}">Save</button>${extra ? extra() : ''}`);
+    openSheet(kicker, title, rows(setRow, toggle), `<button class="btn btn-primary" data-act="sheetSave" data-arg="${k}">Save</button>${extra ? extra() : ''}`, wide);
   },
   // the save actions return true on success; the sheet stays open on an error so nothing typed is lost
   async sheetSave(k) {
@@ -903,10 +952,19 @@ Object.assign(ACT, {
     const body = { to: $('#n_to').value, min_severity: $('#n_sev').value, digest: $('#n_dig').value, digest_hour: +$('#n_hour').value || 8 };
     if ($('#n_from')) body.from = $('#n_from').value; // sender + key: root only (they deliver sign-in codes)
     if ($('#n_key')?.value) body.resend_api_key = $('#n_key').value.trim();
+    if ($('#n_prov')) body.provider = nProvider;
+    if ($('#n_smtp_host')) body.smtp = { host: $('#n_smtp_host').value.trim(), port: +$('#n_smtp_port').value || 0, security: $('#n_smtp_sec').value, user: $('#n_smtp_user').value.trim(), password: $('#n_smtp_pw').value };
+    if ($('#n_hooks')?.value.trim()) body.webhooks = $('#n_hooks').value;
     try { const r = await post('/api/alerts/config', body); D.alertsCfg = r.config; note('Delivery settings saved'); render(true); return true; } catch (e) { note('Couldn’t save: ' + e.message); }
   },
+  nProv(p) { // switch in place: a re-render would drop what was typed
+    nProvider = p;
+    document.querySelectorAll('#n_prov button').forEach((b) => b.classList.toggle('on', b.dataset.arg === p));
+    document.querySelectorAll('#sheet [data-prov]').forEach((el) => { el.hidden = el.dataset.prov !== p; });
+  },
   async nClear() { try { const r = await post('/api/alerts/config', { clear_key: true }); D.alertsCfg = r.config; render(true); } catch (e) { note(e.message); } },
-  async nTest() { try { await post('/api/alerts/test', {}); note('Test e-mail sent'); } catch (e) { note(e.message); } },
+  async nTest() { try { await post('/api/alerts/test', {}); note('Test message sent'); } catch (e) { note(e.message); } },
+  async nClearHooks() { try { const r = await post('/api/alerts/config', { webhooks: '' }); D.alertsCfg = r.config; closeSheet(); note('Webhooks removed'); } catch (e) { note(e.message); } },
   async uSave() { try { D.me = await post('/api/settings/upload', { chunk_mb: +$('#u_chunk').value, parallel: +$('#u_par').value, versions_keep: +$('#u_keep').value }); await loadMe(); note('Upload settings saved'); render(true); return true; } catch (e) { note('Couldn’t save the upload settings: ' + e.message); } },
   async abToggle(v) { try { await post('/api/settings/autoban', { enabled: v === '1' }); await loadMe(); render(true); } catch (e) { note(e.message); } },
   async abSave() { try { await post('/api/settings/autoban', { probes: +$('#ab_probes').value, window_minutes: +$('#ab_win').value, ban_hours: +$('#ab_hours').value }); await loadMe(); note('Auto-ban saved'); render(true); return true; } catch (e) { note('Couldn’t save auto-ban: ' + e.message); } },

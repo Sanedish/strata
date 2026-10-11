@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Strata · {{SITE}}</title>
+<title>{{BRAND}} · {{SITE}}</title>
 <meta name="strata-instance" content="{{INSTANCE}}">
 <meta name="strata-accent" content="{{ACCENT}}">
 <link rel="icon" href="/favicon.ico">
@@ -12,23 +12,24 @@
 <link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
 <link rel="stylesheet" href="vendor/codemirror/addon/dialog/dialog.min.css">
 <link rel="stylesheet" href="dashboard.css">
-<link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
-<link rel="stylesheet" href="vendor/codemirror/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="custom.css">
 </head>
 <body>
+<!--ICONS-->
 <div class="app" id="app">
   <aside class="side">
     <div class="brand">
       <div class="logo"><img src="brand.png" alt="" width="26" height="26" decoding="async"></div>
-      <button class="site txt" data-act="siteMenu" title="Switch site · instance info"><b>STRATA</b><span>{{SITE}}</span></button>
+      <button class="site txt" data-act="siteMenu" title="Switch site · instance info"><b>{{BRAND}}</b><span>{{SITE}}</span></button>
     </div>
     <nav id="nav" data-scroll="nav"></nav>
     <div class="side-foot">
       <div class="conn" id="conn"><i></i><span>connecting…</span></div>
       <div class="who" id="who"></div>
+      <div class="ver"><!--VERSION--></div>
       <div class="foot-row">
-        <button class="btn btn-secondary" data-act="palette" title="Command palette (Ctrl K)"><span class="row"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-command"/></svg><span class="lbl">Command</span></span><span class="lbl" style="font-weight:400;opacity:.6">Ctrl K</span></button>
-        <button class="icbtn" data-act="navCollapse" id="navc" title="Collapse the sidebar ( [ )"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-panel-left-close"/></svg></button>
+        <button class="btn btn-secondary" data-act="palette" title="Command palette (Ctrl K)"><span class="row"><svg class="ic" aria-hidden="true"><use href="#i-command"/></svg><span class="lbl">Command</span></span><span class="lbl" style="font-weight:400;opacity:.6">Ctrl K</span></button>
+        <button class="icbtn" data-act="navCollapse" id="navc" title="Collapse the sidebar ( [ )"><svg class="ic" aria-hidden="true"><use href="#i-panel-left-close"/></svg></button>
       </div>
     </div>
   </aside>
@@ -40,12 +41,12 @@
       </div>
       <div style="flex:1"></div>
       <div class="seg-row" id="ranges"></div>
-      <label class="qwrap"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-search"/></svg><input id="q" class="input" placeholder="Filter requests…  ( / )" autocomplete="off" spellcheck="false"></label>
-      <button class="tbtn ink" id="upbtn" data-act="go" data-arg="upload" title="Upload files (U)"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-upload"/></svg>Upload</button>
-      <button class="tbtn" id="bots" data-act="bots" title="Exclude bots from the aggregate stats (B)"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-bot"/></svg><span>Bots</span></button>
-      <button class="icbtn" id="themebtn" data-act="themeCycle" title="Theme: light / dark / system (T)"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-moon"/></svg></button>
-      <button class="icbtn" id="pause" data-act="pause" title="Pause live updates (Space)"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-pause"/></svg></button>
-      <button class="icbtn" data-act="help" title="Keyboard shortcuts (?)"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-keyboard"/></svg></button>
+      <label class="qwrap"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input id="q" class="input" placeholder="Filter requests…  ( / )" autocomplete="off" spellcheck="false"></label>
+      <button class="tbtn ink" id="upbtn" data-act="go" data-arg="upload" title="Upload files (U)"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Upload</button>
+      <button class="tbtn" id="bots" data-act="bots" title="Exclude bots from the aggregate stats (B)"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><span>Bots</span></button>
+      <button class="icbtn" id="themebtn" data-act="themeCycle" title="Theme: light / dark / system (T)"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      <button class="icbtn" id="pause" data-act="pause" title="Pause live updates (Space)"><svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg></button>
+      <button class="icbtn" data-act="help" title="Keyboard shortcuts (?)"><svg class="ic" aria-hidden="true"><use href="#i-keyboard"/></svg></button>
     </header>
     <nav class="hubtabs" id="hubtabs" role="tablist" aria-label="Sections" hidden></nav>
     <div class="vitals" id="vitals"></div>

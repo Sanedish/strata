@@ -101,8 +101,8 @@ before every change. It walks through:
 4. **Cloudflare Tunnel.** Finds cloudflared, backs up its `config.yml` and adds an ingress rule for the CDN hostname.
    With no tunnel yet it can create one (this opens a browser to sign in to Cloudflare) and point the DNS record at
    it.
-5. **Keys and the owner account.** A Cloudflare API token (optional), a [Resend](https://resend.com) API key for the
-   sign-in codes, and the owner's username, password and e-mail.
+5. **Keys and the owner account.** A Cloudflare API token (optional), an SMTP server (your mail provider's or your
+   own) or a [Resend](https://resend.com) API key for the sign-in codes, and the owner's username, password and e-mail.
 6. **`strata.json`**, written to the instance folder. An existing one is backed up first.
 7. **The service.** A Task Scheduler task that starts at boot as SYSTEM, has no time limit and restarts after a
    failure. Then it waits for the dashboard to answer.
@@ -127,14 +127,20 @@ edges, and reports are welcome. Restarting the tunnel from the dashboard is Wind
 
 ### Sign-in codes
 
-Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one. That makes a Resend API key
-and a sender address on a domain you verified with Resend a requirement. The free tier is enough. To set or change
-them later:
+Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one. That makes a way to send mail
+a requirement: any SMTP server (your mail provider's, such as Fastmail, Gmail, Mailgun, Postmark or Amazon SES, or a
+self-hosted one such as Postfix, Mailcow or Stalwart), or a [Resend](https://resend.com) API key with a sender on a
+domain you verified there. Pick one with the Custom SMTP / Resend switch under Security › Alerts › Delivery. To set or change them later (the SMTP password is asked for,
+never put on the command line):
 
 ```
+python auth.py --smtp <host> <port> <user> <from address>
 python auth.py --resend <api key> <from address>
 python auth.py --email <owner address>
 ```
+
+Port 465 uses TLS, any other port STARTTLS. A relay on your own network that needs neither can be set to "None" under
+Security › Alerts › Delivery; Strata then refuses to send a password over it.
 
 ## How it fits together
 
@@ -179,7 +185,7 @@ started with its own `--home`. Most settings are changed in the dashboard; these
 | `caddy_exe`, `caddyfile`, `access_log` | Where Caddy, its config and the log it writes live |
 | `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | The tunnel and how to restart it after ingress changes |
 | `cloudflare.api_token`, `cloudflare.zone_id` | Optional. The `CF_API_TOKEN` environment variable overrides the token |
-| `alerts.resend_api_key`, `alerts.from`, `alerts.to` | E-mail for sign-in codes and alerts |
+| `alerts.smtp` (`host`, `port`, `security`, `user`, `password`) or `alerts.resend_api_key`; `alerts.from`, `alerts.to` | E-mail for sign-in codes and alerts |
 | `listen`, `feed_listen`, `transform_listen`, `gate_listen` | Loopback addresses of Strata's own processes |
 
 Every default is in `DEFAULTS` at the top of [core.py](core.py). `strata.json` holds secrets and is in `.gitignore`.

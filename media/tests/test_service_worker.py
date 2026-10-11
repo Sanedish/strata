@@ -623,6 +623,26 @@ class TestVideoJobs(Base):
         self.assertEqual(self.job(jid)["state"], "done")
         self.assertEqual(os.listdir(w.cache.tmp_dir), [])
 
+    def test_mp4_job(self):
+        """{"want": "mp4"}: planned, transcoded and stored as MP4 under auto:mp4:v1 (the key media.py looks up)."""
+        full = self.put("/clip.mov", b"\0" * 4096)
+        jid = self.enqueue("video", "/clip.mov", params='{"want":"mp4"}')
+        w = self.make_worker()
+        seen = {}
+
+        def tc(src, dst, plan, conf):
+            seen.update(plan=plan, dst=dst)
+            with open(dst, "wb") as f:
+                f.write(b"\0\0\0\x18ftypisom" + b"\0" * 988)
+            return sresult(0)
+        with mock.patch.object(video, "available", return_value=dict(VIDEO_OK, codec="h264", format="mp4")),                 mock.patch.object(video, "probe", return_value=video_info(full, 4096)),                 mock.patch.object(video, "transcode", tc):
+            self.step(w, "encode")
+        self.assertEqual((seen["plan"]["format"], seen["plan"]["codec"]), ("mp4", "h264"))
+        self.assertTrue(seen["dst"].endswith(".mp4"))
+        row = self.db.variant(self.key(w, "/clip.mov", "auto:mp4:v1"))
+        self.assertEqual((row["beneficial"], row["fmt"], row["file"].rsplit(".", 1)[-1]), (1, "mp4", "mp4"))
+        self.assertEqual(self.job(jid)["result"]["variant"], "mp4")
+
     def test_not_beneficial_and_skipped_sources(self):
         full = self.put("/clip.mp4", b"\0" * 4096)
         self.enqueue("video", "/clip.mp4")

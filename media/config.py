@@ -52,7 +52,7 @@ MEDIA = {
                         "cpu_mb_per_s": 4, "demote_rate_per_day": 0.2, "demote_idle_days": 21,
                         "persistent_max_gb": 100, "ephemeral_max_age_days": 30, "tombstone_days": 30,
                         "failure_retry_h": 24, "upgrade_on_promote": True}},
-    "video": {"enabled": True, "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+    "video": {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
               "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
               "min_saving": 0.10, "timeout_factor": 15},
     "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed

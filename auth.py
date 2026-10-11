@@ -264,8 +264,15 @@ if __name__ == "__main__":
         sys.exit(0)
     if len(sys.argv) == 4 and sys.argv[1] == "--resend":
         api_key, sender = sys.argv[2].strip(), sys.argv[3].strip()
-        save_config({"alerts": {"resend_api_key": api_key, "from": sender}})
+        save_config({"alerts": {"resend_api_key": api_key, "from": sender, "provider": "resend"}})
         print("configured Resend alerts and OTP sender: %s" % sender)
+        sys.exit(0)
+    if len(sys.argv) == 6 and sys.argv[1] == "--smtp":  # the password comes from stdin, never the command line
+        host, port, smtp_user, sender = sys.argv[2].strip().lower(), int(sys.argv[3]), sys.argv[4].strip(), sys.argv[5].strip()
+        smtp_pw = getpass.getpass("SMTP password: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\r\n")
+        save_config({"alerts": {"from": sender, "provider": "smtp", "smtp": {"host": host, "port": port, "user": smtp_user, "password": smtp_pw,
+                                                          "security": "tls" if port == 465 else "starttls"}}})
+        print("configured SMTP %s:%d for alerts and OTP, sender: %s" % (host, port, sender))
         sys.exit(0)
     if len(sys.argv) == 3 and sys.argv[1] == "--allow-signups":
         allowed = sys.argv[2].strip().lower() in ("1", "true", "yes", "on")
@@ -273,7 +280,7 @@ if __name__ == "__main__":
         print("account registration enabled: %s" % allowed)
         sys.exit(0)
     if len(sys.argv) != 2:
-        sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | --allow-signups <yes|no>")
+        sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | --smtp <host> <port> <user> <from> | --allow-signups <yes|no>")
     pw = getpass.getpass("Password: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\r\n")
     pw = pw.lstrip("﻿")  # Windows PowerShell prefixes piped input with a BOM
     if len(pw) < 8:

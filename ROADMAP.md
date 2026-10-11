@@ -88,13 +88,29 @@ House style for every string:
 
 Biggest offenders by count: `control.js`, `storage.js`, `media.js`, then the Settings rows in `app.js`.
 
-## Phase 3: customisation
+## Phase 3: customisation (done)
 
-- **Code editor** already exists (Admin › Code, CodeMirror, conflict-safe saves with backups). Next: a **Custom CSS** file (`<home>/custom.css`) loaded after the built-in styles and editable from Settings › Appearance. That lets people restyle the dashboard without touching source code. About 20 lines.
-- **Error pages**: done for 404 and 403. Next: a **502/503 page** for when a proxied service is down, and a **Preview** button that opens the page in a new tab.
-- **Branding**: dashboard name, logo and login-page text per instance (the accent colour already exists as `instance.accent`).
+| Item | What changed |
+|---|---|
+| **Branding** | Settings › Appearance › Branding (administrators): dashboard name (sidebar, tab title, sign-in pages), a line of sign-in text, and a PNG logo up to 256 KB. Name and text live in `strata.json` (`instance.brand`, `instance.login_text`), the logo in `<home>/brand.png` |
+| **Custom CSS** | Same sheet. Saved to `<home>/custom.css` and loaded after the built-in styles on the dashboard and the sign-in pages. A built-in empty `static/custom.css` is served when there is none |
+| **502 page** | Serving › Site has a third error page for 502, 503 and 504 (a proxied service, Transform or the gate is down). Empty keeps Caddy's plain text |
+| **Preview** | Each error page has a Preview button that opens it in a new tab (sandboxed, like any file preview) |
 
-## Phase 4: features dashboards like this usually have
+The logo is PNG only on purpose: an SVG served from the dashboard's own origin could run script. Edits are audited (`branding`) and covered by `tests/sec_regress.py`.
+
+## Phase 4: features dashboards like this usually have (done)
+
+| Item | What changed |
+|---|---|
+| **Backup and restore** | System › Backup (owner only): **Download backup** gives a zip with `strata.json` minus every key, password, token, TOTP and webhook, plus a consistent snapshot of the database. **Restore…** checks the zip (integrity check, Strata tables), copies the database in through SQLite's backup API while Strata runs, merges the settings over the current ones (secrets on this machine stay), migrates older tables and re-applies the Caddy config. New owner-only capability `system.backup`. Code in `backup.py` |
+| **Alert webhooks** | Alerts › Delivery › Webhooks (owner only, up to 5): Discord, Slack and ntfy are recognised by host name, anything else gets JSON with `title` and `message` (Gotify, Home Assistant, n8n). Alerts and the daily or weekly summary go to every channel; one failing channel doesn't hold up the others. The URLs carry their own secret, so only host and format are ever sent back to the browser. LAN targets are allowed on purpose (a self-hosted ntfy) |
+| **Version and update check** | `core.VERSION` (now 0.1.0) shows in the sidebar footer and System › Versions, signed-in users only. Once a day Strata reads the latest release from `instance.update_repo` (`owner/name` on GitHub) and shows "vX available" with a link. Empty until the repository is public, so nothing is fetched |
+| **Config preview** | Save & apply on a drive, a rule and Serving › Site first shows the diff of the Caddy config the change would produce. The change is rendered inside a database transaction that is rolled back. No diff, no dialog |
+
+Still open from Phase 4:
+- Set `instance.update_repo` (in `core.py` DEFAULTS) once the GitHub repository exists, and tag releases to match `core.VERSION`.
+- Restore says "restart Strata to finish": in-memory state (sessions, the compressor's map) refreshes on restart. A restart button needs the service run as SYSTEM tested first (Phase 1).
 
 Based on how comparable self-hosted panels are reviewed (Nginx Proxy Manager, Coolify) and common checklists. These sources are mostly blog posts and guides, so treat them as orientation, not research.
 

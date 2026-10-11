@@ -280,7 +280,7 @@
       });
     },
   });
-  PALETTE_SOURCES.push((q) => (O.state?.people || []).filter((p) => !q || p.user.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
+  PALETTE_SOURCES.push((q) => (!VIEWS.office ? [] : O.state?.people || []).filter((p) => !q || p.user.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
     .map((p) => ({ label: p.user, hint: p.title || p.role, icon: 'user', group: 'People', run: () => ACT.officeOpen(p.user) })));
 
   document.addEventListener('input', (e) => {

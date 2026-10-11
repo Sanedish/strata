@@ -45,7 +45,7 @@ answers = [
     "example.org", "", "",                      # domain, CDN host (default cdn.example.org), files folder (default)
     "n", caddy, caddyfile, "y",                 # no winget, caddy path, Caddyfile, LAN dashboard: yes
     "n",                                        # no tunnel
-    "", "", "",                                 # no Cloudflare token, no Resend key, default sender
+    "", "", "", "",                             # no Cloudflare token, default sender, no SMTP server, no Resend key
     "owner", "a long enough passphrase", "a long enough passphrase", "owner@example.org",
 ]
 env = dict(os.environ, PATH=os.environ.get("PATH", ""), PYTHONIOENCODING="utf-8")
@@ -68,7 +68,8 @@ try:
     check("caddy paths written", cfg["caddy_exe"] == caddy and cfg["caddyfile"] == caddyfile, (cfg.get("caddy_exe"), cfg.get("caddyfile")))
     check("owner written", cfg["auth"]["user"] == "owner" and cfg["auth"]["password_hash"].startswith("pbkdf2_sha256$")
           and cfg["alerts"]["to"] == ["owner@example.org"], cfg.get("auth", {}).get("user"))
-    check("no secrets asked for were stored", "cloudflare" not in cfg and "resend_api_key" not in cfg["alerts"], cfg.get("alerts"))
+    check("no secrets asked for were stored", "cloudflare" not in cfg and "resend_api_key" not in cfg["alerts"]
+          and "smtp" not in cfg["alerts"], cfg.get("alerts"))
     check("files folder created", os.path.isdir(cfg["storage_paths"][0]), cfg.get("storage_paths"))
     text = open(caddyfile).read()
     imp = "import " + os.path.join(home, "generated", "cdn.caddy").replace("\\", "/")
@@ -80,7 +81,7 @@ try:
     check("placeholder for the generated config", os.path.exists(os.path.join(home, "generated", "cdn.caddy")))
 
     # second run: Enter everywhere keeps what is there (caddy found from strata.json this time, so no winget question)
-    r2 = install(["", "", "", "", "n", "", "", "", "y"])
+    r2 = install(["", "", "", "", "n", "", "", "", "", "y"])
     cfg2 = json.load(open(os.path.join(home, "strata.json")))
     check("re-run exits cleanly", r2.returncode == 0, (r2.stdout + r2.stderr)[-1500:])
     check("re-run keeps owner, ports and site", cfg2["auth"] == cfg["auth"] and cfg2["listen"] == cfg["listen"]

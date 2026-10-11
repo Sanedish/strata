@@ -2,7 +2,7 @@
 
 Why: Cloudflare Free ignores `Vary: Accept`, so the origin must never answer different formats under one URL. The
 edge rules add `_v=avif` / `_v=webp` (images, by the Accept header) or `_v=webm` (videos played by Chromium /
-Firefox) to *query-less* requests before the cache lookup: each format is cached under its own key, the visible URL
+Firefox; `_v=mp4` for every client when video.format is "mp4") to *query-less* requests before the cache lookup: each format is cached under its own key, the visible URL
 stays the same and there is no extra round trip. Without the Transform Rules permission the bridge falls back to
 redirect mode (media.py answers 302 ?_v=...).
 
@@ -53,9 +53,10 @@ def _rewrite(value):
     return {"uri": {"query": {"value": value}}}
 
 
-def build_rules(hosts, img_exts=IMG_EXTS, vid_exts=VID_EXTS):
+def build_rules(hosts, img_exts=IMG_EXTS, vid_exts=VID_EXTS, video_fmt="webm"):
     """The wanted rules (DESIGN 9), exact expressions. No hosts -> no rules; no image / video extensions -> the
-    avif+webp / webm rules are left out (the caller then deletes them)."""
+    avif+webp / video rules are left out (the caller then deletes them). video_fmt "webm": the video rule adds
+    _v=webm for <video> players in Chromium / Firefox; "mp4": _v=mp4 for every client (H.264 plays everywhere)."""
     hosts, img, vid = _clean(hosts), _clean(img_exts), _clean(vid_exts)
     if not hosts:
         return []
@@ -70,7 +71,11 @@ def build_rules(hosts, img_exts=IMG_EXTS, vid_exts=VID_EXTS):
         out.append({"ref": REF_WEBP, "description": "Strata Media - WebP for query-less images (managed by Strata)",
                     "expression": "%s and not %s and %s" % (img_base, accept % "avif", accept % "webp"),
                     "action": "rewrite", "action_parameters": _rewrite("_v=webp"), "enabled": True})
-    if vid:
+    if vid and video_fmt == "mp4":   # same ref: switching the format patches the one video rule in place
+        out.append({"ref": REF_WEBM, "description": "Strata Media - MP4 (H.264) for videos (managed by Strata)",
+                    "expression": "%s and http.request.uri.path.extension in %s and %s" % (base, _set(vid), NO_TRANSFORM),
+                    "action": "rewrite", "action_parameters": _rewrite("_v=mp4"), "enabled": True})
+    elif vid:
         out.append({"ref": REF_WEBM, "description": "Strata Media - WebM for videos in Chromium/Firefox (managed by Strata)",
                     "expression": "%s and http.request.uri.path.extension in %s"
                                   ' and any(http.request.headers["sec-fetch-dest"][*] eq "video")'
@@ -109,9 +114,11 @@ def sync_media_rules(enable, hosts=None, img_exts=None, vid_exts=None):
     401/403 to "no permission" -> redirect mode). A missing entrypoint (404) is created with PUT, like sync()."""
     if img_exts is None:
         img_exts = IMG_EXTS
+    vcfg = (core.CFG.get("media") or {}).get("video") or {}
     if vid_exts is None:
-        vid_exts = VID_EXTS if ((core.CFG.get("media") or {}).get("video") or {}).get("enabled", True) else ()
-    want = build_rules(media_hosts() if hosts is None else hosts, img_exts, vid_exts) if enable else []
+        vid_exts = VID_EXTS if vcfg.get("enabled", True) else ()
+    want = build_rules(media_hosts() if hosts is None else hosts, img_exts, vid_exts,
+                       "mp4" if vcfg.get("format") == "mp4" else "webm") if enable else []
     zone = cloudflare.zone_id()
     res = {"enabled": bool(enable), "phase": MEDIA_PHASE, "ruleset": None, "created": [], "updated": [],
            "deleted": [], "unchanged": []}

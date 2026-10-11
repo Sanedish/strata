@@ -116,6 +116,17 @@ class RuleStrings(unittest.TestCase):
             self.assertIn("managed by Strata", r["description"])
             self.assertLess(len(r["expression"]), 4096)
 
+    def test_mp4_video_rule(self):
+        """video.format=mp4: the same rule (same ref, patched in place) rewrites every client to _v=mp4 - no
+        Sec-Fetch-Dest / browser test, H.264 plays everywhere; Cache-Control: no-transform still gets the original."""
+        r = media_edge.build_rules(HOSTS, (), ("mp4", "mov"), "mp4")
+        self.assertEqual([x["ref"] for x in r], ["strata_media_webm"])
+        self.assertEqual(r[0]["action_parameters"], {"uri": {"query": {"value": "_v=mp4"}}})
+        self.assertIn('extension in {"mp4" "mov"}', r[0]["expression"])
+        self.assertIn(media_edge.NO_TRANSFORM, r[0]["expression"])
+        self.assertNotIn("sec-fetch-dest", r[0]["expression"])
+        self.assertNotIn("user_agent", r[0]["expression"])
+
     def test_partial_sets_and_sanitising(self):
         self.assertEqual(media_edge.build_rules([], media_edge.IMG_EXTS, media_edge.VID_EXTS), [])
         self.assertEqual([r["ref"] for r in media_edge.build_rules(HOSTS, media_edge.IMG_EXTS, ())],

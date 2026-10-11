@@ -29,6 +29,7 @@ import media  # noqa: E402  (imports pathfix first)
 import breaker  # noqa: E402
 import config  # noqa: E402
 import imaging  # noqa: E402
+import worker  # noqa: E402
 
 try:
     from PIL import Image
@@ -102,7 +103,7 @@ class MediaServiceTest(unittest.TestCase):
         shutil.copyfile(os.path.join(m, "photo.png"), os.path.join(m, "sub", "p.png"))
         Image.new("RGB", (8, 8), (10, 20, 30)).save(os.path.join(m, "tiny.png"))
         for n, data in (("clip.mp4", os.urandom(20000)), ("clip2.mp4", os.urandom(20000)),
-                        ("clip3.mp4", os.urandom(20000)), ("movie.webm", os.urandom(5000)),
+                        ("clip3.mp4", os.urandom(20000)), ("clip4.mp4", os.urandom(20000)), ("movie.webm", os.urandom(5000)),
                         ("big.bin", os.urandom(2_000_000)), ("big.zip", os.urandom((1 << 20) + 50000)),
                         ("clean.txt", b"hello clean\n"), ("flagged.txt", b"pretend finding inside\n" * 50),
                         ("new.txt", b"brand new\n"), ("stale.txt", b"stale content\n"), ("legacy.txt", b"old\n"),
@@ -474,12 +475,33 @@ class MediaServiceTest(unittest.TestCase):
                           ("/photo.png?q=0", "q must be 1-100"),
                           ("/photo.png?fm=gif", "fm must be webp, avif, jpeg or png"),
                           ("/photo.png?fm=webm", "fm must be webp, avif, jpeg or png"),
-                          ("/photo.png?_v=bogus", "_v must be avif, webp, webm or orig")):
+                          ("/photo.png?_v=bogus", "_v must be avif, webp, webm, mp4 or orig")):
             st, h, body = self.req(path)
             self.assertEqual((st, body.decode()), (400, msg), path)
             self.assertEqual(h["cache-control"], "no-store")
             self.assert_no_cdn(h)
         self.assertEqual(self.req("/clip.mp4?w=100")[0], 415)
+
+    def test_mp4_variants(self):
+        """?_v=mp4: queued only while video.format is mp4; a ready MP4 is served from the vid cache as clip.mp4."""
+        st, h, _ = self.req("/clip4.mp4?_v=mp4")                    # format webm: no MP4 job behind your back
+        self.assertEqual((st, h["location"]), (302, "/clip4.mp4?_v=orig"))
+        time.sleep(0.3)
+        self.assertEqual([j for j in self.svc.store.jobs(kind="video") if j["path"] == "/clip4.mp4"], [])
+        self.write_conf(video={"format": "mp4"})
+        self.addCleanup(self.restore_conf)
+        st, h, _ = self.req("/clip4.mp4?_v=mp4")
+        self.assertEqual((st, h["location"]), (302, "/clip4.mp4?_v=orig"))
+        self.assertEqual([(j["priority"], j["params"]) for j in self.job("video", "/clip4.mp4")], [(40, '{"want":"mp4"}')])
+        s = os.stat(os.path.join(self.mnt, "clip4.mp4"))
+        key = self.svc.cache.key(1, "/clip4.mp4", s.st_size, s.st_mtime, worker.AUTO_SPEC % "mp4")
+        f = self.svc.cache.write_bytes(key, "mp4", "vid", b"fake mp4 bytes")
+        self.svc.store.put_variant(key, mount=1, path="/clip4.mp4", src_size=s.st_size, src_mtime=s.st_mtime, kind="vid",
+                                   fmt="mp4", spec=worker.AUTO_SPEC % "mp4", file=f, bytes=14, src_bytes=s.st_size,
+                                   secs=1.0, beneficial=1)
+        st, h, _ = self.req("/clip4.mp4?_v=mp4")
+        self.assertEqual((st, h["x-strata-media"], h["x-strata-disposition"]), (200, "hit", "inline; filename*=UTF-8''clip4.mp4"))
+        self.assertTrue(h["x-strata-accel"].endswith(".mp4"))
 
     def test_webm_variants(self):
         st, h, body = self.req("/clip.mp4?_v=webm")
@@ -489,13 +511,14 @@ class MediaServiceTest(unittest.TestCase):
         self.assertEqual([(j["priority"], j["params"]) for j in self.job("video", "/clip.mp4")],
                          [(40, '{"want":"webm"}')])
         self.assertEqual(self.req("/clip.mp4?fm=webm")[0], 302)
-        # a ready variant (the worker's output, whichever codec it had) -> accel from the vid cache
-        for name, codec, ok in (("/clip2.mp4", "vp9", 1), ("/clip3.mp4", "av1", 0)):
+        # a ready variant, stored under the very spec the worker uses -> accel from the vid cache
+        for name, ok in (("/clip2.mp4", 1), ("/clip3.mp4", 0)):
             s = os.stat(os.path.join(self.mnt, name.lstrip("/")))
-            key = self.svc.cache.key(1, name, s.st_size, s.st_mtime, media.spec_webm(codec))
+            spec = worker.AUTO_SPEC % "webm"
+            key = self.svc.cache.key(1, name, s.st_size, s.st_mtime, spec)
             f = self.svc.cache.write_bytes(key, "webm", "vid", b"fake webm bytes") if ok else ""
             self.svc.store.put_variant(key, mount=1, path=name, src_size=s.st_size, src_mtime=s.st_mtime, kind="vid",
-                                       fmt="webm", spec=media.spec_webm(codec), file=f, bytes=15, src_bytes=s.st_size,
+                                       fmt="webm", spec=spec, file=f, bytes=15, src_bytes=s.st_size,
                                        secs=1.0, beneficial=ok)
         st, h, _ = self.req("/clip2.mp4?_v=webm")
         self.assertEqual((st, h["x-strata-media"], h["x-strata-disposition"]),
@@ -565,7 +588,9 @@ class HelperTest(unittest.TestCase):
         p = {"w": 100, "h": None, "fit": "inside", "q": 82, "fm": "auto"}
         self.assertEqual(media.spec_tf(p), "tf:w=100,h=,fit=inside,fm=auto,q=82:v1")
         self.assertEqual(media.spec_tf(p, 3), "tf:w=100,h=,fit=inside,fm=auto,q=82,ver=3:v1")
-        self.assertEqual((media.spec_auto("avif"), media.spec_webm("av1")), ("auto:avif:v1", "webm:av1:v1"))
+        self.assertEqual((media.spec_auto("avif"), media.spec_video("webm")), ("auto:avif:v1", "auto:webm:v1"))
+        for fmt in ("webm", "mp4"):   # media.py looks a video variant up under the key the worker writes it to
+            self.assertEqual(media.spec_video(fmt), worker.AUTO_SPEC % fmt)
 
     def test_bucket_rate(self):
         b = media.Bucket(8, 0)                 # 1 MB/s, no burst

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Strata · Two-factor code</title>
+<title>{{BRAND}} · Two-factor code</title>
 <link rel="icon" href="/favicon.ico">
 <link rel="stylesheet" href="/styles.css">
 <meta name="strata-accent" content="{{ACCENT}}">
@@ -33,11 +33,12 @@
   .foot { padding: 10px 20px; border-top: 2px solid var(--color-divider); font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
   .foot a { color: inherit; }
 </style>
+<link rel="stylesheet" href="/custom.css">
 </head>
 <body>
 <div class="wrap">
   <div class="lock">
-    <div class="head"><div><span>Strata · step 2 of 2</span><b>Your code</b></div><div class="bar"><i></i><i></i><i></i></div></div>
+    <div class="head"><div><span>{{BRAND}} · step 2 of 2</span><b>Your code</b></div><div class="bar"><i></i><i></i><i></i></div></div>
     <!--ERROR-->
     <form method="post" action="/login/2fa">
       <p>Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
