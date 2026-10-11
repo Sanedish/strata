@@ -29,7 +29,7 @@ const VIEWS = {
   tunnel: ['Tunnel', 'Cloudflare tunnel connections', 'cable'],
   origins: ['Origins', 'Services behind the tunnel', 'network'],
   compression: ['Compression', 'Precompressed files and savings', 'archive'],
-  security: ['Security', 'Scanners and suspicious requests', 'shield-alert'],
+  security: ['Scanners', 'Scanners and suspicious requests', 'bug'],
   latency: ['Latency', 'Response times', 'timer'],
   history: ['History', 'The last 24 hours', 'clock-fading'],
   edge: ['Edge', 'Cloudflare cache and threats', 'cloud'],
@@ -38,19 +38,32 @@ const VIEWS = {
   office: ['Team', 'People, noticeboard and notes', 'users'],
   ide: ['Code', 'Edit Strata’s source', 'code'],
   settings: ['Settings', 'Your preferences', 'settings'],
+  // hubs: one sidebar entry, a tab row for their views. S.view is always a view, never a hub.
+  traffic: ['Traffic', 'Requests, visitors and content', 'activity'],
+  guard: ['Security', 'Blocklist, scanners and alerts', 'shield-alert'],
+  health: ['Health', 'Tunnel, origins and the server', 'heart-pulse'],
+  drive: ['Files', 'Browse and manage your drives', 'folder-open'],
+  site: ['Site', 'Serving, links and compression', 'server'],
 };
+const HUBS = {
+  traffic: ['requests', 'visitors', 'content', 'insights'],
+  guard: ['blacklist', 'security', 'alerts'],
+  health: ['tunnel', 'origins', 'edge', 'latency', 'history', 'system', 'logs'],
+  drive: ['files', 'analyze'],
+  site: ['serving', 'links', 'compression'],
+};
+const hubOf = (v) => Object.keys(HUBS).find((h) => HUBS[h].includes(v));
+const hubTabs = (h) => HUBS[h].filter((v) => canSeeView(v));
+const hubTarget = (h) => { const t = hubTabs(h); return t.includes(S.hubLast?.[h]) ? S.hubLast[h] : t[0]; };
+const navLeaves = (ids) => ids.flatMap((id) => (HUBS[id] ? hubTabs(id) : [id]));
 // grouped by task. Upload is not listed: the header's Upload button opens it from every view.
 const NAV_GROUPS = [
-  ['Overview', ['summary', 'alerts', 'office']],
-  ['Traffic', ['requests', 'visitors', 'content', 'insights']],
-  ['Files', ['files', 'analyze']],
-  ['Site', ['serving', 'links', 'compression']],
-  ['Security', ['blacklist', 'security']],
-  ['Infrastructure', ['network', 'tunnel', 'origins', 'edge', 'latency', 'history', 'system', 'logs'], 'deep'],
+  ['', ['summary', 'office']],
+  ['Monitor', ['traffic', 'guard', 'health']],
+  ['Manage', ['drive', 'site', 'network']],
   ['Admin', ['accounts', 'ide']],
 ];
-const navGroup = (t) => NAV_GROUPS.find((g) => g[0] === t)[1];
-const NAV_C = navGroup('Site'), NAV2 = navGroup('Infrastructure'); // media.js appends 'media' to NAV_C
+const NAV_C = HUBS.site; // media.js appends 'media'
 // "work" views (files, team, configuration, administration, settings) have no use for the traffic vitals, time ranges
 // or the request filter: they get that height and width back unless Settings › Vitals › Show everywhere is on
 const WORK_VIEWS = new Set(['office', 'files', 'upload', 'analyze', 'serving', 'blacklist', 'links', 'alerts', 'network', 'accounts', 'ide', 'settings']);
@@ -86,11 +99,11 @@ const store = {
 };
 // every key here is a preference: saved in this browser and, with Settings › Preferences › Sync on, in the account
 const PREFS = {
-  view: 'summary', deep: false, range: 'live', nobots: false, rate: 1000, widths: {}, fields: false, scale: null,
+  view: 'summary', range: 'live', nobots: false, rate: 1000, widths: {}, fields: false, scale: null,
   reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
   zebra: false, navCollapsed: false, navHidden: [], navPinned: [], landing: '', vitals: ['reqs', 'bytes', 'uniq', 'errors', 'latency', 'tunnel'],
   clock24: true, relTimes: true, hiddenPause: true, notify: false, savedFilters: [], syncPrefs: false, palRecent: [],
-  confirmDelete: true, vitalsAll: false,
+  confirmDelete: true, vitalsAll: false, hubLast: {},
 };
 const S = {};
 for (const [k, d] of Object.entries(PREFS)) S[k] = store.get(k, d);
@@ -341,8 +354,9 @@ async function pollLive() {
       try { D.live = await get('/api/live'); online = true; } catch (e) { online = !/access|permission/i.test(e.message); }
     } else { D.live = null; online = true; }
     if (D.me) {
-      const accessible = visibleNav().flatMap(([, ids]) => ids);
-      if (!accessible.includes(S.view)) { S.view = accessible[0] || 'settings'; persist(); auditView(S.view); }
+      const accessible = navLeaves(visibleNav().flatMap(([, ids]) => ids));
+      // permissions decide, not the sidebar: Upload and hidden views are not listed there
+      if (!canSeeView(S.view)) { S.view = accessible[0] || 'settings'; persist(); auditView(S.view); }
     }
     renderNav();
     render(!hadMe && !!D.me && S.view === 'settings');
@@ -411,7 +425,8 @@ function refreshForView() {
 /* ------------------------------------------------------------------ chrome */
 
 function navItem(id, badge, alert) {
-  return `<button class="nav-item ${S.view === id ? 'on' : ''}" data-act="go" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${S.view === id ? ' aria-current="page"' : ''}>
+  const on = S.view === id || hubOf(S.view) === id;
+  return `<button class="nav-item ${on ? 'on' : ''}" data-act="go" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
     <span class="mark"></span>${icon(VIEWS[id][2])}<span>${VIEWS[id][0]}</span><span class="badge ${alert ? 'alert' : ''}">${esc(badge ?? '')}</span></button>`;
 }
 // a view shows when the account holds any of its capabilities (the server enforces each request separately)
@@ -427,18 +442,15 @@ function canSeeView(v) {
   const need = VIEW_NEEDS[v];
   return !caps || !need || need.some((c) => caps.has(c));
 }
+const canSeeEntry = (id) => (HUBS[id] ? hubTabs(id).length > 0 : canSeeView(id));
+// sidebar entries (views and hubs) by group; pinned and hidden apply to entries
 function visibleNav() {
   const hiddenV = new Set(S.navHidden || []);
-  const canSee = canSeeView;
   const groups = [];
-  if ((S.navPinned || []).length) groups.push(['Pinned', S.navPinned.filter((v) => VIEWS[v] && canSee(v))]);
-  for (const [title, ids, flag] of NAV_GROUPS) {
-    const shown = ids.filter((v) => !hiddenV.has(v) && !(S.navPinned || []).includes(v) && canSee(v));
-    // a collapsed group keeps its header (click to expand) as long as it has anything to show
-    groups.push([title, flag === 'deep' && !S.deep && shown.length ? [] : shown, flag, shown.length]);
-  }
+  if ((S.navPinned || []).length) groups.push(['Pinned', S.navPinned.filter((v) => VIEWS[v] && canSeeEntry(v))]);
+  for (const [title, ids] of NAV_GROUPS) groups.push([title, ids.filter((v) => !hiddenV.has(v) && !(S.navPinned || []).includes(v) && canSeeEntry(v))]);
   groups.push(['', ['settings']]);
-  return groups.filter((g) => g[1].length || g[3]);
+  return groups.filter((g) => g[1].length);
 }
 function renderNav() {
   const L = D.live, st = D.stats, t = L?.tunnel;
@@ -456,12 +468,15 @@ function renderNav() {
   };
   const alert = { tunnel: t && (!t.up || t.ha < 4), origins: originsDown > 0, security: st && st.scanners.length > 0 };
   for (const f of NAV_BADGES) { try { const x = f(); Object.assign(b, x.badges || {}); Object.assign(alert, x.alerts || {}); } catch { /* module not ready */ } }
+  // a hub shows the badge of a tab that needs attention, else its first tab's
+  for (const h of Object.keys(HUBS)) {
+    const tabs = hubTabs(h), hot = tabs.find((v) => alert[v] && b[v]);
+    b[h] = b[hot || tabs[0]]; alert[h] = tabs.some((v) => alert[v]);
+  }
   const navEl = $('#nav');
   const navTop = navEl ? navEl.scrollTop : 0;
-  const head = (title, flag) => !title ? '' : flag === 'deep'
-    ? `<button class="cap nav-h nav-toggle" data-act="deep" aria-expanded="${!!S.deep}">${esc(title)}${icon(S.deep ? 'chevron-down' : 'chevron-right', 'sm')}</button>`
-    : `<div class="cap nav-h">${esc(title)}</div>`;
-  patch(navEl, visibleNav().map(([title, ids, flag], gi) => `<div class="${gi ? 'nav-deep' : ''}">${head(title, flag)}` +
+  const head = (title) => title ? `<div class="cap nav-h">${esc(title)}</div>` : '';
+  patch(navEl, visibleNav().map(([title, ids], gi) => `<div class="${gi ? 'nav-deep' : ''}">${head(title)}` +
     ids.map((id) => navItem(id, b[id], alert[id])).join('') + '</div>').join(''));
   if (navEl && navEl.scrollTop !== navTop) navEl.scrollTop = navTop;
 
@@ -474,8 +489,13 @@ function renderNav() {
 }
 function renderHeader() {
   const [title, sub, ic] = VIEWS[S.view];
-  patch($('#title'), icon(ic) + esc(title));
+  const hub = hubOf(S.view), tabs = hub ? hubTabs(hub) : [];
+  patch($('#title'), hub ? icon(VIEWS[hub][2]) + esc(VIEWS[hub][0]) : icon(ic) + esc(title));
   if ($('#sub').textContent !== sub) $('#sub').textContent = sub;
+  // one tab needs no tab row
+  const ht = $('#hubtabs');
+  ht.hidden = tabs.length < 2;
+  patch(ht, tabs.length < 2 ? '' : tabs.map((v) => `<button class="${v === S.view ? 'on' : ''}" data-act="go" data-arg="${v}" role="tab" aria-selected="${v === S.view}">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</button>`).join(''));
   patch($('#ranges'), RANGES.map(([k, l]) => `<button class="${S.range === k ? 'on' : ''}" data-act="range" data-arg="${k}" aria-pressed="${S.range === k}">${l}</button>`).join(''));
   $('#bots').classList.toggle('ink', S.nobots);
   const botsLbl = S.nobots ? 'Bots hidden' : 'Bots';
@@ -1177,8 +1197,8 @@ function vSettings() {
   const row = setRow;
   const effNote = eff !== pct ? `Showing ${eff} % on this narrow screen.` : 'Browser zoom (Ctrl + and Ctrl −) works too.';
   const acc = S.accent || INST.accent || '#ec3013';
-  const allViews = NAV_GROUPS.flatMap(([g, ids]) => ids.map((v) => [g, v]));
-  const navRows = NAV_GROUPS.map(([g, ids]) => `<div class="cap gh">${esc(g)}</div>` + ids.map((v) => {
+  const allViews = navLeaves(NAV_GROUPS.flatMap(([, ids]) => ids)).map((v) => [hubOf(v), v]);
+  const navRows = NAV_GROUPS.map(([g, ids]) => `<div class="cap gh">${esc(g || 'Overview')}</div>` + ids.map((v) => {
     const hid = (S.navHidden || []).includes(v), pin = (S.navPinned || []).includes(v);
     return `<span class="row">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</span>
       <button class="pill ${pin ? 'on' : ''}" data-act="navPin" data-arg="${v}" title="Pin to the top">${icon(pin ? 'star' : 'star-off', 'sm')}</button>
@@ -1190,7 +1210,7 @@ function vSettings() {
     <option value="">— empty —</option>${Object.entries(VITALS).map(([k, [l]]) => `<option value="${k}" ${(S.vitals || [])[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`).join('');
   const kbd = [['Ctrl K', 'Command palette (views, actions, settings, files)'], ['?', 'This list'], ['/', 'Filter requests'], ['g then s r f u a n …', 'Go to a view (first letter)'],
     ['1 – 9', 'Switch views (sidebar order)'], ['[', 'Collapse / expand the sidebar'], ['T', 'Cycle light / dark / system theme'], [',', 'Settings'],
-    ['I', 'Show / hide Infrastructure'], ['B', 'Include / exclude bots'], ['D', 'Deep fields'], ['Space', 'Pause sampling · Files: preview'],
+    ['B', 'Include / exclude bots'], ['D', 'Deep fields'], ['Space', 'Pause sampling · Files: preview'],
     ['Esc', 'Close menu / inspector / preview'], ['Del · F2', 'Files: trash · rename'], ['Backspace', 'Files: parent folder'], ['Ctrl A · C · X · V', 'Files: select all · copy · cut · paste'], ['Ctrl V (image)', 'Files / Upload: upload from the clipboard']];
   return `<div class="settings" data-scroll="settings">
     <section class="panel span2">
@@ -1222,7 +1242,6 @@ function vSettings() {
       <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin, hide and order the sidebar</span></div>
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
       ${row('Collapsed sidebar', 'Icons only (toggle with [ ).', toggle(S.navCollapsed, 'setNavCollapsed'))}
-      ${row('Show Infrastructure', 'Network, tunnel, origins, edge, latency, history, system and logs. Click the group heading to toggle it.', toggle(S.deep, 'setDeep'))}
       <div class="navcfg" style="margin-top:8px">${navRows}</div>
     </section>
     <section class="panel">
@@ -1607,9 +1626,11 @@ async function copy(text, what) {
 /* ------------------------------------------------------------------ actions */
 
 function go(view) {
+  if (HUBS[view]) view = hubTarget(view);
   if (!VIEWS[view] || !VIEWFN[view]) return;
   auditView(view);
-  if (NAV2.includes(view)) S.deep = true;
+  const hub = hubOf(view);
+  if (hub) S.hubLast = { ...S.hubLast, [hub]: view };
   S.view = view; S.menu = null; S.palette = false;
   persist(); renderOverlay(); render(true); refreshForView();
 }
@@ -1633,7 +1654,6 @@ const ACT = {
   noop() {},
   go,
   range: setRange,
-  deep() { S.deep = !S.deep; if (!S.deep && NAV2.includes(S.view)) S.view = 'summary'; persist(); render(true); },
   bots() { S.nobots = !S.nobots; persist(); render(); pollStats(); note(S.nobots ? 'Bots excluded from aggregate stats' : 'Bots included in aggregate stats'); },
   pause() { S.paused = !S.paused; render(); if (!S.paused) { pollStats(); pollRequests(true); } },
   fields() { S.fields = !S.fields; persist(); render(); },
@@ -1708,7 +1728,6 @@ const ACT = {
   setRate(v) { S.rate = +v; persist(); render(true); },
   setRangeSel(v) { setRange(v); render(true); },
   setBots(v) { S.nobots = !v; persist(); pollStats(); render(true); },
-  setDeep(v) { S.deep = !!v; persist(); render(true); },
   setFields(v) { S.fields = !!v; persist(); render(true); },
   setHiddenPause(v) { setPref('hiddenPause', !!v); },
   setVitalsAll(v) { S.vitalsAll = !!v; persist(); render(true); },
@@ -1880,8 +1899,7 @@ const MENUS = {
 function appMenu(kicker = 'Strata', title = INST.name || 'CDN Monitor') {
   return { kicker, title, items: [
     item('Summary', 'g s', () => go('summary'), { icon: 'layout-dashboard' }), item('Requests', 'g r', () => go('requests'), { icon: 'activity' }), item('Files', 'g f', () => go('files'), { icon: 'folder-open' }),
-    item(S.deep ? 'Hide infrastructure' : 'Show infrastructure', 'I', () => ACT.deep(), { sep: true, icon: 'gauge' }),
-    item(S.nobots ? 'Include bots in stats' : 'Exclude bots from stats', 'B', () => ACT.bots(), { icon: 'bot' }),
+    item(S.nobots ? 'Include bots in stats' : 'Exclude bots from stats', 'B', () => ACT.bots(), { sep: true, icon: 'bot' }),
     item(S.paused ? 'Resume sampling' : 'Freeze sampling', 'space', () => ACT.pause(), { icon: S.paused ? 'play' : 'pause' }),
     item('Theme: ' + S.theme, 'T', () => ACT.themeCycle(), { icon: 'palette' }),
     item('Copy snapshot as JSON', '', () => copy(JSON.stringify({ live: D.live, stats: D.stats?.totals }, null, 2), 'snapshot'), { sep: true, icon: 'clipboard-copy' }),
@@ -1914,7 +1932,6 @@ function paletteCmds() {
   const views = Object.keys(VIEWS).filter((v) => VIEWFN[v]).map((v) => ({ group: 'Go to', icon: VIEWS[v][2], label: VIEWS[v][0], hint: order.indexOf(v) >= 0 && order.indexOf(v) < 9 ? String(order.indexOf(v) + 1) : '', run: () => go(v) }));
   const actions = [
     { label: S.nobots ? 'Include bots in stats' : 'Exclude bots from stats', hint: 'B', icon: 'bot', run: () => ACT.bots() },
-    { label: S.deep ? 'Hide infrastructure views' : 'Show infrastructure views', hint: 'I', icon: 'gauge', run: () => ACT.deep() },
     { label: S.fields ? 'Hide deep fields' : 'Show deep fields', hint: 'D', icon: 'rows-3', run: () => ACT.fields() },
     { label: S.paused ? 'Resume sampling' : 'Pause sampling', hint: 'space', icon: S.paused ? 'play' : 'pause', run: () => ACT.pause() },
     { label: 'Show probe requests', hint: 'requests', icon: 'skull', run: () => showRequests({ scope: 'scan', q: '', ipFilter: '' }) },
@@ -2151,7 +2168,6 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '?') { e.preventDefault(); ACT.help(); }
   else if (e.key === '[') ACT.navCollapse();
   else if (e.key.toLowerCase() === 't') ACT.themeCycle();
-  else if (e.key === 'i') ACT.deep();
   else if (e.key === 'b') ACT.bots();
   else if (e.key === 'd') ACT.fields();
   else if (e.key === ' ') { e.preventDefault(); ACT.pause(); }

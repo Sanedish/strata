@@ -899,3 +899,9 @@ main { background: var(--color-bg); }
   .office { grid-template-columns: 1fr !important; }
   .office-people { max-height: calc(45 * var(--vh)); order: -1; }
 }
+
+/* hub tabs: the views of one sidebar entry (Traffic, Security, Health, Files, Site) */
+.hubtabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 2px solid var(--color-divider); flex: none; overflow-x: auto; scrollbar-width: thin; }
+.hubtabs button { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 9px 12px 8px; margin-bottom: -2px; color: color-mix(in srgb, var(--color-text) 68%, transparent); background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-family: var(--font-heading); font-size: 13px; font-weight: 800; }
+.hubtabs button:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.hubtabs button.on { color: var(--color-accent-700); border-bottom-color: var(--color-accent); }
