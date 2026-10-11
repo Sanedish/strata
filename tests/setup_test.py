@@ -1,5 +1,6 @@
 """First-run owner setup (/setup) on a fresh instance with no owner: loopback only, validation, one-time.
-Then a second fresh instance whose owner picks an authenticator app instead of e-mail, and signs in with it.
+Then a second fresh instance whose owner picks an authenticator app instead of e-mail, signs in with it, and
+trusts a browser.
 Starts its own server on 127.0.0.1:8190 in a temp folder; run_all.py runs it before the other suites."""
 import json
 import os
@@ -181,6 +182,35 @@ try:
     check("a recovery code works instead of the app", st == 303 and cookie(cookies, "dev_strata_session"), (st, loc))
     cfg = json.load(open(os.path.join(home, "strata.json")))
     check("and works only once", len(cfg["auth"]["recovery"]) == 9, len(cfg["auth"]["recovery"]))
+
+    # "Trust this browser for 30 days": its next sign-ins skip the app code, until the password or the app changes
+    st, loc, _, cookies = call("/login", {"user": "solo", "password": form["password"]})
+    jar = {"Cookie": "dev_strata_2fa=%s" % cookie(cookies, "dev_strata_2fa")}
+    st, loc, _, cookies = call("/login/2fa", {"code": codes[2], "trust": "1"}, headers=jar)
+    trust = cookie(cookies, "dev_strata_trust")
+    sent = next((c for c in cookies if c.startswith("dev_strata_trust=")), "")
+    check("trusting the browser sets a 30-day cookie for the sign-in pages only", st == 303 and trust
+          and "Path=/login;" in sent and "Max-Age=2592000" in sent and "HttpOnly" in sent, (st, cookies))
+    jar = {"Cookie": "dev_strata_trust=%s" % trust}
+    st, loc, _, cookies = call("/login", {"user": "solo", "password": form["password"]}, headers=jar)
+    session = cookie(cookies, "dev_strata_session")
+    check("a trusted browser skips the app code", st == 303 and loc == "/" and session, (st, loc))
+    st, loc, _, _ = call("/login", {"user": "solo", "password": "not the passphrase"}, headers=jar)
+    check("but still needs the password", st == 303 and loc == "/login?e=1", (st, loc))
+    forged = {"Cookie": "dev_strata_trust=%s.%s" % (trust.split(".")[0], "0" * 64)}
+    st, loc, _, cookies = call("/login", {"user": "solo", "password": form["password"]}, headers=forged)
+    check("a forged trust cookie gets the app code, and is cleared", st == 303 and loc == "/login/2fa"
+          and cookie(cookies, "dev_strata_trust") == "", (st, loc, cookies))
+    st = api("/api/password", {"current": form["password"], "new": "another long passphrase"})
+    check("the password can be changed", st == 200, st)
+    st, loc, _, cookies = call("/login", {"user": "solo", "password": "another long passphrase"}, headers=jar)
+    check("a new password ends the trust", st == 303 and loc == "/login/2fa" and cookie(cookies, "dev_strata_trust") == "", (st, loc))
+    k = "test key"
+    t = auth.trust_token(k, "solo", "hash|app key")
+    check("trust tokens are bound to the account, the password and the app", auth.trust_ok(k, t, "Solo", "hash|app key")
+          and not auth.trust_ok(k, t, "other", "hash|app key") and not auth.trust_ok(k, t, "solo", "hash|new app key")
+          and not auth.trust_ok("other key", t, "solo", "hash|app key"))
+    check("and expire", not auth.trust_ok(k, auth.trust_token(k, "solo", "b", days=-1), "solo", "b"))
 finally:
     stop(root, proc)
 sys.exit(0 if ok else 1)

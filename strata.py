@@ -95,6 +95,11 @@ def owner_mail_ready():
     return mail_configured() and bool(accounts.EMAIL_RE.fullmatch(str(owner.get("email") or "")))
 
 
+def trust_bind(acct):
+    """What a trusted browser stays bound to: a new owner password or a new authenticator app ends the trust."""
+    return "%s|%s" % (acct.get("password_hash") or "", CFG["auth"].get("totp_secret") or "")
+
+
 def setup_secret():
     """The key /setup offers stays the same across reloads, so a mistyped code doesn't mean scanning again."""
     with SETUP_LOCK:
@@ -709,9 +714,9 @@ class Handler(BaseHTTPRequestHandler):
             host = "localhost"
         return ("https" if self.secure() else "http") + "://" + host
 
-    def cookie(self, name, value, max_age):
-        return "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
-            name, value, max_age, "; Secure" if self.secure() else "")
+    def cookie(self, name, value, max_age, path="/"):
+        return "%s=%s; Path=%s; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
+            name, value, path, max_age, "; Secure" if self.secure() else "")
 
     # -- GET
     def loopback(self):
@@ -2157,8 +2162,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/login?e=" + {"expired": "acct_expired", "network": "acct_network"}.get(problem, "1"))
         # the pending login remembers which second step it waits for: each code page accepts only its own
         if acct.get("role") == "root" and CFG["auth"].get("totp_secret"):  # the app replaces the e-mailed code
+            trusted = auth.cookie_value(self.headers.get("Cookie"), auth.TRUST_COOKIE)
+            if trusted and auth.trust_ok(CFG["auth"]["cookie_secret"], trusted, username, trust_bind(acct)):
+                core.audit(ip, username, "login-2fa", "", note="trusted browser")
+                return self.finish_login(ip, username, [])
             tok = App.pending.create(username, ip, ttl=600, step="app")
-            return self.redirect("/login/2fa", [self.cookie(auth.PENDING_COOKIE, tok, 600)])
+            cookies = [self.cookie(auth.PENDING_COOKIE, tok, 600)]
+            if trusted:  # expired, or ended by a new password or a new authenticator app
+                cookies.append(self.cookie(auth.TRUST_COOKIE, "", 0, "/login"))
+            return self.redirect("/login/2fa", cookies)
         email = str(acct.get("email") or "").strip().lower()
         mail_ready = mail_configured()
         if acct.get("role") == "root" and (not accounts.EMAIL_RE.fullmatch(email) or not mail_ready):
@@ -2221,7 +2233,12 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(0.5)
             return self.redirect("/login/2fa?e=1")
         App.pending.drop(ptok)
-        return self.finish_login(ip, pend["user"], [self.cookie(auth.PENDING_COOKIE, "", 0)])
+        cookies = [self.cookie(auth.PENDING_COOKIE, "", 0)]
+        if form.get("trust") == "1":  # the next sign-in from this browser skips the code (sent to /login only)
+            trust = auth.trust_token(CFG["auth"]["cookie_secret"], pend["user"], trust_bind(accounts.get(pend["user"]) or {}))
+            cookies.append(self.cookie(auth.TRUST_COOKIE, trust, auth.TRUST_DAYS * 86400, "/login"))
+            core.audit(ip, pend["user"], "trust-browser", "", note="%d days" % auth.TRUST_DAYS)
+        return self.finish_login(ip, pend["user"], cookies)
 
     def finish_login(self, ip, user, cookies):
         App.limiter.ok(ip)

@@ -133,7 +133,9 @@ needs no mail setup at all. Every other account gets its code by e-mail, sent th
 from a sender address on a domain you verified there (the free tier is enough). So a site only you sign in to needs
 no e-mail, but inviting people does.
 
-When the owner has an authenticator app, sign-in skips the e-mailed code. To change either later, on the server:
+When the owner has an authenticator app, sign-in skips the e-mailed code. **Trust this browser for 30 days** on the
+app-code page skips the code too, on that browser only: the password is still needed, and a new password or a new
+app ends the trust. To change either later, on the server:
 
 ```
 python auth.py --totp                              set up the owner's authenticator app

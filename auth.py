@@ -141,19 +141,25 @@ def normalize_recovery(code):
 
 # ---------------------------------------------------------------- trusted-browser cookie (skips the 2FA step)
 
-def trust_token(key, user, pw_hash, days=TRUST_DAYS):
+def _trust_mac(key, user, exp, bind):
+    msg = "%s|%d|%s" % (user.lower(), exp, hashlib.sha256(bind.encode()).hexdigest())
+    return hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+
+
+def trust_token(key, user, bind, days=TRUST_DAYS):
+    """A "trust this browser" cookie value. bind is whatever must not change while the trust holds (the password
+    hash and the authenticator key): changing either ends it."""
     exp = int(time.time() + days * 86400)
-    mac = hmac.new(key.encode(), ("%s|%d|%s" % (user, exp, pw_hash[-24:])).encode(), hashlib.sha256).hexdigest()
-    return "%d.%s" % (exp, mac)
+    return "%d.%s" % (exp, _trust_mac(key, user, exp, bind))
 
 
-def trust_ok(key, token, user, pw_hash):
+def trust_ok(key, token, user, bind):
     try:
         exp, mac = token.split(".", 1)
-        if int(exp) < time.time():
+        exp = int(exp)
+        if exp < time.time():
             return False
-        want = hmac.new(key.encode(), ("%s|%s|%s" % (user, exp, pw_hash[-24:])).encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(mac, want)
+        return hmac.compare_digest(mac, _trust_mac(key, user, exp, bind))
     except (ValueError, AttributeError):
         return False
 
