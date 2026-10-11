@@ -18,3 +18,12 @@ backups/
 
 __pycache__/
 *.pyc
+
+# CodeMirror's readable sources: the dashboard loads only the .min files, which are committed
+static/vendor/codemirror/**/*.js
+static/vendor/codemirror/**/*.css
+!static/vendor/codemirror/**/*.min.js
+!static/vendor/codemirror/**/*.min.css
+
+# local sample audio, not part of Strata
+static/media/*.mp3
