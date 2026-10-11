@@ -1,18 +1,16 @@
 <h1 align="center">Strata</h1>
 
 <p align="center">
-A self-hosted control panel for a Caddy file server behind a Cloudflare Tunnel.<br>
-Traffic analytics, file management, serving rules and security, on the machine that serves your files.
+A web interface for running a Caddy file server that sits behind a Cloudflare Tunnel.
 </p>
 
 <p align="center">
-<img src="docs/images/overview.png" alt="Strata's summary page: request and bandwidth tiles, a seven-day traffic chart with a launch-day spike, top files, and health of Caddy, the tunnel, storage and the host" width="100%">
+<img src="docs/images/overview.png" alt="The Summary page: request, bandwidth, visitor, error, latency and tunnel tiles, a seven-day traffic chart, the most requested files, and health of Caddy, the tunnel, storage and the host" width="100%">
 </p>
 
 <p align="center">
 <a href="#install">Install</a> ·
-<a href="#what-it-does">What it does</a> ·
-<a href="#how-it-fits-together">How it fits together</a> ·
+<a href="#how-it-works">How it works</a> ·
 <a href="#configuration">Configuration</a> ·
 <a href="#development">Development</a> ·
 <a href="SECURITY.md">Security</a>
@@ -20,61 +18,86 @@ Traffic analytics, file management, serving rules and security, on the machine t
 
 ---
 
-Strata runs next to [Caddy](https://caddyserver.com) and [cloudflared](https://github.com/cloudflare/cloudflared).
-It reads Caddy's access log, writes the part of Caddy's config that serves your files, and talks to the Cloudflare API
-for DNS, cache purges and edge blocking. You get one dashboard for what is being served, who is asking for it, and
-what is trying to break in.
+I serve files from a NAS through Caddy and a Cloudflare Tunnel. Managing that meant editing the Caddyfile and the
+cloudflared config by hand and reading Caddy's JSON access log to see what was going on. Strata started as a way to
+stop doing that, and grew from there into what my own setup needs.
 
-It is written in plain Python with no web framework and keeps everything in SQLite. It is built and used on Windows;
-Linux support is written but not tested yet (see [Platforms](#platforms)).
+It runs on the same machine as [Caddy](https://caddyserver.com) and
+[cloudflared](https://github.com/cloudflare/cloudflared). It reads Caddy's access log, writes the Caddy config for
+the folders you serve, and can use the Cloudflare API for DNS, cache purges and blocking IPs at the edge. It is plain
+Python with no web framework, stores everything in SQLite, and the dashboard is vanilla JavaScript with no build
+step.
+
+I build and run it on Windows. The Linux path is written but has never been run on a real Linux machine, see
+[Platforms](#platforms).
 
 ## What it does
 
-**Traffic.** A live request log with filters and saved views, visitors by country, network and client, the most
-requested files, latency percentiles, and longer-term patterns. Individual requests are kept for 30 days and
-aggregated statistics for 400 (both configurable), so the dashboard stays fast at millions of requests.
+### Serving files through Caddy
 
-**Files.** Browse, upload (chunked and resumable, up to 20 GB per file by default), rename, move, version and restore
-files on every drive you serve. Smart-Sorting files uploads into type folders. Disk usage and growth per folder.
+This is the part the rest is built around. You add *drives*: a folder, or a proxied service, on a hostname and an
+optional URL prefix. Access rules attach to a drive or a path: block, allow, password, signed links, cache headers,
+gallery folders, a download prompt, redirects. Strata turns all of it into one Caddy config file
+(`generated/cdn.caddy`), which your own Caddyfile imports with a single line.
 
-**Serving.** Drives (folders or proxied services) on hostnames and URL prefixes, access rules (block, allow, password,
-signed links, cache headers, gallery folders), custom 404 and 403 pages, short and signed links, and Brotli
-precompression of every file that gets meaningfully smaller. Every change is validated by Caddy before it goes live, and older configs can be
-restored from the history.
+Every change is checked with `caddy validate` before Caddy reloads it. If validation fails, the running config
+stays as it was. Earlier configs are kept, and you can roll back to one from the dashboard.
 
-**Security.** Probe and scanner detection, auto-bans that widen to a /24 when a range keeps misbehaving and get longer
-for repeat offenders, a blocklist that syncs to Cloudflare's edge, a login gate in front of proxied services, and
-alerts by e-mail.
+Files that shrink by enough get a Brotli copy next to them, which Caddy then serves to browsers that accept it.
 
-**Accounts.** An owner, administrators and members with fine-grained permissions, per-folder access zones, end dates,
-IP allowlists, an e-mailed code at every sign-in, optional TOTP for the owner, API keys and an audit log. Accounts
-that can change more than files sign in only from the local network.
-
-**Health.** Caddy, the tunnel connections, storage latency and the host itself, polled every few seconds.
+### Traffic
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/requests.png" alt="Requests: a live log with status, host, path, size, time, country, client and agent columns"></td>
-<td width="50%"><img src="docs/images/visitors.png" alt="Visitors: requests, unique visitors and bandwidth per country, with the share of people, media players, link previews and bots"></td>
-</tr>
-<tr>
-<td><img src="docs/images/files.png" alt="Files: folders with size, hits and bytes sent over 30 days, plus storage use and recent activity"></td>
-<td><img src="docs/images/blocklist.png" alt="Blocklist: automatic bans for single addresses and a /24 range, with the Cloudflare sync panel"></td>
+<td width="50%"><img src="docs/images/requests.png" alt="Requests: a live log with time, status, host, path, size, response time, country, client and agent"></td>
+<td width="50%"><img src="docs/images/visitors.png" alt="Visitors: requests, unique visitors and data sent per country, with the share of people, link previews and bots"></td>
 </tr>
 </table>
 
-<img align="right" src="docs/images/mobile.png" alt="The summary page on a phone" width="260">
+Strata tails Caddy's access log into SQLite. You get a live request log with filters and saved views, visitors by
+country, network and client, the most requested files, and latency percentiles. Single requests are kept for 30 days
+and per-minute, hourly and daily totals for 400, both adjustable. Countries come from Cloudflare's `Cf-Ipcountry`
+header, so there is no GeoIP database to keep updated.
 
-The dashboard works on a phone too: the sidebar becomes a scrolling tab row and the tiles stack.
+### Security
 
-Strata also includes:
+<img align="right" width="50%" src="docs/images/blocklist.png" alt="Blocklist: automatic bans for single addresses and a /24 range, next to the Cloudflare edge sync panel">
 
-- **Team**: a directory, presence, a noticeboard and private notes for the people with accounts.
-- **Code**: an in-browser editor for Strata's own source, with conflict checks and backups.
-- **Strata Transform** (`transform/`): resizing and format conversion behind `?w=`, `?h=` and `?fm=` links.
-- **Strata Media** (`media/`, off by default): AVIF and WebP variants negotiated per browser, a malware and content
-  scan before files go public, and a circuit breaker that protects the CPU. See [media/DESIGN.md](media/DESIGN.md).
-- **Strata Telemetry** (`telemetry/`): an optional public statistics page that only sees a redacted feed.
+Requests for things like `/.env` or `/wp-login.php` count as probes. An address that sends too many gets banned
+automatically. When several addresses in one /24 get banned within a week, the whole range is banned, and repeat
+offenders get longer bans. With a Cloudflare token the blocklist is also pushed to Cloudflare, so banned visitors
+are turned away at the edge instead of reaching your machine first.
+
+Alerts (bans, failed sign-ins, outages, low disk space, error spikes) show up in the dashboard and can go out by
+e-mail (any SMTP server, or Resend) and to webhooks (Discord, Slack, ntfy, or plain JSON).
+
+<br clear="right">
+
+### Everything else
+
+<img align="right" width="50%" src="docs/images/files.png" alt="Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity">
+
+- **Files:** browse, upload (chunked and resumable, 20 GB per file by default), rename, move, keep versions and
+  restore them. Smart-Sort files uploads into folders by type.
+- **Accounts:** an owner, administrators and members with per-permission and per-folder access, end dates and IP
+  allowlists. Every sign-in needs a code sent by e-mail, and the owner can add TOTP. Accounts that can change more than
+  files can only sign in from the local network. There are API keys and an audit log.
+- **Health:** Caddy, the tunnel's edge connections, storage latency and the host, polled every few seconds.
+- **Code:** an editor for Strata's own source in the browser, with conflict checks and backups.
+- **Image links** (`transform/`): `?w=`, `?h=` and `?fm=` for resized or converted images.
+- **Media** (`media/`, off by default): serves AVIF/WebP images and WebM or MP4 videos to clients that can use them,
+  with `?nocompress` for the original, and pauses heavy work when the CPU is busy. It can also scan new uploads before
+  they go public. I run the image part on my own server; video conversion and upload scanning are newer and have seen
+  much less use. See [media/DESIGN.md](media/DESIGN.md).
+- **Telemetry** (`telemetry/`, optional): a public statistics page fed with redacted numbers only.
+
+<br clear="right">
+
+<img align="right" src="docs/images/mobile.png" alt="The Summary page on a phone" width="260">
+
+On a phone the sidebar turns into a row of tabs you can scroll and the tiles stack.
+
+A Team page (directory, presence, noticeboard) exists in the code but is hidden for now.
 
 <br clear="right">
 
@@ -83,55 +106,52 @@ Strata also includes:
 ### Windows
 
 You need [Python 3.10 or newer](https://www.python.org/downloads/) from python.org (the Microsoft Store version can't
-run as a service). Put the code in a folder such as `C:\Strata` (clone it or unpack the zip), then in that folder:
+run as a service). Put the code in a folder such as `C:\Strata`, then in that folder:
 
 ```powershell
 python setup.py
 ```
 
-Or double-click `setup.cmd`. The installer asks for administrator rights because it registers a service, and asks
-before every change. It walks through:
+Or double-click `setup.cmd`. It asks for administrator rights because it registers a service, and asks before each
+change. In order:
 
-1. **Python packages.** Installs `brotli`, `zstandard`, `Pillow` and `qrcode` into `vendor/` next to the code, where
-   the service finds them regardless of which user it runs as.
-2. **Your site.** The domain, the CDN hostname (`cdn.<domain>` by default) and the folder to serve.
-3. **Caddy.** Finds `caddy.exe` or offers to install it with winget. Backs up your Caddyfile into `backups\`, then adds
-   one `import` line for the config Strata renders, and optionally a site that exposes the dashboard to your LAN.
-   Caddy validates the result; if it doesn't, the old file is put back.
-4. **Cloudflare Tunnel.** Finds cloudflared, backs up its `config.yml` and adds an ingress rule for the CDN hostname.
-   With no tunnel yet it can create one (this opens a browser to sign in to Cloudflare) and point the DNS record at
-   it.
-5. **Keys and the owner account.** A Cloudflare API token (optional), an SMTP server (your mail provider's or your
-   own) or a [Resend](https://resend.com) API key for the sign-in codes, and the owner's username, password and e-mail.
+1. **Python packages:** `brotli`, `zstandard`, `Pillow` and `qrcode`, installed into `vendor/` next to the code so
+   the service finds them whichever user it runs as.
+2. **Your site:** the domain, the CDN hostname (`cdn.<domain>` by default) and the folder to serve.
+3. **Caddy:** finds `caddy.exe` or offers to install it with winget. Backs up your Caddyfile into `backups\`, adds
+   the `import` line, and optionally a site that shows the dashboard on your LAN. If Caddy rejects the result, the old
+   file is put back.
+4. **Cloudflare Tunnel:** finds cloudflared, backs up its `config.yml` and adds an ingress rule for the CDN hostname.
+   Without a tunnel it can create one (a browser opens to sign in to Cloudflare) and point the DNS record at it.
+5. **Keys and the owner account:** a Cloudflare API token (optional), mail for the sign-in codes, and the owner's
+   username, password and e-mail.
 6. **`strata.json`**, written to the instance folder. An existing one is backed up first.
-7. **The service.** A Task Scheduler task that starts at boot as SYSTEM, has no time limit and restarts after a
-   failure. Then it waits for the dashboard to answer.
+7. **The service:** a Task Scheduler task that starts at boot as SYSTEM and restarts after a failure.
 
-Open `http://127.0.0.1:8090` and sign in. If you skipped the owner account, the same address shows a one-time form
-to create it; that form only works from the machine itself.
+Then open `http://127.0.0.1:8090`. If you skipped the owner account, that address shows a one-time form to create it,
+which only works from the machine itself.
 
-Running `setup.py` again is safe: every question shows the current value, and Enter keeps it.
+`setup.py` can be run again at any time: each question shows the current value and Enter keeps it.
 
 | Command | |
 |---|---|
-| `python setup.py --check` | What is installed and running, without changing anything |
+| `python setup.py --check` | Show what is installed and running, change nothing |
 | `python setup.py --no-service` | Configure only; start Strata yourself with `python strata.py` |
-| `python setup.py --home D:\sites\example.net` | Set up a second site in its own folder, on the next free ports |
+| `python setup.py --home D:\sites\example.net` | A second site in its own folder, on the next free ports |
 | `python setup.py --uninstall` | Remove the service. Configuration and data stay |
 
 ### Linux
 
-The installer does the same on Linux with systemd units instead of scheduled tasks; run it with `sudo`. Install
-Caddy and cloudflared from their packages first. This path hasn't been tested on a Linux machine yet, so expect rough
-edges, and reports are welcome. Restarting the tunnel from the dashboard is Windows-only for now.
+The installer has a systemd path; run it with `sudo` after installing Caddy and cloudflared from their packages. It
+has not been run on a real Linux machine yet, so expect problems, and reports are welcome. Restarting the tunnel from
+the dashboard only works on Windows for now.
 
-### Sign-in codes
+### Mail for sign-in codes
 
-Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one. That makes a way to send mail
-a requirement: any SMTP server (your mail provider's, such as Fastmail, Gmail, Mailgun, Postmark or Amazon SES, or a
-self-hosted one such as Postfix, Mailcow or Stalwart), or a [Resend](https://resend.com) API key with a sender on a
-domain you verified there. Pick one with the Custom SMTP / Resend switch under Security › Alerts › Delivery. To set or change them later (the SMTP password is asked for,
-never put on the command line):
+Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one, so Strata needs a way to
+send mail: any SMTP server (your mail provider's or your own), or a [Resend](https://resend.com) API key with a
+sender on a domain you verified there. Switch between the two under Security › Alerts › Delivery, or from the
+command line (the SMTP password is asked for, never passed as an argument):
 
 ```
 python auth.py --smtp <host> <port> <user> <from address>
@@ -139,10 +159,10 @@ python auth.py --resend <api key> <from address>
 python auth.py --email <owner address>
 ```
 
-Port 465 uses TLS, any other port STARTTLS. A relay on your own network that needs neither can be set to "None" under
-Security › Alerts › Delivery; Strata then refuses to send a password over it.
+Port 465 uses TLS, any other port STARTTLS. A relay on your own network without encryption can be set to "None" in
+Delivery; Strata then won't send a password to it.
 
-## How it fits together
+## How it works
 
 ```mermaid
 flowchart LR
@@ -156,47 +176,47 @@ flowchart LR
     A[You, on the LAN] --> S
 ```
 
-Nothing Strata runs is published to the internet: the dashboard listens on `127.0.0.1`, and Caddy can expose it to
-your LAN. The public only ever reaches Caddy, through the tunnel.
+The dashboard listens on `127.0.0.1` only. Caddy can optionally expose it on your LAN. Visitors from the internet
+only ever reach Caddy, through the tunnel.
 
 | Port | Process | Purpose |
 |---|---|---|
 | 8090 | `strata.py` | Dashboard and API (loopback) |
-| 8091 | Caddy | Optional: the dashboard for your LAN |
-| 8080 | Caddy | The CDN site Strata renders; cloudflared points here |
-| 8081 | `strata.py` | Redacted feed for Strata Telemetry (loopback, token) |
-| 8083 | `transform/transform.py` | Resizing and signed links (loopback) |
-| 8084 | `media/media.py` | Strata Media, when enabled (loopback) |
-| 8085 | `gate.py` | Login in front of proxied services (loopback) |
+| 8091 | Caddy | Optional: the dashboard on your LAN |
+| 8080 | Caddy | The site Strata renders; cloudflared points here |
+| 8081 | `strata.py` | Redacted feed for the telemetry page (loopback, token) |
+| 8083 | `transform/transform.py` | Image resizing and signed links (loopback) |
+| 8084 | `media/media.py` | Media, when enabled (loopback) |
+| 8085 | `gate.py` | Sign-in in front of proxied services (loopback) |
 
-A second site set up with `--home` gets the same set shifted by 100 (8190, 8191, ...).
+A second site set up with `--home` uses the same ports plus 100 (8190, 8191, ...).
 
 ## Configuration
 
-Each site has an *instance folder* (by default the code folder itself) holding `strata.json`, the database in
-`data/`, and the Caddy config Strata renders in `generated/`. One copy of the code can serve several sites, each
-started with its own `--home`. Most settings are changed in the dashboard; these are the ones the installer writes:
+Each site has an *instance folder* (by default the code folder) with `strata.json`, the database in `data/` and the
+rendered Caddy config in `generated/`. One copy of the code can run several sites, each started with its own
+`--home`. Most settings are changed in the dashboard; these are the ones the installer writes:
 
 | Key | Meaning |
 |---|---|
 | `instance.name`, `instance.id` | Shown in the dashboard; `id` keeps names unique between sites |
-| `public.hosts`, `public_base_url` | The hostnames you serve and the URL that share links use |
+| `public.hosts`, `public_base_url` | The hostnames you serve and the base URL for share links |
 | `storage_paths` | Folders to serve. The first one becomes the first drive |
-| `caddy_exe`, `caddyfile`, `access_log` | Where Caddy, its config and the log it writes live |
+| `caddy_exe`, `caddyfile`, `access_log` | Where Caddy, its config and its log are |
 | `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | The tunnel and how to restart it after ingress changes |
 | `cloudflare.api_token`, `cloudflare.zone_id` | Optional. The `CF_API_TOKEN` environment variable overrides the token |
-| `alerts.smtp` (`host`, `port`, `security`, `user`, `password`) or `alerts.resend_api_key`; `alerts.from`, `alerts.to` | E-mail for sign-in codes and alerts |
+| `alerts.provider`, `alerts.smtp` or `alerts.resend_api_key`, `alerts.from`, `alerts.to` | Mail for sign-in codes and alerts |
 | `listen`, `feed_listen`, `transform_listen`, `gate_listen` | Loopback addresses of Strata's own processes |
 
-Every default is in `DEFAULTS` at the top of [core.py](core.py). `strata.json` holds secrets and is in `.gitignore`.
+All defaults are in `DEFAULTS` at the top of [core.py](core.py). `strata.json` holds secrets and is in `.gitignore`.
 
 ## Platforms
 
 | | Windows | Linux |
 |---|---|---|
-| Dashboard, analytics, files, serving, accounts | yes | written, untested |
-| Installer | Task Scheduler | systemd, untested |
-| Restart the tunnel from the dashboard | yes | not yet |
+| Dashboard, traffic, files, serving, accounts | yes | written, not run yet |
+| Installer | Task Scheduler | systemd, not run yet |
+| Restart the tunnel from the dashboard | yes | no |
 | Drive letters and volume labels in the drive picker | yes | n/a |
 
 ## Development
@@ -205,17 +225,17 @@ Every default is in `DEFAULTS` at the top of [core.py](core.py). `strata.json` h
 python tests/run_all.py
 ```
 
-Builds a throwaway instance in a temp folder with a stub Caddy, seeds a few accounts, and runs every suite: first-run
-setup, security regressions, permissions, Team, sign-in, the installer, auto-bans and the Strata Media unit tests.
-Nothing outside the temp folder is touched, and Caddy doesn't need to be installed. Details in
+Builds a throwaway instance in a temp folder with a stub Caddy, seeds some accounts and runs every suite: first-run
+setup, mail, security regressions, permissions, team, sign-in, the installer, auto-bans and the media unit tests.
+Nothing outside the temp folder is touched and Caddy doesn't have to be installed. More in
 [tests/README.txt](tests/README.txt).
 
 ```
 python tests/demo.py
 ```
 
-Starts a demo on `http://127.0.0.1:8290` with a week of made-up traffic and sample files. The screenshots above come
-from it. Its visitors use the IP ranges reserved for documentation, so it never shows a real address.
+Starts a demo on `http://127.0.0.1:8290` with a week of made-up traffic and sample files; the screenshots are from
+it. Its visitors use the IP ranges reserved for documentation, so it never shows a real address.
 
 ```
 strata.py         HTTP server, routes, sign-in             rules.py       serving rules, Caddy config, auto-ban
@@ -223,15 +243,15 @@ core.py           config, log tailer, metrics, database    files.py       file o
 accounts.py       accounts, permissions, zones             network.py     Cloudflare DNS and zone, tunnel ingress
 auth.py           passwords, sessions, TOTP, API keys      cloudflare.py  Cloudflare API, edge blocklist, purges
 rollup.py         aggregated statistics                    compress.py    Brotli precompression
-alerts.py         alerts and e-mail                        gate.py        login gate for proxied services
-setup.py          the installer                            static/        the dashboard (vanilla JS, no build step)
+alerts.py         alerts, e-mail, webhooks                 gate.py        sign-in for proxied services
+backup.py         backup and restore                       setup.py       the installer
+static/           the dashboard (vanilla JS)               media/         media pipeline (see DESIGN.md)
 ```
 
-## Roadmap
-
-[ROADMAP.md](ROADMAP.md) lists what is planned next: splitting up the Settings page, merging related pages into tabs,
-custom CSS, backup and restore, and webhook alerts.
+What's next is in [ROADMAP.md](ROADMAP.md). The open items that matter most: one real run of the Linux path, one of
+the Windows service as SYSTEM, and deciding whether sign-in should work without e-mail.
 
 ## License
 
-[MIT](LICENSE). The bundled CodeMirror and Lucide icons keep their own licenses, in `static/vendor/`.
+[MIT](LICENSE). The bundled CodeMirror and Lucide icons keep their own licenses, in `static/vendor/`. The other
+projects Strata depends on are credited under Settings › About.
