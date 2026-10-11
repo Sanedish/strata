@@ -11,8 +11,9 @@ backups/
 *.log
 .env
 
-# third-party packages, installed by setup.py (pip install --target vendor -r requirements.txt)
-vendor/
+# third-party Python packages, installed by setup.py (pip install --target vendor -r requirements.txt). Anchored:
+# static/vendor/ (CodeMirror and the icon licenses) is part of the repository
+/vendor/
 
 __pycache__/
 *.pyc

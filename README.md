@@ -237,4 +237,4 @@ custom CSS, backup and restore, and webhook alerts.
 
 ## License
 
-[MIT](LICENSE). The bundled CodeMirror and Lucide icons keep their own licenses, in `static/vendor/`.
+[MIT](LICENSE). The bundled CodeMirror (5.65.21) and Lucide icons keep their own licenses, in `static/vendor/`.
