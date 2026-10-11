@@ -84,9 +84,10 @@ document.addEventListener('change', (e) => {
   const id = e.target.id || '';
   if (/_exp$/.test(id)) { const at = $('#' + id + 'at'); if (at) at.style.display = e.target.value === 'custom' ? 'inline-block' : 'none'; }
   if (id === 'r_action') { const box = $('#r_params'); if (box) box.innerHTML = ruleParams(e.target.value, {}); const h = $('#r_help'); if (h) h.textContent = ACTION_HELP[e.target.value] || ''; }
-  if (id === 'r_cachepre' && e.target.value) $('#p_cache').value = e.target.value;
-  if (id === 'd_cachepre' && e.target.value) $('#d_cache').value = e.target.value;
-  if (id === 'd_edgepre' && e.target.value !== '-') $('#d_edge').value = e.target.value;
+  // a preset select only fills in the text field next to it, then goes back to "presets…"
+  if (id === 'r_cachepre' && e.target.value) { $('#p_cache').value = e.target.value; e.target.value = ''; }
+  if (id === 'd_cachepre' && e.target.value) { $('#d_cache').value = e.target.value; e.target.value = ''; }
+  if (id === 'd_edgepre' && e.target.value !== '-') { $('#d_edge').value = e.target.value; e.target.value = '-'; }
   if (id === 'd_kind') {
     const k = e.target.value;
     document.querySelectorAll('.d-files').forEach((x) => { x.style.display = k === 'files' ? '' : 'none'; });
@@ -243,8 +244,8 @@ function driveEditor(m) {
           <label class="wide mt-10">Paths open without login (one per line, * = wildcard)
             <textarea id="g_public" class="input" rows="3" placeholder="/listen/*&#10;/public/*">${esc((g.public || []).join('\n'))}</textarea></label></div>
       </div>
-      <label class="wide d-local">Cache-Control (browsers)<span class="hrow"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input fill" value="${esc(m.cache || '')}"></span></label>
-      <label class="wide d-local">Cloudflare cache<span class="hrow"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input fill" value="${esc(m.edge_cache || '')}" placeholder="empty: same as Cache-Control"></span></label>
+      <label class="wide d-local">Cache-Control (browsers)<span class="hrow"><select id="d_cachepre" class="input preset" aria-label="Cache-Control presets"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input fill" aria-label="Cache-Control (browsers)" value="${esc(m.cache || '')}"></span></label>
+      <label class="wide d-local">Cloudflare cache<span class="hrow"><select id="d_edgepre" class="input preset" aria-label="Cloudflare cache presets"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input fill" aria-label="Cloudflare cache" value="${esc(m.edge_cache || '')}" placeholder="empty: same as Cache-Control"></span></label>
       <div class="wide d-local d-flex gap-16 f-wrap">
         <label class="dlg-check"><input type="checkbox" id="d_pre" ${m.precompress ? 'checked' : ''}> Brotli precompression</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_tf" ${m.transforms ? 'checked' : ''}> Link modifiers (?w ?fm ?ver)</label>
@@ -277,7 +278,7 @@ function ruleParams(action, p) {
   if (action === 'ip_allow') return `<label class="wide">Allowed IPs or ranges (one per line)<textarea id="p_ips" class="input" rows="4">${esc((p.ips || []).join('\n'))}</textarea></label>`;
   if (action === 'geo_allow' || action === 'geo_deny') return `<label class="wide">Country codes (DE, AT, US… T1 = Tor, XX = unknown)<input id="p_cc" class="input" value="${esc((p.countries || []).join(', '))}"></label>`;
   if (action === 'hotlink') return `<label class="wide">Other sites allowed to embed (one per line)<textarea id="p_domains" class="input" rows="3">${esc((p.domains || []).join('\n'))}</textarea></label>`;
-  if (action === 'cache') return `<label class="wide">Cache-Control<span class="hrow"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input fill" value="${esc(p.value || '')}"></span></label>`;
+  if (action === 'cache') return `<label class="wide">Cache-Control<span class="hrow"><select id="r_cachepre" class="input preset" aria-label="Cache-Control presets"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input fill" aria-label="Cache-Control" value="${esc(p.value || '')}"></span></label>`;
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
   if (action === 'player') return `<label class="wide">Backgrounds for files without cover art (a folder on this drive)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
