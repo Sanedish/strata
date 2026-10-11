@@ -75,6 +75,30 @@ def conf():
 _RX = {}
 
 
+def cpu_percent():
+    """Whole-machine CPU use over half a second, measured like Strata Media's breaker (None when unknown)."""
+    try:
+        from media.breaker import SystemSampler
+    except Exception:
+        return None
+    s = SystemSampler()
+    s()
+    time.sleep(0.5)
+    return s()[0]
+
+
+def housekeeping():
+    """Every 30 minutes: keep the cache (resized images, link-preview cards) under cache_max_mb."""
+    while True:
+        try:
+            c = conf()
+            if c.get("cache_dir") and os.path.isdir(c["cache_dir"]):
+                evict(c["cache_dir"], int(c.get("cache_max_mb") or 2048) << 20)
+        except Exception as e:
+            print(time.strftime("%H:%M:%S"), "cache eviction failed:", e, flush=True)
+        time.sleep(1800)
+
+
 def overrides(c, mount_id, url_path, is_dir):
     """Link-preview rule settings for a URL (transform.json "previews", written by Strata): the matching rules merged
     field by field, the most specific pattern last. Title, description and image only come from a pattern naming
@@ -129,6 +153,8 @@ def version_file(mount, rel, n):
 
 
 def evict(cache_dir, max_bytes):
+    """Least recently used first. Windows rarely updates access times, so a cache hit refreshes the file's modified
+    time (at most once a day, see audiocard.touch) and the newer of the two counts."""
     files = []
     total = 0
     for dp, dn, fn in os.walk(cache_dir):
@@ -138,7 +164,7 @@ def evict(cache_dir, max_bytes):
                 st = os.stat(p)
             except OSError:
                 continue
-            files.append((st.st_atime, st.st_size, p))
+            files.append((max(st.st_atime, st.st_mtime), st.st_size, p))
             total += st.st_size
     files.sort()
     while total > max_bytes and files:
@@ -310,6 +336,10 @@ class Handler(BaseHTTPRequestHandler):
         else, so it must never be stored at the edge; the card URL carries the file version and is cached for good."""
         import audiocard
         import cards
+        if self.headers.get("X-Strata-Warm") == "1":  # Strata drawing ahead of time: never on a busy machine
+            cpu = cpu_percent()
+            if cpu is not None and cpu > 70:
+                return self.plain(503, "busy, try later")
         ov = overrides(c, self.headers.get("X-Strata-Mount", ""), url_path, st is None)
         if ov.get("off"):  # previews switched off here: crawlers get what everyone gets
             if q.get("card") or st is None:
@@ -439,6 +469,7 @@ def main():
     host, port = conf().get("listen", "127.0.0.1:8083").rsplit(":", 1)
     srv = ThreadingHTTPServer((host, int(port)), Handler)
     srv.daemon_threads = True
+    threading.Thread(target=housekeeping, daemon=True).start()
     print(time.strftime("%H:%M:%S"), "strata transform on http://%s:%s" % (host, port), flush=True)
     srv.serve_forever()
 

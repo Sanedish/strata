@@ -977,6 +977,17 @@ def describe(path, st):
     return info, meta
 
 
+def touch(*paths):
+    """Mark cached files as used (eviction goes by modified time); at most once a day, so hits stay read-only."""
+    import time
+    for p in paths:
+        try:
+            if os.path.getmtime(p) < time.time() - 86400:
+                os.utime(p, None)
+        except OSError:
+            pass
+
+
 def card(path, st, cache_dir, ov=None):
     """(jpeg bytes, info) - drawn once per file version (and per link-preview override)."""
     ov = ov or {}
@@ -988,7 +999,9 @@ def card(path, st, cache_dir, ov=None):
     if os.path.isfile(cp) and os.path.isfile(jp):
         try:
             with open(cp, "rb") as f, open(jp, encoding="utf-8") as g:
-                return f.read(), json.load(g)
+                hit = f.read(), json.load(g)
+            touch(cp, jp)
+            return hit
         except (OSError, ValueError):
             pass
     with _LOCK:

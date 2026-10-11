@@ -270,7 +270,22 @@ def metrics_server():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 
+def sweep():
+    """Folders of earlier demos that were killed before they could clean up (a running demo writes its access log
+    every second, so ten quiet minutes means nobody is using it)."""
+    import glob
+    for old in glob.glob(os.path.join(tempfile.gettempdir(), "strata-demo-*")):
+        log = os.path.join(old, "home", "data", "access.log")
+        try:
+            quiet = time.time() - os.path.getmtime(log if os.path.exists(log) else old) > 600
+        except OSError:
+            continue
+        if quiet:
+            shutil.rmtree(old, ignore_errors=True)
+
+
 def main():
+    sweep()
     root = tempfile.mkdtemp(prefix="strata-demo-")
     home = os.path.join(root, "home")
     files_root = os.path.join(home, "files")

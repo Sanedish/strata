@@ -431,6 +431,29 @@ def route_cap(path, method, q, body):
 
 
 
+# settings fields as the forms label them, for "<field>: enter a number from <lo> to <hi>"
+FIELD_LABELS = {"raw_retention_days": "Raw request days", "retention_days": "Aggregate days", "digest_hour": "Summary hour",
+                "max_per_hour": "Alerts per hour", "default_days": "Link lifetime in days", "seconds": "Link lifetime",
+                "per_ip_10m": "Clicks per address in 10 minutes", "clicks_10m": "Clicks in 10 minutes",
+                "countries_1h": "Countries in an hour", "bot_min": "Minimum bot clicks", "bot_share": "Bot share",
+                "chunk_mb": "Chunk size in MB", "parallel": "Parallel uploads", "versions_keep": "Versions to keep"}
+
+
+def num(b, key, lo, hi, cast=int, default=None):
+    """A number from a settings form, kept within lo..hi. Anything else is a 400 that names the field, instead of
+    Python's own message ("invalid literal for int()...")."""
+    v = b.get(key)
+    if v in (None, "") and default is not None:
+        v = default
+    try:
+        n = float(str(v).strip())
+        if n != n or n in (float("inf"), float("-inf")):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise files.FileError(400, "%s: enter a number from %s to %s" % (FIELD_LABELS.get(key, key.replace("_", " ")), lo, hi))
+    return max(lo, min(hi, cast(n) if cast is float else int(round(n))))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Strata"
     sys_version = ""
@@ -1854,9 +1877,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings/retention":
             upd = {}
             if "raw_retention_days" in b:
-                upd["raw_retention_days"] = max(1, min(3650, int(b["raw_retention_days"])))
+                upd["raw_retention_days"] = num(b, "raw_retention_days", 1, 3650)
             if "retention_days" in b:
-                upd["retention_days"] = max(7, min(3650, int(b["retention_days"])))
+                upd["retention_days"] = num(b, "retention_days", 7, 3650)
             core.save_config(upd)
             A("retention", json.dumps(upd))
             return self.system()
@@ -2016,7 +2039,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.close()
         if path == "/api/serving/sign":
             m = files.get_mount(mid)
-            secs = max(60, min(365 * 86400, int(b.get("seconds") or (CFG["links"].get("default_days") or 7) * 86400)))
+            secs = num(b, "seconds", 60, 365 * 86400, default=(CFG["links"].get("default_days") or 7) * 86400)
             url, exp = rules.signed_url(m, b.get("path", "/"), secs, rules.clean_mods(b.get("mods")))
             A("sign", "%s:%s" % (mid, b.get("path")), "valid %ds" % secs)
             return {"url": url, "expires": exp}
@@ -2095,9 +2118,9 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("min_severity", "digest"):
                 if k in b:
                     upd[k] = str(b[k])
-            for k in ("digest_hour", "max_per_hour"):
+            for k, lo, hi in (("digest_hour", 0, 23), ("max_per_hour", 1, 10000)):
                 if k in b:
-                    upd[k] = int(b[k])
+                    upd[k] = num(b, k, lo, hi)
             core.save_config({"alerts": upd})
             A("alerts-config", ", ".join(k for k in upd))
             return alerts.q_alerts({})
@@ -2196,13 +2219,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings/links":
             lk = {"abuse": {}}
             if "default_days" in b:
-                lk["default_days"] = max(0, min(365, float(b["default_days"] or 0)))
+                lk["default_days"] = num(b, "default_days", 0, 365, float, default=0)
             for k, lo, hi in (("per_ip_10m", 5, 100000), ("clicks_10m", 20, 1000000), ("countries_1h", 3, 250),
                               ("bot_min", 5, 100000)):
                 if k in b:
-                    lk["abuse"][k] = max(lo, min(hi, int(b[k])))
+                    lk["abuse"][k] = num(b, k, lo, hi)
             if "bot_share" in b:
-                lk["abuse"]["bot_share"] = max(0.5, min(1.0, float(b["bot_share"])))
+                lk["abuse"]["bot_share"] = num(b, "bot_share", 0.5, 1.0, float)
             if "abuse_enabled" in b:
                 lk["abuse"]["enabled"] = bool(b["abuse_enabled"])
             core.save_config({"links": lk})
@@ -2211,12 +2234,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings/upload":
             up = {}
             if "chunk_mb" in b:
-                up["chunk_mb"] = max(1, min(95, int(b["chunk_mb"])))
+                up["chunk_mb"] = num(b, "chunk_mb", 1, 95)
             if "parallel" in b:
-                up["parallel"] = max(1, min(8, int(b["parallel"])))
+                up["parallel"] = num(b, "parallel", 1, 8)
             core.save_config({"upload": up})
             if "versions_keep" in b:
-                core.save_config({"versions_keep": max(1, min(100, int(b["versions_keep"])))})
+                core.save_config({"versions_keep": num(b, "versions_keep", 1, 100)})
             return self.me(user)
         if path == "/api/settings/signups":
             if not accounts.has(user, "accounts.manage") and (accounts.get(user) or {}).get("role") not in ("root", "admin"):
@@ -2504,6 +2527,10 @@ class Housekeeping(threading.Thread):
                     core.check_update()
                 except Exception as e:
                     log("update check failed: %s" % e)
+            try:
+                rules.warm_previews()  # link-preview cards of popular files, drawn ahead of time (skipped when busy)
+            except Exception:
+                log("preview warm-up error:\n" + traceback.format_exc())
             hours += 1
             time.sleep(3600)
 

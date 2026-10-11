@@ -1383,6 +1383,44 @@ def preview_settings(mount_id, url_path, is_dir=False, skip=None, rules=None):
     return ov, exact
 
 
+def warm_previews(limit=30):
+    """Ask Transform to draw the link-preview cards of the most requested files of the last day, so the next shared
+    link gets its preview at once. Transform answers 503 on a busy machine and the rest waits for the next run.
+    Cards are drawn once per file version, so files already done cost a cache lookup. -> number drawn or found."""
+    import urllib.request
+    mounts = [m for m in core.mounts() if m["kind"] == "files" and m["enabled"]]
+    if not mounts:
+        return 0
+    db = connect()
+    try:
+        rows = db.execute("SELECT host, path, count(*) n FROM req WHERE ts > ? AND status = 200 AND method = 'GET' "
+                          "AND query = 0 GROUP BY host, path ORDER BY n DESC LIMIT 400", [now() - 86400]).fetchall()
+    finally:
+        db.close()
+    native = re.compile(PREVIEW_NATIVE_RX)
+    done = 0
+    for host, path, _ in rows:
+        if done >= limit or not path or path.endswith("/") or not re.search(r"\.[A-Za-z0-9]{1,10}$", path) or native.search(path):
+            continue
+        m = next((m for m in sorted(mounts, key=lambda x: -len(x["prefix"])) if (host or "").lower() in [h.lower() for h in m["hosts"]]
+                  and (m["prefix"] == "/" or path == m["prefix"] or path.startswith(m["prefix"] + "/"))), None)
+        if not m:
+            continue
+        req = urllib.request.Request("http://%s%s?card=1" % (CFG["transform_listen"], urllib.parse.quote(path)),
+                                     headers={"X-Strata-Mount": str(m["id"]), "X-Strata-Warm": "1", "Host": host or ""})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                r.read()
+            done += 1
+        except urllib.error.HTTPError as e:
+            if e.code == 503:
+                break  # busy machine: stop here
+        except Exception:
+            break      # Transform not running
+        time.sleep(1)  # one card at a time, with room for real requests in between
+    return done
+
+
 def write_transform_config(mounts, db=None):
     os.makedirs(os.path.dirname(TRANSFORM_CONFIG), exist_ok=True)
     own = db is None

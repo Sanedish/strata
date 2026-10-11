@@ -748,7 +748,9 @@ def card(path, st, cache_dir, is_dir=False, where="", ov=None):
     if os.path.isfile(cp) and os.path.isfile(jp):
         try:
             with open(cp, "rb") as f, open(jp, encoding="utf-8") as g:
-                return f.read(), json.load(g)
+                hit = f.read(), json.load(g)
+            A.touch(cp, jp)
+            return hit
         except (OSError, ValueError):
             pass
     with _LOCK:

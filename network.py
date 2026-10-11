@@ -224,12 +224,17 @@ def clean_record(d):
             raise NetError("A needs IPv4, AAAA needs IPv6")
     if typ in ("CNAME", "MX") and not HOST_LABEL.match(content.lower().rstrip(".")):
         raise NetError("%s points at a hostname" % typ)
-    body = {"type": typ, "name": name, "content": content, "ttl": 1 if d.get("proxied") else int(d.get("ttl") or 1),
+    try:
+        ttl = 1 if d.get("proxied") else int(d.get("ttl") or 1)
+        prio = int(d.get("priority") or 10)
+    except (TypeError, ValueError):
+        raise NetError("TTL and priority are whole numbers")
+    body = {"type": typ, "name": name, "content": content, "ttl": ttl,
             "comment": str(d.get("comment") or "")[:100]}
     if typ in ("A", "AAAA", "CNAME"):
         body["proxied"] = bool(d.get("proxied", True))
     if typ == "MX":
-        body["priority"] = int(d.get("priority") or 10)
+        body["priority"] = prio
     return body
 
 

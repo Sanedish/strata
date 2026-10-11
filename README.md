@@ -11,7 +11,7 @@ in plain Python with no web framework and no build step. It runs on your own mac
 <img alt="Windows and Linux, self-hosted" src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux-self--hosted-2563EB">
 <img alt="Built on Caddy, cloudflared and SQLite" src="https://img.shields.io/badge/built%20on-Caddy%20%C2%B7%20cloudflared%20%C2%B7%20SQLite-1F9D55">
 <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-555555">
-<img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-D6336C">
+<img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-D6336C">
 <img alt="Status: early" src="https://img.shields.io/badge/status-early-E3B341">
 </p>
 
@@ -103,6 +103,33 @@ both files on every request, so changes apply on the next page load.
 - The player uses a `cover.jpg`, `folder.jpg` or similar file next to the track as cover art. Without one, it
   shows a random image from the placeholder folder set on the rule. Phones, `<audio>` elements, link previews and
   `?dl=1` receive the file itself, as does `?raw=1`.
+
+### Link previews
+
+<img src="docs/images/previews.jpg" alt="Six link-preview cards: a code file as a repository card, a zip as a terminal listing, a PDF as a document cover, a program with hazard stripes and its SHA-256, a gallery folder of pictures, and a font file with its type and size" width="100%">
+
+When someone shares a link to a file in Discord, Slack, Telegram, X, WhatsApp or similar apps, Strata answers the
+app's preview request with a card for that file. Pictures, videos and web pages keep the apps' own embeds.
+
+| File | Card |
+|---|---|
+| Audio | Cover art, title, artist and the track's waveform |
+| Code and text | Folder and file name, a line from the file (docstring, first comment or first paragraph), line count, size, language and the language's colour |
+| Archive (zip, tar) | A terminal listing of the contents, file count, unpacked and download size |
+| PDF | Title, author and page count, read from the file |
+| Gallery folder | Its pictures, file count and size. Folders outside a gallery rule get no preview |
+| Programs and scripts | A caution card with the file's type and SHA-256 |
+| Anything else | Type, size and date |
+
+- **Access rules come first.** Hidden, protected and held files never get a preview.
+- **Caching.** Each card is drawn once per file version and kept in `data/tcache` (2 GB, least recently used files go
+  first). Once an hour Strata draws the cards of the most requested files ahead of time, and skips that while the CPU
+  is above 70 %. Cloudflare caches the card images.
+- **Cloudflare.** Strata adds one cache rule so preview crawlers reach your server instead of a cached copy of the
+  file. It needs **Zone › Cache Rules › Edit** on the API token.
+- **Your own settings.** The **embed** tab in the Files inspector shows the preview and lets you set a title,
+  description, colour, card type or image, or switch the preview off. It saves a **Link preview** rule; under
+  Serving › Access rules the same action can set colour, card type or "off" for a whole folder or drive.
 
 ### Traffic
 

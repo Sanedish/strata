@@ -95,7 +95,7 @@ Bugs found on the way and fixed:
 Still open from Phase 2:
 
 - `media.js` copy (59 em dashes, mostly `—` placeholders for missing values, which are fine) and the Code page were left out of the copy pass.
-- A non-number in a settings form gets the server's raw Python error ("int() argument must be…"). The settings endpoints in `strata.py` should validate and say which field is wrong.
+- ~~A non-number in a settings form gets the server's raw Python error.~~ Done (0.3.0): `strata.num()` answers 400 with the field's name and range.
 
 ### House style (keep using it)
 - Say what something does in under 8 words. Leave out the how unless the user has to act on it.
@@ -120,11 +120,11 @@ The logo is PNG only on purpose: an SVG served from the dashboard's own origin c
 |---|---|
 | **Backup and restore** | System › Backup (owner only): **Download backup** gives a zip with `strata.json` minus every key, password, token, TOTP and webhook, plus a consistent snapshot of the database. **Restore…** checks the zip (integrity check, Strata tables), copies the database in through SQLite's backup API while Strata runs, merges the settings over the current ones (secrets on this machine stay), migrates older tables and re-applies the Caddy config. New owner-only capability `system.backup`. Code in `backup.py` |
 | **Alert webhooks** | Alerts › Delivery › Webhooks (owner only, up to 5): Discord, Slack and ntfy are recognised by host name, anything else gets JSON with `title` and `message` (Gotify, Home Assistant, n8n). Alerts and the daily or weekly summary go to every channel; one failing channel doesn't hold up the others. The URLs carry their own secret, so only host and format are ever sent back to the browser. LAN targets are allowed on purpose (a self-hosted ntfy) |
-| **Version and update check** | `core.VERSION` (now 0.1.0) shows in the sidebar footer and System › Versions, signed-in users only. Once a day Strata reads the latest release from `instance.update_repo` (`owner/name` on GitHub) and shows "vX available" with a link. Empty until the repository is public, so nothing is fetched |
+| **Version and update check** | `core.VERSION` shows in the sidebar footer and System › Versions, signed-in users only. Once a day Strata reads the latest release from `instance.update_repo` (`Sanedish/strata`) and shows "vX available" with a link |
 | **Config preview** | Save & apply on a drive, a rule and Serving › Site first shows the diff of the Caddy config the change would produce. The change is rendered inside a database transaction that is rolled back. No diff, no dialog |
 
 Still open from Phase 4:
-- Set `instance.update_repo` (in `core.py` DEFAULTS) once the GitHub repository exists, and tag releases to match `core.VERSION`.
+- ~~Set `instance.update_repo` once the GitHub repository exists.~~ Done (0.3.0). Each release needs a GitHub release whose tag matches `core.VERSION`.
 - Restore says "restart Strata to finish": in-memory state (sessions, the compressor's map) refreshes on restart. A restart button needs the service run as SYSTEM tested first (Phase 1).
 
 Based on how comparable self-hosted panels are reviewed (Nginx Proxy Manager, Coolify) and common checklists. These sources are mostly blog posts and guides, so treat them as orientation, not research.

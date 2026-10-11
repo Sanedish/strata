@@ -50,7 +50,7 @@ import urllib.request
 
 import instance
 
-VERSION = "0.2.0"                    # bump on every release; the dashboard compares it with the latest GitHub release
+VERSION = "0.3.0"                    # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")
@@ -69,7 +69,7 @@ DEFAULTS = {
         # how the tunnel is restarted after an ingress change: {"kind": "service"|"task", "name": "..."}
         "tunnel_restart": {},
         "dry_run": False,                # test instances: validate Caddy configs but never reload Caddy
-        "update_repo": "",               # "owner/name" on GitHub: once a day, look for a newer release ("" = never)
+        "update_repo": "Sanedish/strata",  # "owner/name" on GitHub: once a day, look for a newer release ("" = never)
     },
     "listen": "127.0.0.1:8090",          # admin UI + API (Caddy exposes it to the LAN)
     "feed_listen": "127.0.0.1:8081",     # redacted feed for Strata Telemetry - loopback only

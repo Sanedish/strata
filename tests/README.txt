@@ -12,6 +12,7 @@ The suites, in the order run_all.py runs them:
                         authenticator app and no e-mail signs in with it
   smtp_test.py          SMTP mail delivery against a recorder (no mail server needed)
   sec_regress.py        takeover paths, zones, SSRF, CSRF, headers
+  caddy_test.py         the generated Caddy config through a real `caddy validate` (skipped without Caddy)
   granular_regress.py   fine-grained capabilities, per-zone actions, end dates, IP allowlists, session length,
                         share-link ownership, profile pictures, synced preferences
   office_regress.py     the Team view: directory privacy, presence, notes, the Moderator flag, delegation

@@ -207,6 +207,13 @@ check("link previews come after the access rules and before the drives", 0 < pv 
       and "header_up X-Strata-Embed 1" in cdn[pv:drives] and "header_regexp" in cdn[pv:drives]
       and "not path_regexp" in cdn[pv:drives] and "X-Strata-Gallery 1" not in cdn[pv:drives], (pv, drives))
 
+# a non-number in a settings form is a 400 that names the field, not Python's own message
+st, r, _ = call("POST", "/api/settings/upload", root, {"chunk_mb": "abc"})
+check("settings forms name the field that isn't a number", st == 400 and "Chunk size in MB" in r.get("error", "")
+      and "int()" not in r.get("error", ""), (st, r))
+st, r, _ = call("POST", "/api/settings/links", root, {"bot_share": "nan"})
+check("settings forms refuse NaN", st == 400 and "Bot share" in r.get("error", ""), (st, r))
+
 # link-preview rules: need serving.rules, refuse bad values, and reach Transform's config (not Caddy's)
 st, r, _ = call("POST", "/api/serving/rule", e, {"name": "x", "action": "preview", "patterns": ["/a.txt"], "params": {"title": "x"}})
 check("employee cannot add a link-preview rule", st == 403, (st, r))
