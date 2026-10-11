@@ -572,6 +572,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if user.startswith("api:"):
             if not self.local_network():
+                self.drain()
                 core.audit(self.client_ip(), user, "admin-network-denied", path[:200], ok=False)
                 self.json({"error": "administrative access is available only from the local network"}, 403)
                 return None
@@ -579,6 +580,7 @@ class Handler(BaseHTTPRequestHandler):
         acct = accounts.get(user)
         if acct:
             if self.administrative_account(acct) and not self.local_network():
+                self.drain()
                 core.audit(self.client_ip(), user, "admin-network-denied", path[:200], ok=False)
                 self.json({"error": "administrative access is available only from the local network"}, 403)
                 return None
@@ -586,9 +588,11 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/me" or path == "/api/privacy/accept" or path in ("/privacy", "/privacy/accept") or path.startswith("/") and path.rsplit("/", 1)[-1] in (
                         "styles.css", "favicon.ico"):
                     return user
+                self.drain()
                 if path.startswith("/api/"):
                     self.json({"error": "privacy notice acceptance required", "privacy_required": True}, 428)
-                self.redirect("/privacy")
+                else:
+                    self.redirect("/privacy")
                 return None
         return user
 

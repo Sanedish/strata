@@ -5,6 +5,7 @@ escalation paths found in the 2026-10-10 audit are closed. Exit code 1 if any ch
 import hashlib
 import json
 import secrets
+import socket
 import sqlite3
 import sys
 import time
@@ -56,6 +57,34 @@ def call(method, path, tok=None, body=None, headers=None, form=False):
             return e.code, json.loads(raw), e.headers
         except ValueError:
             return e.code, raw.decode("utf-8", "replace"), e.headers
+
+
+def raw(method, path, tok, body=b"", hold=0):
+    """Every byte the server sends back (urllib hides a second response written after the first). With hold, the
+    last `hold` bytes of the body follow a second later, and whatever the server sent before them is marked <early>."""
+    s = socket.create_connection(("127.0.0.1", 8190), timeout=20)
+    s.sendall(("%s %s HTTP/1.1\r\nHost: 127.0.0.1:8190\r\nX-Strata: 1\r\nCookie: %s=%s\r\nContent-Type: application/json\r\n"
+               "Content-Length: %d\r\nConnection: close\r\n\r\n" % (method, path, COOKIE, tok, len(body))).encode()
+              + body[:len(body) - hold])
+    out = b""
+    try:
+        if hold:
+            s.settimeout(1)
+            try:
+                out = b"<early>" + s.recv(65536)
+            except TimeoutError:
+                pass
+            s.settimeout(20)
+            s.sendall(body[len(body) - hold:])
+        while True:
+            buf = s.recv(65536)
+            if not buf:
+                break
+            out += buf
+    except (ConnectionResetError, BrokenPipeError):
+        out += b"<connection reset>"
+    s.close()
+    return out
 
 
 def check(name, cond, detail=""):
@@ -145,6 +174,25 @@ st, r, _ = call("POST", "/api/upload/url", e, {"mount": 1, "dest": "/users/" + e
 check("remote upload refuses loopback (SSRF)", st == 400 and "non-public" in str(r), (st, r))
 st, r, _ = call("POST", "/api/upload/url", e, {"mount": 1, "dest": "/users/" + emp, "url": "http://192.168.1.50/"})
 check("remote upload refuses LAN (SSRF)", st == 400 and "non-public" in str(r), (st, r))
+
+# an account that hasn't accepted the current privacy note gets one answer: 428 from the API, a redirect for pages
+c = sqlite3.connect(DB)
+accepted = c.execute("SELECT privacy_version FROM account WHERE user=?", [emp]).fetchone()[0]
+c.execute("UPDATE account SET privacy_version='' WHERE user=?", [emp])
+c.commit()
+st, r, _ = call("GET", "/api/files?mount=1&path=/users/" + emp, e)
+check("API before the privacy note answers 428", st == 428 and r.get("privacy_required"), (st, r))
+st, _, h = call("GET", "/", e)
+check("page before the privacy note redirects to it", st == 303 and h.get("Location") == "/privacy", (st, h.get("Location")))
+out = raw("GET", "/api/prefs", e)
+check("428 is the only response on the wire", out.startswith(b"HTTP/1.0 428") and out.count(b"HTTP/1.") == 1, out[:300])
+out = raw("POST", "/api/upload/url", e, b'{"mount": 1, "pad": "' + b"x" * 60000 + b'"}', hold=1000)
+check("a refused POST is answered once its body is read", out.startswith(b"HTTP/1.0 428") and out.count(b"HTTP/1.") == 1, out[:120])
+c.execute("UPDATE account SET privacy_version=? WHERE user=?", [accepted, emp])
+c.commit()
+c.close()
+st, r, _ = call("GET", "/api/files?mount=1&path=/users/" + emp, e)
+check("accepting again restores access", st == 200, (st, r))
 
 # a reset never re-enables a disabled account
 call("POST", "/api/accounts/status", root, {"user": emp, "enabled": False})
