@@ -819,11 +819,11 @@ function linkRows(row, toggle) {
 function cloudflarePanel(row, toggle) {
   if (!D.cf && !D.cfLoading) { D.cfLoading = true; loadCf().then(() => { D.cfLoading = false; render(true); }); }
   const cf = D.cf, caps = cf?.caps, q = cf?.queue;
-  const capRow = (k) => caps[k] ? row({ zone: 'Zone access', lists: 'IP list (edge blocklist)', waf: 'WAF custom rules (edge blocklist)', purge: 'Cache purge' }[k],
+  const capRow = (k) => caps[k] ? row({ zone: 'Zone access', lists: 'IP list (edge blocklist)', waf: 'WAF custom rules (edge blocklist)', cache_rules: 'Cache rules (link previews)', purge: 'Cache purge' }[k],
     caps[k].ok ? 'Working.' : caps[k].ok === false ? 'Missing permission: ' + (caps[k].need || '') : 'Not tested yet. Runs with the first purge.',
     `<span class="${caps[k].ok ? '' : 'hot'} h800">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : '—'}</span>`) : '';
   return netPanel('Cloudflare', 'Uses the API token in strata.json', `
-    ${caps ? ['zone', 'lists', 'waf', 'purge'].map(capRow).join('') : '<div class="empty">Checking the token…</div>'}
+    ${caps ? ['zone', 'lists', 'waf', 'cache_rules', 'purge'].map(capRow).join('') : '<div class="empty">Checking the token…</div>'}
     ${row('Edge blocklist', 'Push the blocklist to Cloudflare.', toggle(cf ? cf.edge_enabled : true, 'cfEdge'))}
     ${row('Automatic purges', 'Purge a file’s URLs, with every ?variant, when it is replaced, renamed, deleted or protected.', toggle(cf ? cf.autopurge : true, 'cfAuto'))}
     ${q ? row('Purge queue', q.pending ? `${fmt.n(q.pending)} waiting since ${fmt.dt(q.oldest)}.${q.ok === false ? ' Last error: ' + q.error : ''}` : 'Empty. Every purge went through.',

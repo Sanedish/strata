@@ -6,9 +6,9 @@ Used by transform.py, reached only through the generated audio-player rules (rul
     <file>?card=1                                             ->  card(): the 1200x600 card image (JPEG)
 
 The card: a soft mesh gradient from the cover's three dominant colours with the cover itself blurred into it, the
-cover in a rounded square with a black / white outline (same rule as the player), "LISTEN TO" and "CLICK TO
-LISTEN" in dot-matrix type, title and artist, and the track's real loudness envelope as a dot-matrix waveform.
-No controls - the whole card is the link.
+cover in a rounded square with a black / white outline (same rule as the player), "LISTEN TO" in dot-matrix
+type, title and artist, the track's real loudness envelope as a dot-matrix waveform, duration and format. A static
+image: nothing on it suggests a control, the link under it is what people click.
 
 Tags are read here, in pure Python (ID3v2.2-2.4, FLAC, Ogg Vorbis / Opus / FLAC, MP4 / M4A, RIFF / AIFF), with
 durations. The waveform needs ffmpeg; it runs boxed through media/sandbox.py (job object, memory / CPU caps,
@@ -28,9 +28,9 @@ import struct
 import threading
 import zlib
 
-VERSION = 3                     # bump to redraw every cached card
+VERSION = 4                     # bump to redraw every cached card
 AUDIO_EXT = {".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wav", ".aif", ".aiff", ".weba", ".alac", ".wma", ".amr", ".wv", ".ape"}
-W, H, SS = 1200, 600, 2         # output size, supersampling factor
+W, H, SS = 1200, 630, 2         # output size (the Open Graph standard), supersampling factor
 MAX_TAG = 24 << 20
 RED = (215, 25, 33)
 DEMUXERS = "mp3,flac,ogg,mov,wav,w64,aiff,aac,matroska,asf"
@@ -900,18 +900,19 @@ def render(info, art, wave):
                 fill = (ink + (232,)) if lit else (ink + (34,))
             d.ellipse((cx - wr, cy - wr, cx + wr, cy + wr), fill=fill)
 
-    # footer: round play glyph + CLICK TO LISTEN, duration and format on the right
+    # footer: duration and format under the waveform, album on the right when it fits
     by = h - s(48) - s(44)
     pr = s(22)
-    d.ellipse((x0, by, x0 + 2 * pr, by + 2 * pr), fill=ink)
-    tri = [(x0 + pr - s(6), by + pr - s(9)), (x0 + pr - s(6), by + pr + s(9)), (x0 + pr + s(10), by + pr)]
-    d.polygon(tri, fill=scrim_rgb if dark_text else (14, 14, 16))
     fp = s(4.2)
-    dot_text(d, x0 + 2 * pr + s(16), by + pr - 3.5 * fp, "CLICK TO LISTEN", fp, fp * 0.38, ink)
-    right = " · ".join(x for x in (clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if x)
-    if right:
-        rwid = dot_width(right, fp)
-        dot_text(d, x1 - rwid, by + pr - 3.5 * fp, right, fp, fp * 0.38, soft)
+    left_txt = " · ".join(x for x in (clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if x)
+    if left_txt:
+        dot_text(d, x0, by + pr - 3.5 * fp, left_txt, fp, fp * 0.38, ink)
+    album = (info.get("album") or "").upper()
+    room = colw - (dot_width(left_txt, fp) if left_txt else 0) - s(40)
+    while album and dot_width(album, fp) > room:
+        album = album[:-2].rstrip()
+    if album and len(album) > 2:
+        dot_text(d, x1 - dot_width(album, fp), by + pr - 3.5 * fp, album, fp, fp * 0.38, soft)
 
     out = img.resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()
@@ -1012,7 +1013,7 @@ def embed_html(info, page_url, card_url, host):
     e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
     title = info.get("title") or "Untitled"
     artist = info.get("artist") or ""
-    bits = [b for b in (artist, clock(info["duration"]) if info.get("duration") else "", "Click to listen") if b]
+    bits = [b for b in (artist, clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if b]
     desc = " · ".join(bits)
     full = "%s — %s" % (title, artist) if artist else title
     tags = [
@@ -1021,7 +1022,7 @@ def embed_html(info, page_url, card_url, host):
         ("property", "og:url", page_url), ("property", "og:image", card_url),
         ("property", "og:image:secure_url", card_url), ("property", "og:image:type", "image/jpeg"),
         ("property", "og:image:width", W), ("property", "og:image:height", H),
-        ("property", "og:image:alt", "%s · click to listen" % full),
+        ("property", "og:image:alt", full),
         ("name", "twitter:card", "summary_large_image"), ("name", "twitter:title", title),
         ("name", "twitter:description", desc), ("name", "twitter:image", card_url),
         ("name", "theme-color", info.get("color") or "#111111"),
@@ -1032,5 +1033,5 @@ def embed_html(info, page_url, card_url, host):
         tags.append(("property", "music:musician", artist))
     head = "\n".join('<meta %s="%s" content="%s">' % (a, e(k), e(v)) for a, k, v in tags)
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n<title>%s</title>\n%s\n"
-            "<link rel=\"canonical\" href=\"%s\">\n</head><body><p><a href=\"%s\">%s</a> · click to listen</p>"
+            "<link rel=\"canonical\" href=\"%s\">\n</head><body><p><a href=\"%s\">%s</a></p>"
             "</body></html>\n" % (e(full), head, e(page_url), e(page_url), e(full))).encode("utf-8")

@@ -26,10 +26,13 @@ LIST_NAME = core.prefixed("blacklist")   # account-level: every instance needs i
 REF_BLOCK = core.prefixed("blacklist_block")
 REF_CHALLENGE = core.prefixed("blacklist_challenge")
 PHASE = "http_request_firewall_custom"
+CACHE_PHASE = "http_request_cache_settings"
+REF_PREVIEWS = core.prefixed("previews_nocache")
 PERMS = {
     "lists": "Account › Account Filter Lists › Edit",
     "waf": "Zone › Zone WAF › Edit",
     "purge": "Zone › Cache Purge › Purge",
+    "cache_rules": "Zone › Cache Rules › Edit",
 }
 EDGE_AGENT = {
     "bots": ["bot", "crawl", "spider", "slurp", "curl/", "wget", "python", "go-http", "httpclient", "okhttp", "java/",
@@ -115,6 +118,12 @@ def capabilities():
         caps["waf"] = {"ok": True}
     except CFError as e:
         caps["waf"] = {"ok": e.status == 404, "error": "" if e.status == 404 else str(e), "need": PERMS["waf"]}
+    try:
+        call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone_id(), CACHE_PHASE))
+        caps["cache_rules"] = {"ok": True}
+    except CFError as e:
+        caps["cache_rules"] = {"ok": e.status == 404, "error": "" if e.status == 404 else str(e),
+                               "need": PERMS["cache_rules"]}
     db = connect()
     try:
         p = get_meta(db, "cf_purge", {}) or {}
@@ -238,6 +247,32 @@ def sync():
             "overflow": "overflow" in skipped}
 
 
+def sync_previews():
+    """One cache rule: link-preview crawlers skip the edge cache on file types that get a Strata card, so they reach
+    Caddy (which answers them with a preview page) instead of a copy of the file Cloudflare cached for people.
+    The card image itself (?card=1) stays cached. Files for people are unaffected."""
+    zone = zone_id()
+    bots = " or ".join('lower(http.user_agent) contains %s' % cf_str(b) for b in core.EMBED_RE.pattern.split("|"))
+    exts = " ".join(cf_str(e) for e in rules.PREVIEW_EXTS)
+    want = {"ref": REF_PREVIEWS, "description": "Strata link previews - crawlers bypass the cache (managed by Strata)",
+            "expression": '(%s) and lower(http.request.uri.path.extension) in {%s} and not http.request.uri.query contains "card="'
+                          % (bots, exts),
+            "action": "set_cache_settings", "action_parameters": {"cache": False}, "enabled": True}
+    try:
+        rs = call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE))["result"]
+    except CFError as e:
+        if e.status != 404:
+            raise
+        call("PUT", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE), {"rules": [want]})
+        return {"previews": "created"}
+    have = {r.get("ref"): r for r in rs.get("rules", [])}
+    if REF_PREVIEWS in have:
+        call("PATCH", "/zones/%s/rulesets/%s/rules/%s" % (zone, rs["id"], have[REF_PREVIEWS]["id"]), want)
+        return {"previews": "updated"}
+    call("POST", "/zones/%s/rulesets/%s/rules" % (zone, rs["id"]), want)
+    return {"previews": "created"}
+
+
 class EdgeSync(threading.Thread):
     daemon = True
 
@@ -254,6 +289,10 @@ class EdgeSync(threading.Thread):
                     status.update(ok=False, error="no API token")
                 else:
                     status.update(sync(), ok=True, error="")
+                    try:
+                        status.update(sync_previews(), previews_error="")
+                    except CFError as e:  # a token without Cache Rules: previews still work, just not past the edge cache
+                        status["previews_error"] = str(e) + (" - add %s" % PERMS["cache_rules"] if e.status == 403 else "")
             except CFError as e:
                 status.update(ok=False, error=str(e), status=e.status)
                 if e.status == 403:

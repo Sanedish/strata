@@ -6,6 +6,8 @@
     ?w=400 ?h=300          resize (never upscales)           ?fit=inside|cover|contain|fill
     ?fm=webp|avif|jpeg|png  convert                           ?q=1-100 quality
     ?ver=3                  serve stored version 3 of a file (works for any file type, with Range support)
+    X-Strata-Embed: 1       a link-preview crawler on a bare URL: Open Graph tags for Discord, Slack, Telegram...
+    ?card=1                 the preview image those tags point at (1200 x 630 JPEG, drawn once per file version)
     /_gate                  forward_auth target: checks ?exp=&sig= on signed links (HMAC-SHA256)
 
 Least privilege: reads drive folders (read-only use) and its own cache dir; knows no database, no users, no
@@ -236,6 +238,8 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(src):
             return self.plain(404, "not found")
         st = os.stat(src)
+        if not q.get("ver") and (self.headers.get("X-Strata-Embed") == "1" or q.get("card")):
+            return self.preview(full, st, q, c, u.path)
         cache = self.headers.get("X-Strata-Cache") or "public, max-age=31536000, immutable"
         edge = self.headers.get("X-Strata-Edge-Cache") or ""  # Cloudflare-only TTL, sent on successful answers only
         wants_tf = any(q.get(k) for k in ("w", "h", "fm", "q", "fit"))
@@ -267,6 +271,39 @@ class Handler(BaseHTTPRequestHandler):
         return self.stream(src, st, mimetypes.guess_type(full)[0] or "application/octet-stream", cache, edge)
 
     do_HEAD = do_GET
+
+    def preview(self, path, st, q, c, url_path):
+        """Link previews. The page answers one client class (crawlers) on a URL that serves the file to everyone
+        else, so it must never be stored at the edge; the card URL carries the file version and is cached for good."""
+        import audiocard
+        if os.path.splitext(path)[1].lower() not in audiocard.AUDIO_EXT:
+            return self.plain(415, "no link preview for this file type")
+        try:
+            data, info = audiocard.card(path, st, c.get("cache_dir") or instance.home("data", "tcache"))
+        except Exception as e:
+            return self.plain(422, "could not draw the preview (%s)" % e.__class__.__name__)
+        v = info["key"][:12]
+        if q.get("card"):
+            body, ctype = data, "image/jpeg"
+            cache = "public, max-age=31536000, immutable" if q.get("v") == v else "public, max-age=300"
+        else:
+            host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
+            local = re.match(r"(localhost|127\.|10\.|192\.168\.|\[)", host)
+            page = "%s://%s%s" % ("http" if local else "https", host, url_path)
+            body = audiocard.embed_html(info, page, page + "?card=1&v=" + v, host)
+            ctype, cache = "text/html; charset=utf-8", "private, no-store"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache)
+        if ctype.startswith("text/html"):
+            self.send_header("Cloudflare-CDN-Cache-Control", "no-store")
+            self.send_header("X-Robots-Tag", "noindex")
+        self.send_header("ETag", '"%s"' % v)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def stream(self, src, st, ctype, cache, edge=""):
         size = st.st_size

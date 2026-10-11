@@ -200,6 +200,12 @@ cdn = open(os.path.join(os.path.dirname(os.path.dirname(DB)), "generated", "cdn.
 check("502 page adds handle_errors 502 503 504", st == 200 and "handle_errors 502 503 504" in cdn and "/404/502.html" in cdn, (st, r))
 call("POST", "/api/serving/site", root, {"error_page_502": ""})
 
+# link previews sit after the access rules and the scan gate and before the drives, so a hidden, protected or held
+# file never gets one; the page goes to crawlers only and must not be stored at the edge
+pv, drives = cdn.find("# link previews"), cdn.find("# drives")
+check("link previews come after the access rules and before the drives", 0 < pv < drives and cdn.find("# access rules") < pv
+      and "header_up X-Strata-Embed 1" in cdn[pv:drives] and "header_regexp" in cdn[pv:drives], (pv, drives))
+
 # config preview: a diff, and nothing saved or applied
 st, r, _ = call("POST", "/api/serving/site", root, {"error_page_502": "/404/502.html", "preview": True})
 site = json.loads(sqlite3.connect(DB).execute("SELECT v FROM meta WHERE k='site'").fetchone()[0])

@@ -34,7 +34,8 @@ STAMP = time.strftime("%Y%m%d-%H%M%S")
 BASE_PORTS = {"listen": 8090, "feed_listen": 8081, "transform_listen": 8083, "gate_listen": 8085, "media": 8084,
               "cdn": 8080, "lan": 8091}
 CF_PERMISSIONS = ["Zone > Zone > Read", "Zone > DNS > Edit", "Zone > Cache Purge > Purge",
-                  "Zone > Zone Settings > Edit", "Zone > Zone WAF > Edit", "Account > Account Filter Lists > Edit"]
+                  "Zone > Zone Settings > Edit", "Zone > Zone WAF > Edit", "Zone > Cache Rules > Edit",
+                  "Account > Account Filter Lists > Edit"]
 
 
 # ---------------------------------------------------------------- console
