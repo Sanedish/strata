@@ -174,7 +174,7 @@
     return `<div class="office-card office-manage"><div class="cap">${icon('shield', 'sm')} ${esc(p.user)}'s team access</div>
       ${p.manageable ? '' : '<p class="small dim">Only the owner can change another moderator.</p>'}
       <div class="cap-checks">${perms.map((x) => `<label class="cap-check" title="${esc(x.description)}"><input type="checkbox" name="om-cap" value="${esc(x.id)}" ${held.has(x.id) ? 'checked' : ''}${dis}><span>${esc(x.label)}</span></label>`).join('')}</div>
-      <div class="form" style="margin-top:10px">
+      <div class="form mt-10">
         <label>Job title<input class="input" id="om-title" maxlength="60" value="${esc(p.title || '')}"${dis}></label>
         <label>Department<input class="input" id="om-dept" maxlength="60" value="${esc(p.department || '')}"${dis}></label>
       </div>
@@ -193,7 +193,7 @@
     const self = isMe(p.user);
     return `<div class="office-profile">
       <div class="op-hero">${avatar(p.user, p.avatar, 'lg', true)}
-        <div class="op-hero-txt"><div class="row" style="flex-wrap:wrap;gap:6px"><h3>${esc(p.user)}</h3>${badgeFor(p)}</div>
+        <div class="op-hero-txt"><div class="row f-wrap gap-6"><h3>${esc(p.user)}</h3>${badgeFor(p)}</div>
           <div class="op-title">${esc(p.title || (self ? 'Add a job title' : p.role))}</div>
           ${p.status ? `<div class="op-status">${esc(p.status)}</div>` : ''}</div>
         <div class="op-hero-act">${self && !O.editProfile ? `<button class="btn btn-secondary sm" data-act="officeProfileEdit">${icon('pencil', 'sm')} Edit profile</button>` : ''}

@@ -72,7 +72,7 @@ function openSheet(kicker, title, body, buttons, wide) {
   el.id = 'sheet';
   el.className = 'palbg';
   el.innerHTML = `<div class="dlg sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true"><div class="body"><div class="cap">${esc(kicker)}</div><h4>${esc(title)}</h4>${body}</div>
-    <div class="acts">${buttons}<div style="flex:1"></div><button class="btn btn-secondary" data-act="sheetClose">Cancel</button></div></div>`;
+    <div class="acts">${buttons}<div class="fill"></div><button class="btn btn-secondary" data-act="sheetClose">Cancel</button></div></div>`;
   document.body.appendChild(el);
   const first = el.querySelector('input, select, textarea');
   if (first) first.focus();
@@ -117,9 +117,9 @@ function vServing() {
   else if (S.srvTab === 'config') body = configTab(V);
   else if (S.srvTab === 'test') body = testTab();
   else body = drivesTab(V);
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+  return `<div class="col-fill">
     <div class="tbar">${tabs.map(([k, l]) => `<button class="pill ${S.srvTab === k ? 'on' : ''}" data-act="srvTab" data-arg="${k}">${l}</button>`).join('')}
-      <div style="flex:1"></div><span class="small dim">live config ${esc(sv.sha || '—')} · ${esc(sv.reason || '')} · ${esc(fmt.ago(sv.ts))}</span></div>
+      <div class="fill"></div><span class="small dim">live config ${esc(sv.sha || '—')} · ${esc(sv.reason || '')} · ${esc(fmt.ago(sv.ts))}</span></div>
     <div class="ctab" data-scroll="srv-${S.srvTab}">${body}</div></div>`;
 }
 function drivesTab(V) {
@@ -132,7 +132,7 @@ function drivesTab(V) {
       hcell(`<button class="pill" data-act="driveEdit" data-arg="${m.id}">Edit</button> <button class="pill danger" data-act="driveDelete" data-arg="${m.id}">Remove</button>`)],
   }));
   return `<div class="tbar"><span class="small dim">A drive is a folder (local disk, NAS share…) or a proxied service that Caddy serves on some hostnames. Files drives get precompression, link modifiers and appear in Files / Analyze.</span>
-      <div style="flex:1"></div><button class="pill on" data-act="driveEdit" data-arg="">Add drive</button></div>` +
+      <div class="fill"></div><button class="pill on" data-act="driveEdit" data-arg="">Add drive</button></div>` +
     table('srv-drives', [{ t: 'Name', w: 150 }, { t: 'Type', w: 60 }, { t: 'Folder / upstream', w: 240 }, { t: 'URL prefix', w: 80 }, { t: 'Hostnames', w: 220 },
       { t: 'Cache-Control', w: 200 }, { t: 'Features', w: 140 }, { t: 'Disk', w: 100, a: 'r' }, { t: 'Indexed', w: 120, a: 'r' }, { t: 'On', w: 40 }, { t: '', w: 150 }], rows);
 }
@@ -144,8 +144,8 @@ function gateCell(g) {
     g.users.map((u) => u.user + (u.totp ? ' (2FA)' : '')).concat((g.public || []).map((p) => 'public: ' + p)).join('\n'));
 }
 function gateUserRow(u) {
-  return `<div class="g_row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center"><input class="input g_user" placeholder="user" value="${esc(u.user || '')}" style="flex:1" maxlength="40" autocomplete="off">
-    <input class="input g_pass" type="password" placeholder="${u.user ? '(unchanged)' : 'password, 12+ characters'}" autocomplete="new-password" style="flex:1.3">
+  return `<div class="g_row hrow mb-6 items-center"><input class="input g_user fill" placeholder="user" value="${esc(u.user || '')}" maxlength="40" autocomplete="off">
+    <input class="input g_pass flex-13" type="password" placeholder="${u.user ? '(unchanged)' : 'password, 12+ characters'}" autocomplete="new-password">
     <label class="dlg-check" title="Ask for a code from an authenticator app (TOTP)"><input type="checkbox" class="g_totp" ${u.totp ? 'checked' : ''}> 2FA</label>
     <button class="link" data-act="gDelUser" title="Remove">✕</button></div>`;
 }
@@ -164,22 +164,22 @@ function rulesTab(V) {
     };
   });
   return `<div class="tbar"><span class="small dim">Rules apply top to bottom after the blacklist. Patterns are URL paths: <code>/folder/*</code>, <code>*.psd</code>, <code>/exact/file.png</code>, or <code>re:</code> + regex. Allow rules carve exceptions out of the others. “Hits” counts requests the rule refused.</span>
-      <div style="flex:1"></div><button class="pill on" data-act="ruleEdit" data-arg="">Add rule</button><button class="pill" data-act="rulePreset" data-arg="only">Only serve selected folders…</button></div>` +
+      <div class="fill"></div><button class="pill on" data-act="ruleEdit" data-arg="">Add rule</button><button class="pill" data-act="rulePreset" data-arg="only">Only serve selected folders…</button></div>` +
     table('srv-rules', [{ t: '', w: 50 }, { t: 'Name', w: 200 }, { t: 'Scope', w: 110 }, { t: 'Patterns', w: 230 }, { t: 'Action', w: 80 }, { t: 'Details', w: 200 },
       { t: 'Hits', w: 60, a: 'r' }, { t: 'Last', w: 80 }, { t: 'Expires', w: 120 }, { t: '', w: 50 }, { t: '', w: 140 }], rows, { empty: 'No rules yet.' });
 }
 function siteTab(V) {
   const s = V.site;
-  return `<div class="settings" style="grid-template-columns:1fr 1fr"><section class="panel">
+  return `<div class="settings cols-2"><section class="panel">
     <div class="ph"><h5>Error pages</h5></div>
     <div class="set-row"><div><div class="h800">Drive</div><div class="small dim">Where your error pages are stored.</div></div>
       <div class="set-ctl"><select id="s_emount" class="input">${mountOpts(s.error_mount)}</select></div></div>
     ${[['s_epage', '404 Not found', 'Missing and hidden files.', s.error_page, '404'], ['s_epage403', '403 Forbidden', 'Blocked requests and files in the trash.', s.error_page_403, '403']].map(([id, label, sub, val, code]) => `
     <div class="set-row"><div><div class="h800">${label}</div><div class="small dim">${sub}</div></div>
-      <div class="set-ctl" style="display:flex;gap:6px"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button></div></div>`).join('')}
+      <div class="set-ctl hrow"><input id="${id}" class="input w-180" value="${esc(val || '')}" placeholder="/errors/${code}.html"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button></div></div>`).join('')}
     <div class="ph"><h5>Other hosts</h5></div>
     <div class="set-row"><div><div class="h800">Unknown hostname</div><div class="small dim">Text answered for hosts no drive serves.</div></div>
-      <div class="set-ctl"><input id="s_unknown" class="input" value="${esc(s.unknown_host)}" style="width:240px"></div></div>
+      <div class="set-ctl"><input id="s_unknown" class="input w-240" value="${esc(s.unknown_host)}"></div></div>
     <div class="ph"><h5>Responses</h5></div>
     <div class="set-row"><div><div class="h800">Response compression</div><div class="small dim">On-the-fly encodings (Brotli comes from the precompressed store).</div></div>
       <div class="set-ctl"><label class="dlg-check"><input type="checkbox" id="s_gzip" ${s.encode.includes('gzip') ? 'checked' : ''}> gzip</label><label class="dlg-check"><input type="checkbox" id="s_zstd" ${s.encode.includes('zstd') ? 'checked' : ''}> zstd</label></div></div>
@@ -189,32 +189,32 @@ function siteTab(V) {
   </section><section class="panel">
     <div class="ph"><h5>Not logged</h5><span class="small dim">polling endpoints that would drown the statistics</span></div>
     ${(s.quiet || []).map((q) => `<div class="logline"><span>${esc(q.host)}</span><span>${esc(q.paths.join(' '))}</span></div>`).join('')}
-    <div class="ph" style="margin-top:14px"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
-    <div class="ph" style="margin-top:14px"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
+    <div class="ph mt-14"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
+    <div class="ph mt-14"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
   </section></div>`;
 }
 function configTab(V) {
   const shown = D.histView ? D.histView.content : V.generated;
   const rows = V.history.map((h) => ({ cells: [cell('#' + h.id, 'dim'), cell(fmt.dt(h.ts), 'dim'), cell(h.user, 'dim'), cell(h.reason), cell(h.sha, 'dim'), cell(h.ok ? 'applied' : 'refused', h.ok ? '' : 'hot', h.error),
     hcell(`<button class="pill" data-act="histView" data-arg="${h.id}">View</button> ${h.ok ? `<button class="pill" data-act="histRestore" data-arg="${h.id}">Restore</button>` : ''}`)] }));
-  return `<div class="grid2" style="grid-template-columns:1.2fr 1fr;flex:1;min-height:0">
-    <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span style="display:flex;gap:6px">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
+  return `<div class="grid2 cols-12 fill min-h0">
+    <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span class="hrow">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
       <pre class="code" data-scroll="caddytext">${esc(shown)}</pre></section>
     <section class="panel"><div class="ph"><h5>History</h5><span class="small dim">every applied (and refused) change</span></div>
       ${table('srv-hist', [{ t: '#', w: 50 }, { t: 'When', w: 110 }, { t: 'By', w: 80 }, { t: 'Change', w: 220 }, { t: 'SHA', w: 130 }, { t: 'Result', w: 70 }, { t: '', w: 140 }], rows)}</section></div>`;
 }
 function testTab() {
   const R = D.testRes;
-  return `<div class="settings" style="grid-template-columns:1fr 1fr"><section class="panel">
+  return `<div class="settings cols-2"><section class="panel">
     <div class="ph"><h5>What would happen?</h5><span class="small dim">evaluated against the current rules</span></div>
-    <div class="set-row"><div class="h800">URL</div><div class="set-ctl"><input id="t_url" class="input" value="${esc((R && R.url) || 'https://' + cdnHost() + '/')}" style="width:360px"></div></div>
-    <div class="set-row"><div class="h800">Client IP</div><div class="set-ctl"><input id="t_ip" class="input" value="${esc((R && R.ip) || '')}" placeholder="e.g. 203.0.113.7" style="width:200px"></div></div>
-    <div class="set-row"><div class="h800">Country</div><div class="set-ctl"><input id="t_cc" class="input" value="${esc((R && R.cc) || '')}" placeholder="DE" style="width:80px"></div></div>
-    <div class="set-row"><div class="h800">User agent</div><div class="set-ctl"><input id="t_ua" class="input" value="${esc((R && R.ua) || 'Mozilla/5.0 Chrome/140')}" style="width:300px"></div></div>
-    <div class="set-row"><div class="h800">Referer</div><div class="set-ctl"><input id="t_ref" class="input" value="${esc((R && R.ref) || '')}" placeholder="https://other.site/page" style="width:300px"></div></div>
+    <div class="set-row"><div class="h800">URL</div><div class="set-ctl"><input id="t_url" class="input w-360" value="${esc((R && R.url) || 'https://' + cdnHost() + '/')}"></div></div>
+    <div class="set-row"><div class="h800">Client IP</div><div class="set-ctl"><input id="t_ip" class="input w-200" value="${esc((R && R.ip) || '')}" placeholder="e.g. 203.0.113.7"></div></div>
+    <div class="set-row"><div class="h800">Country</div><div class="set-ctl"><input id="t_cc" class="input w-80" value="${esc((R && R.cc) || '')}" placeholder="DE"></div></div>
+    <div class="set-row"><div class="h800">User agent</div><div class="set-ctl"><input id="t_ua" class="input w-300" value="${esc((R && R.ua) || 'Mozilla/5.0 Chrome/140')}"></div></div>
+    <div class="set-row"><div class="h800">Referer</div><div class="set-ctl"><input id="t_ref" class="input w-300" value="${esc((R && R.ref) || '')}" placeholder="https://other.site/page"></div></div>
     <div class="act-row"><button class="btn btn-primary" data-act="srvTest">Test</button></div>
   </section><section class="panel"><div class="ph"><h5>Result</h5></div>
-    ${R ? `<div class="big-num" style="font-size:24px">${esc(R.result)}</div>${(R.steps || []).map((s) => `<div class="logline"><span>${esc(s)}</span><span></span></div>`).join('')}` : '<div class="empty">Enter a URL and press Test.</div>'}
+    ${R ? `<div class="big-num fs-24">${esc(R.result)}</div>${(R.steps || []).map((s) => `<div class="logline"><span>${esc(s)}</span><span></span></div>`).join('')}` : '<div class="empty">Enter a URL and press Test.</div>'}
   </section></div>`;
 }
 
@@ -228,7 +228,7 @@ function driveEditor(m) {
     <div class="form">
       <label>Type<select id="d_kind" class="input"><option value="files" ${m.kind === 'files' ? 'selected' : ''}>Folder — serve files</option><option value="page" ${m.kind === 'page' ? 'selected' : ''}>Page — only the bare / of the hosts</option><option value="proxy" ${m.kind === 'proxy' ? 'selected' : ''}>Proxy — forward to a local service</option></select></label>
       <label>Name<input id="d_name" class="input" value="${esc(m.name)}" placeholder="e.g. Archive disk"></label>
-      <label class="wide">Folder — or for a service: its LAN address (IP:port)<span style="display:flex;gap:6px"><input id="d_path" class="input" value="${esc(m.path)}" placeholder="D:/media or //nas/share — or 192.168.1.35:8080" style="flex:1"><button class="pill d-local" data-act="fsBrowse" data-arg="${esc(m.path || '')}">Browse…</button></span></label>
+      <label class="wide">Folder — or for a service: its LAN address (IP:port)<span class="hrow"><input id="d_path" class="input fill" value="${esc(m.path)}" placeholder="D:/media or //nas/share — or 192.168.1.35:8080"><button class="pill d-local" data-act="fsBrowse" data-arg="${esc(m.path || '')}">Browse…</button></span></label>
       <div id="d_browse" class="wide"></div>
       <label class="d-prefix" style="${m.kind === 'page' ? 'display:none' : ''}">URL prefix<input id="d_prefix" class="input" value="${esc(m.prefix || '/')}" placeholder="/ (whole hostname) or /azura"></label>
       <label class="wide">Hostnames (space or comma separated)<input id="d_hosts" class="input" value="${esc(m.hosts.join(', '))}"></label>
@@ -237,15 +237,15 @@ function driveEditor(m) {
         <label>Access<select id="g_mode" class="input"><option value="login" ${g.mode !== 'public' ? 'selected' : ''}>Login required (Strata gate)</option><option value="public" ${g.mode === 'public' ? 'selected' : ''}>Public — anyone on the internet</option></select></label>
         <label>Session length (hours)<input id="g_hours" class="input" type="number" min="1" max="168" value="${esc(g.hours || 12)}"></label>
         <div id="g_login" class="wide" style="${g.mode === 'public' ? 'display:none' : ''}">
-          <div class="small dim" style="margin-bottom:6px">Users who may sign in. Passwords are stored as PBKDF2 hashes; 2FA shows a QR code once after saving. Removing a user or changing a password signs them out everywhere.</div>
+          <div class="small dim mb-6">Users who may sign in. Passwords are stored as PBKDF2 hashes; 2FA shows a QR code once after saving. Removing a user or changing a password signs them out everywhere.</div>
           <div id="g_users">${(g.users.length ? g.users : [{}]).map(gateUserRow).join('')}</div>
           <button class="pill" data-act="gAddUser">+ user</button>
-          <label class="wide" style="margin-top:10px">Public paths — no login (one per line, full URL paths, * = wildcard; e.g. a radio's /listen/*)
+          <label class="wide mt-10">Public paths — no login (one per line, full URL paths, * = wildcard; e.g. a radio's /listen/*)
             <textarea id="g_public" class="input" rows="3" placeholder="/listen/*&#10;/public/*">${esc((g.public || []).join('\n'))}</textarea></label></div>
       </div>
-      <label class="wide d-local">Cache-Control (browsers)<span style="display:flex;gap:6px"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input" value="${esc(m.cache || '')}" style="flex:1"></span></label>
-      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span style="display:flex;gap:6px"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control" style="flex:1"></span></label>
-      <div class="wide d-local" style="display:flex;gap:16px;flex-wrap:wrap">
+      <label class="wide d-local">Cache-Control (browsers)<span class="hrow"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input fill" value="${esc(m.cache || '')}"></span></label>
+      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span class="hrow"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input fill" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control"></span></label>
+      <div class="wide d-local d-flex gap-16 f-wrap">
         <label class="dlg-check"><input type="checkbox" id="d_pre" ${m.precompress ? 'checked' : ''}> Brotli precompression</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_tf" ${m.transforms ? 'checked' : ''}> Link modifiers (?w ?fm ?ver)</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_browse_on" ${m.browse ? 'checked' : ''}> Directory listing</label>
@@ -258,10 +258,10 @@ async function fsBrowse(path) {
   const box = $('#d_browse'); if (!box) return;
   try {
     const [dr, ls] = await Promise.all([get('/api/drives'), path ? get('/api/fs?path=' + enc(path)) : Promise.resolve(null)]);
-    box.innerHTML = `<div class="fsb"><div class="tbar" style="padding:6px 0;border:0">${dr.drives.map((d) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(d.path)}" title="${esc(d.kind)} ${d.total ? fmt.bytes(d.free) + ' free' : ''}">${esc(d.path)} ${esc(d.label || '')}</button>`).join('')}
+    box.innerHTML = `<div class="fsb"><div class="tbar px-0 py-6 border-0">${dr.drives.map((d) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(d.path)}" title="${esc(d.kind)} ${d.total ? fmt.bytes(d.free) + ' free' : ''}">${esc(d.path)} ${esc(d.label || '')}</button>`).join('')}
       ${dr.served.map((s) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(s.path)}">${esc(s.name)}</button>`).join('')}</div>
-      ${ls ? `<div class="small h800" style="margin:4px 0">${esc(ls.path)} <button class="link" data-act="fsPick" data-arg="${esc(ls.path)}">use this folder</button>${ls.parent ? ` · <button class="link" data-act="fsBrowse" data-arg="${esc(ls.parent)}">up</button>` : ''}</div>
-        <div class="plist" style="max-height:26vh">${ls.dirs.map((d) => `<button data-act="fsBrowse" data-arg="${esc(ls.path.replace(/[\\/]$/, '') + '\\' + d)}"><span class="fico dir"></span>${esc(d)}</button>`).join('') || '<div class="empty">No sub-folders.</div>'}</div>` : ''}</div>`;
+      ${ls ? `<div class="small h800 mx-0 my-4">${esc(ls.path)} <button class="link" data-act="fsPick" data-arg="${esc(ls.path)}">use this folder</button>${ls.parent ? ` · <button class="link" data-act="fsBrowse" data-arg="${esc(ls.parent)}">up</button>` : ''}</div>
+        <div class="plist max-h-26vh">${ls.dirs.map((d) => `<button data-act="fsBrowse" data-arg="${esc(ls.path.replace(/[\\/]$/, '') + '\\' + d)}"><span class="fico dir"></span>${esc(d)}</button>`).join('') || '<div class="empty">No sub-folders.</div>'}</div>` : ''}</div>`;
   } catch (e) { box.innerHTML = `<div class="small hot">${esc(e.message)}</div>`; }
 }
 
@@ -271,13 +271,13 @@ function ruleParams(action, p) {
   if (action === 'password') {
     const users = (p.users && p.users.length ? p.users : [{ user: '' }]);
     return `<label class="wide">Realm (shown in the login prompt)<input id="p_realm" class="input" value="${esc(p.realm || 'Protected')}"></label>
-      <div class="wide" id="p_users">${users.map((u, i) => `<div style="display:flex;gap:6px;margin-bottom:6px"><input class="input p_user" placeholder="user" value="${esc(u.user || '')}" style="flex:1"><input class="input p_pass" type="password" placeholder="${u.user ? '(unchanged)' : 'password'}" autocomplete="new-password" style="flex:1"></div>`).join('')}</div>
+      <div class="wide" id="p_users">${users.map((u, i) => `<div class="hrow mb-6"><input class="input p_user fill" placeholder="user" value="${esc(u.user || '')}"><input class="input p_pass fill" type="password" placeholder="${u.user ? '(unchanged)' : 'password'}" autocomplete="new-password"></div>`).join('')}</div>
       <div class="wide"><button class="pill" data-act="pAddUser">+ user</button></div>`;
   }
   if (action === 'ip_allow') return `<label class="wide">Allowed IPs / CIDR ranges (one per line)<textarea id="p_ips" class="input" rows="4">${esc((p.ips || []).join('\n'))}</textarea></label>`;
   if (action === 'geo_allow' || action === 'geo_deny') return `<label class="wide">Country codes (DE, AT, US… T1 = Tor, XX = unknown)<input id="p_cc" class="input" value="${esc((p.countries || []).join(', '))}"></label>`;
   if (action === 'hotlink') return `<label class="wide">Sites allowed to embed (one per line; your own hosts are always allowed)<textarea id="p_domains" class="input" rows="3">${esc((p.domains || []).join('\n'))}</textarea></label>`;
-  if (action === 'cache') return `<label class="wide">Cache-Control<span style="display:flex;gap:6px"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input" value="${esc(p.value || '')}" style="flex:1"></span></label>`;
+  if (action === 'cache') return `<label class="wide">Cache-Control<span class="hrow"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input fill" value="${esc(p.value || '')}"></span></label>`;
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
   if (action === 'player') return `<label class="wide">Background folder for files without cover art (URL path on the same drive; a random image is picked per visit)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
@@ -294,9 +294,9 @@ function openRuleEditor(r) {
       <label>Action<select id="r_action" class="input">${Object.entries(D.serv.actions).map(([k, l]) => `<option value="${k}" ${r.action === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
       <div class="wide small dim" id="r_help">${esc(ACTION_HELP[r.action] || '')}</div>
       <label class="wide">Path patterns (one per line)<textarea id="r_pats" class="input" rows="3" placeholder="/clients/*&#10;*.psd">${esc(r.patterns.join('\n'))}</textarea></label>
-      <div id="r_params" class="form wide" style="padding:0">${ruleParams(r.action, r.params)}</div>
-      <label>Expires<span style="display:flex;gap:6px">${expiryFields('r', r.expires)}</span></label>
-      <label class="dlg-check" style="align-self:end"><input type="checkbox" id="r_en" ${r.enabled ? 'checked' : ''}> Enabled</label>
+      <div id="r_params" class="form wide p-0">${ruleParams(r.action, r.params)}</div>
+      <label>Expires<span class="hrow">${expiryFields('r', r.expires)}</span></label>
+      <label class="dlg-check self-end"><input type="checkbox" id="r_en" ${r.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Note<input id="r_note" class="input" value="${esc(r.note || '')}"></label>
       <label class="dlg-check wide"><input type="checkbox" id="r_purge" ${r.purge || (!r.id && protective.includes(r.action)) ? 'checked' : ''}> Purge matching files from Cloudflare’s cache (so cached public copies stop being served)</label>
     </div>`, `<button class="btn btn-primary" data-act="ruleSave" data-arg="${r.id || ''}">Save & apply</button>`, true);
@@ -341,9 +341,9 @@ Object.assign(ACT, {
       const r = await mutate('/api/serving/mount', body, 'Drive saved');
       closeSheet(); loadDrives();
       if (r && r.enrol && r.enrol.length) {
-        openSheet('Two-factor setup', 'Scan these now — they are shown only once', r.enrol.map((x) => `<div style="margin:10px 0"><div class="h800">${esc(x.user)}</div>
-          <div style="background:#fff;display:inline-block;padding:6px;border-radius:8px;width:190px">${x.qr}</div>
-          <div class="small dim" style="word-break:break-all">${esc(x.secret)} · <button class="link" data-act="gCopy" data-arg="${esc(x.uri)}">copy otpauth link</button></div></div>`).join(''),
+        openSheet('Two-factor setup', 'Scan these now — they are shown only once', r.enrol.map((x) => `<div class="mx-0 my-10"><div class="h800">${esc(x.user)}</div>
+          <div class="bg-white d-iblock p-6 r-8 w-190">${x.qr}</div>
+          <div class="small dim break-all">${esc(x.secret)} · <button class="link" data-act="gCopy" data-arg="${esc(x.uri)}">copy otpauth link</button></div></div>`).join(''),
         '', true);
       }
     } catch { /* note shown */ }
@@ -370,7 +370,7 @@ Object.assign(ACT, {
     try { await mutate('/api/serving/rule', r, r.enabled ? 'Rule enabled' : 'Rule disabled'); } catch { /* shown */ }
   },
   async ruleMove(arg) { const [id, d] = arg.split('|'); try { await mutate('/api/serving/rule/move', { id: +id, delta: +d }, 'Order changed'); } catch { /* shown */ } },
-  pAddUser() { $('#p_users').insertAdjacentHTML('beforeend', '<div style="display:flex;gap:6px;margin-bottom:6px"><input class="input p_user" placeholder="user" style="flex:1"><input class="input p_pass" type="password" placeholder="password" autocomplete="new-password" style="flex:1"></div>'); },
+  pAddUser() { $('#p_users').insertAdjacentHTML('beforeend', '<div class="hrow mb-6"><input class="input p_user fill" placeholder="user"><input class="input p_pass fill" type="password" placeholder="password" autocomplete="new-password"></div>'); },
   async rulePreset() {
     const m = await pickFolder({ title: 'Only serve this folder (everything else on the drive answers 404)', mount: (D.serv.mounts.find((x) => x.kind === 'files') || {}).id, path: '/' });
     if (!m) return;
@@ -463,23 +463,23 @@ function vBlacklist() {
   const ab = D.me?.autoban || {};
   return `<div class="split" style="grid-template-columns:1fr 330px"><section class="aside">
     <div class="tbar">
-      <select id="bl_kind" class="input" style="font-size:12px;padding:4px">${kinds.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
-      <input id="bl_value" class="input" list="bl_list" placeholder="203.0.113.7" style="width:190px;font-size:12.5px;padding:5px 8px"><datalist id="bl_list"></datalist>
-      <select id="bl_action" class="input" style="font-size:12px;padding:4px"><option value="block">block</option><option value="challenge">challenge (edge)</option></select>
-      <select id="bl_scope" class="input" style="font-size:12px;padding:4px"><option value="both">origin + edge</option><option value="origin">origin only</option><option value="edge">edge only</option></select>
-      <span style="display:flex;gap:4px">${expiryFields('bl', null)}</span>
-      <input id="bl_note" class="input" placeholder="note" style="width:130px;font-size:12.5px;padding:5px 8px">
+      <select id="bl_kind" class="input fs-12 p-4">${kinds.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
+      <input id="bl_value" class="input w-190 fs-125 px-8 py-5" list="bl_list" placeholder="203.0.113.7"><datalist id="bl_list"></datalist>
+      <select id="bl_action" class="input fs-12 p-4"><option value="block">block</option><option value="challenge">challenge (edge)</option></select>
+      <select id="bl_scope" class="input fs-12 p-4"><option value="both">origin + edge</option><option value="origin">origin only</option><option value="edge">edge only</option></select>
+      <span class="d-flex gap-4">${expiryFields('bl', null)}</span>
+      <input id="bl_note" class="input w-130 fs-125 px-8 py-5" placeholder="note">
       <button class="pill on" data-act="blAdd">Add</button><button class="pill" data-act="blImport">Import list…</button>
     </div>
-    <div class="tbar" style="padding:6px 18px">${[['active', 'Active'], ['auto', 'Auto-bans'], ['expired', 'Expired'], ['off', 'Disabled'], ['all', 'All']].map(([k, l]) => `<button class="pill ${f === k ? 'on' : ''}" data-act="blFilter" data-arg="${k}">${l}</button>`).join('')}
-      <input id="blq" class="input" placeholder="filter…" value="${esc(S.blQ)}" style="width:160px;font-size:12px;padding:4px 7px"><div style="flex:1"></div>
+    <div class="tbar px-18 py-6">${[['active', 'Active'], ['auto', 'Auto-bans'], ['expired', 'Expired'], ['off', 'Disabled'], ['all', 'All']].map(([k, l]) => `<button class="pill ${f === k ? 'on' : ''}" data-act="blFilter" data-arg="${k}">${l}</button>`).join('')}
+      <input id="blq" class="input w-160 fs-12 px-7 py-4" placeholder="filter…" value="${esc(S.blQ)}"><div class="fill"></div>
       <span class="small dim">${fmt.n(V.blacklist.filter(act).length)} active · LAN / private addresses are never blocked · hits = blocked requests seen at the origin</span></div>
     ${table('bl', [{ t: 'Type', w: 140 }, { t: 'Value', w: 220 }, { t: 'Action', w: 70 }, { t: 'Where', w: 70 }, { t: 'Hits', w: 60, a: 'r' }, { t: 'Last hit', w: 80 }, { t: 'Source', w: 70 },
       { t: 'Added', w: 110 }, { t: 'Expires', w: 90 }, { t: 'Note', w: 200 }, { t: '', w: 90 }], rows, { empty: 'Nothing here. Add an entry above, or right-click a client in Requests / Security.' })}
   </section>
   <aside class="aside">
     <div class="pad"><div class="cap red">Cloudflare edge</div><h5>${edge.ok ? 'Synced ' + esc(fmt.ago(edge.ts)) : caps.lists && caps.lists.ok === false ? 'Needs token permissions' : edge.error ? 'Not synced' : 'Checking…'}</h5></div>
-    <div style="padding:0 16px 10px" class="small">
+    <div class="small px-16 pt-0 pb-10">
       ${edge.ok ? `${fmt.n(edge.ips)} IPs in list <code>strata_blacklist</code> · ${fmt.n(edge.rules)} WAF rule(s)${edge.overflow ? ' · <span class="hot">expression too long, some entries origin-only</span>' : ''}` : `<span class="dim">${esc(edge.error || '')}</span>`}
       <p class="dim">The origin blacklist stops requests that reach Caddy. Cloudflare can still answer a banned visitor from its cache — pushing the list to the edge closes that gap.</p>
       ${['lists', 'waf', 'purge'].map((k) => caps[k] ? `<div class="logline"><span>${esc({ lists: 'IP list', waf: 'WAF custom rules', purge: 'Cache purge' }[k])}</span><span class="${caps[k].ok ? '' : 'hot'}">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : 'untested'}</span></div>` : '').join('')}
@@ -487,7 +487,7 @@ function vBlacklist() {
       <div class="act-row"><button class="btn btn-secondary" data-act="cfSync">Sync now</button><button class="btn btn-secondary" data-act="cfRecheck">Re-check</button></div>
     </div>
     <div class="sect"><span class="cap">Auto-ban</span><span class="small ${ab.enabled ? '' : 'hot'}">${ab.enabled ? 'on' : 'off'}</span></div>
-    <div style="padding:0 16px 8px" class="small dim">${ab.enabled ? `IPs sending ${ab.probes} probe requests (.env, wp-login…) within ${ab.window_minutes} min are banned for ${ab.ban_hours} h.` : 'Scanners are not banned automatically.'} <button class="link" data-act="go" data-arg="settings">change</button></div>
+    <div class="small dim px-16 pt-0 pb-8">${ab.enabled ? `IPs sending ${ab.probes} probe requests (.env, wp-login…) within ${ab.window_minutes} min are banned for ${ab.ban_hours} h.` : 'Scanners are not banned automatically.'} <button class="link" data-act="go" data-arg="settings">change</button></div>
     <div class="sect"><span class="cap">Top scanners (${esc(rangeLabel())})</span></div>
     <div class="loglines">${scanners.map((s) => `<div class="logline"><span title="${esc(s.agent || '')}">${esc(s.k)} ${esc(s.country || '')} · ${fmt.n(s.scan)} probes</span><span><button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|86400')}">ban 24 h</button> · <button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|')}">ban</button></span></div>`).join('') || '<div class="logline"><span class="dim">no unbanned scanners</span><span></span></div>'}</div>
   </aside></div>`;
@@ -508,7 +508,7 @@ Object.assign(ACT, {
   blImport() {
     openSheet('Import blacklist', 'Paste a list', `<div class="form">
       <label>Type<select id="bi_kind" class="input">${Object.entries(D.serv.bl_kinds).map(([k, l]) => `<option value="${k}" ${k === 'ip' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
-      <label>Expires<span style="display:flex;gap:6px">${expiryFields('bi', null)}</span></label>
+      <label>Expires<span class="hrow">${expiryFields('bi', null)}</span></label>
       <label class="wide">One entry per line (# starts a comment)<textarea id="bi_text" class="input" rows="10" placeholder="203.0.113.7&#10;198.51.100.0/24  # scanner range"></textarea></label>
       <label class="wide">Note<input id="bi_note" class="input" value="import ${new Date().toISOString().slice(0, 10)}"></label></div>`,
     '<button class="btn btn-primary" data-act="blImportGo">Import</button>');
@@ -561,9 +561,9 @@ function vLinks() {
     cell(fmt.n(l.clicks) + (l.max_clicks ? ' / ' + fmt.n(l.max_clicks) : ''), 'r h800'), cell(l.last_click ? fmt.ago(l.last_click) : '—', 'dim'),
     cell(l.status, l.status === 'active' ? '' : 'hot'), cell(l.expires ? fmt.dt(l.expires) : 'never', 'dim'), cell(l.note || '', 'dim'),
     hcell(`<button class="pill" data-act="fcopy" data-arg="${esc(l.short)}">Copy</button> <button class="pill" data-act="linkAlias" data-arg="${esc(l.code)}" title="Another random short code for the same target">Alias</button> <button class="pill" data-act="linkEdit" data-arg="${esc(l.code)}">Edit</button> <button class="pill" data-act="linkStats" data-arg="${esc(l.code)}">Clicks</button> <button class="pill danger" data-act="linkDelete" data-arg="${esc(l.code)}">✕</button>`)] }));
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+  return `<div class="col-fill">
     <div class="tbar"><span class="small dim">Short links are logged 302 redirects Cloudflare does not cache, so every click is counted. They can carry modifiers (<code>?w= ?h= ?fit= ?fm= ?q=</code> resize/convert images, <code>?dl=1</code> download, <code>?ver=N</code> old version, <code>?v=</code> cache-bust, <code>?t=</code> tracking tag), expire, or stop after N clicks.</span>
-      <div style="flex:1"></div><button class="pill on" data-act="linkEdit" data-arg="">New link</button></div>
+      <div class="fill"></div><button class="pill on" data-act="linkEdit" data-arg="">New link</button></div>
     ${table('links', [{ t: 'Code', w: 90 }, { t: 'Short URL', w: 250 }, { t: 'Target', w: 300 }, { t: 'Modifiers', w: 150 }, { t: 'Clicks', w: 80, a: 'r' }, { t: 'Last', w: 80 },
       { t: 'Status', w: 80 }, { t: 'Expires', w: 110 }, { t: 'Note', w: 160 }, { t: '', w: 290 }], rows, { empty: 'No links yet. In Files, select a file and use Share…' })}</div>`;
 }
@@ -607,16 +607,16 @@ function openLinkEditor(o, retried) {
       <div class="share-card share-target-card">
         <div class="share-card-head">
           <div class="cap">Share target</div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <label style="flex:1;min-width:140px">Target type<select id="l_kind" class="input" style="margin-top:3px"><option value="file" ${l.url ? '' : 'selected'}>File / folder on drive</option>${!D.me || (D.me.capabilities || []).includes('serving.links') ? `<option value="url" ${l.url ? 'selected' : ''}>External URL</option>` : ''}</select></label>
-            <label class="l-int" style="flex:1;min-width:140px">Drive<select id="l_mount" class="input" style="margin-top:3px">${mountOpts(l.mount)}</select></label>
+          <div class="d-flex gap-10 items-center f-wrap">
+            <label class="fill min-w-140">Target type<select id="l_kind" class="input mt-3"><option value="file" ${l.url ? '' : 'selected'}>File / folder on drive</option>${!D.me || (D.me.capabilities || []).includes('serving.links') ? `<option value="url" ${l.url ? 'selected' : ''}>External URL</option>` : ''}</select></label>
+            <label class="l-int fill min-w-140">Drive<select id="l_mount" class="input mt-3">${mountOpts(l.mount)}</select></label>
           </div>
-          <label class="wide l-int" style="margin-top:6px">Path<input id="l_path" class="input" value="${esc(l.path || '')}" style="margin-top:3px"></label>
-          <label class="wide l-ext" style="display:none;margin-top:6px">URL<input id="l_url" class="input" value="${esc(l.url || '')}" placeholder="https://…" style="margin-top:3px"></label>
+          <label class="wide l-int mt-6">Path<input id="l_path" class="input mt-3" value="${esc(l.path || '')}"></label>
+          <label class="wide l-ext" style="display:none;margin-top:6px">URL<input id="l_url" class="input mt-3" value="${esc(l.url || '')}" placeholder="https://…"></label>
         </div>
-        <div class="share-url-box" style="margin-top:6px">
-          <div class="code small ell" id="l_preview" style="flex:1;padding:8px 10px"></div>
-          <button class="btn btn-secondary" data-act="linkCopyDirect" style="flex:none">Copy direct link</button>
+        <div class="share-url-box mt-6">
+          <div class="code small ell fill px-10 py-8" id="l_preview"></div>
+          <button class="btn btn-secondary flex-none" data-act="linkCopyDirect">Copy direct link</button>
         </div>
       </div>
 
@@ -626,12 +626,12 @@ function openLinkEditor(o, retried) {
           <div class="cap">Branded short link</div>
           <div class="small dim">Custom link with visitor counter, optional expiry, and access limits.</div>
         </div>
-        <div class="share-grid" style="margin-top:8px">
+        <div class="share-grid mt-8">
           <label>Short code
-            <span style="display:flex;gap:6px"><input id="l_code" class="input" value="${esc(l.code || '')}" placeholder="Auto-generated" style="flex:1"><button class="pill" data-act="linkRandom" title="Random code">🎲 Random</button></span>
+            <span class="hrow"><input id="l_code" class="input fill" value="${esc(l.code || '')}" placeholder="Auto-generated"><button class="pill" data-act="linkRandom" title="Random code">🎲 Random</button></span>
           </label>
           <label>Expiration
-            <span style="display:flex;gap:6px">${expiryFields('l', l.expires, l.code ? null : shareSeconds())}</span>
+            <span class="hrow">${expiryFields('l', l.expires, l.code ? null : shareSeconds())}</span>
           </label>
           <label>Max clicks
             <input id="l_max" class="input" value="${esc(l.max_clicks || '')}" placeholder="Unlimited">
@@ -640,8 +640,8 @@ function openLinkEditor(o, retried) {
             <input id="l_note" class="input" value="${esc(l.note || '')}" placeholder="Optional reminder">
           </label>
         </div>
-        <div style="margin-top:6px">
-          <label class="dlg-check" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="m_dl" ${md.dl ? 'checked' : ''}> Force file download (instead of inline display)</label>
+        <div class="mt-6">
+          <label class="dlg-check pointer d-iflex gap-6 items-center fs-125"><input type="checkbox" id="m_dl" ${md.dl ? 'checked' : ''}> Force file download (instead of inline display)</label>
         </div>
       </div>
 
@@ -651,7 +651,7 @@ function openLinkEditor(o, retried) {
           <div class="cap">Cryptographically signed link</div>
           <div class="small dim">Works for protected paths or folders with "signed links only" rule.</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <div class="d-flex gap-8 items-center mt-8 f-wrap">
           ${sel('l_signdur', [['3600', '1 hour valid'], ['86400', '24 hours valid'], ['604800', '7 days valid'], ['2592000', '30 days valid']], ['3600', '86400', '604800', '2592000'].includes(String(shareSeconds())) ? String(shareSeconds()) : '604800')}
           <button class="btn btn-secondary" data-act="linkSign">Generate signed link</button>
         </div>
@@ -660,8 +660,8 @@ function openLinkEditor(o, retried) {
 
       <!-- Optional image & CDN transformations -->
       <details class="share-card share-modifiers-card">
-        <summary style="cursor:pointer;font-weight:700;font-size:12px;color:var(--color-text)">Image &amp; CDN modifiers <span class="small dim">(Resize, format conversion, cache-bust)</span></summary>
-        <div class="share-grid" style="margin-top:12px">
+        <summary class="pointer fw-700 fs-12 c-text">Image &amp; CDN modifiers <span class="small dim">(Resize, format conversion, cache-bust)</span></summary>
+        <div class="share-grid mt-12">
           <label>Width<input id="m_w" class="input" value="${esc(md.w || '')}" placeholder="px"></label>
           <label>Height<input id="m_h" class="input" value="${esc(md.h || '')}" placeholder="px"></label>
           <label>Fit${sel('m_fit', [['', 'inside (default)'], ['cover', 'cover (crop)'], ['contain', 'contain (pad)'], ['fill', 'fill (stretch)']], md.fit)}</label>
@@ -721,11 +721,11 @@ function vAlerts() {
   const c = A.config;
   return `<div class="split" style="grid-template-columns:1fr 320px"><section class="aside">
     <div class="tbar">${[['open', 'Open'], ['all', 'All']].map(([k, l]) => `<button class="pill ${S.alFilter === k ? 'on' : ''}" data-act="alFilter" data-arg="${k}">${l}</button>`).join('')}
-      <div style="flex:1"></div><button class="pill" data-act="alAckAll">Mark all done</button></div>
+      <div class="fill"></div><button class="pill" data-act="alAckAll">Mark all done</button></div>
     ${table('alerts', [{ t: 'When', w: 110 }, { t: 'Level', w: 80 }, { t: 'Kind', w: 80 }, { t: 'Alert', w: 320 }, { t: 'Detail', w: 360 }, { t: 'Delivery', w: 110 }, { t: '', w: 70 }], rows,
       { empty: 'No open alerts. Failed logins, auto-bans, outages, low disk space and error spikes show up here.' })}</section>
     <aside class="aside"><div class="pad"><div class="cap red">E-mail</div><h5>${c.configured ? 'Resend is configured' : 'Not configured'}</h5></div>
-      <div style="padding:0 16px" class="small">${c.configured ? `To ${esc(c.to.join(', '))} from ${esc(c.from)} · ${esc(c.min_severity)} and above · ${esc(c.digest)} report` : 'Alerts are kept here until you add a Resend API key in Settings › Notifications. Then warnings, critical events and a daily report are e-mailed.'}
+      <div class="small px-16 py-0">${c.configured ? `To ${esc(c.to.join(', '))} from ${esc(c.from)} · ${esc(c.min_severity)} and above · ${esc(c.digest)} report` : 'Alerts are kept here until you add a Resend API key in Settings › Notifications. Then warnings, critical events and a daily report are e-mailed.'}
       <div class="act-row"><button class="btn btn-secondary" data-act="go" data-arg="settings">Notification settings</button></div></div></aside></div>`;
 }
 Object.assign(ACT, {
@@ -763,26 +763,26 @@ SETTINGS_PANELS.push((row, toggle) => {
   </section>
   ${can('alerts.config') ? `<section class="panel">
     <div class="ph"><h5>Notifications</h5><span class="small dim">via Resend</span></div>
-    ${isRoot ? row('Resend API key', cfg.key_set ? 'set (hidden)' : 'not set — alerts stay in the Alerts view', `<input id="n_key" class="input" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off" style="width:170px">`) : ''}
-    ${isRoot ? row('From', 'A sender on a domain verified in Resend · it also delivers sign-in codes, so only root can change it', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:230px">`) : ''}
-    ${row('To', 'Comma separated', `<input id="n_to" class="input" value="${esc((cfg.to || []).join(', '))}" style="width:230px">`)}
+    ${isRoot ? row('Resend API key', cfg.key_set ? 'set (hidden)' : 'not set — alerts stay in the Alerts view', `<input id="n_key" class="input w-170" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off">`) : ''}
+    ${isRoot ? row('From', 'A sender on a domain verified in Resend · it also delivers sign-in codes, so only root can change it', `<input id="n_from" class="input w-230" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;">`) : ''}
+    ${row('To', 'Comma separated', `<input id="n_to" class="input w-230" value="${esc((cfg.to || []).join(', '))}">`)}
     ${row('Send', 'Minimum level that is e-mailed', `<select id="n_sev" class="input">${['info', 'warning', 'critical'].map((s) => `<option ${cfg.min_severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}
-    ${row('Report', 'Summary e-mail', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input" value="${esc(cfg.digest_hour ?? 8)}" style="width:44px">:00`)}
+    ${row('Report', 'Summary e-mail', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input w-44" value="${esc(cfg.digest_hour ?? 8)}">:00`)}
     <div class="act-row"><button class="btn btn-primary" data-act="nSave">Save</button><button class="btn btn-secondary" data-act="nTest" ${cfg.configured ? '' : 'disabled'}>Send test</button>${cfg.key_set && isRoot ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}</div>
   </section>` : ''}
   ${can('system.settings') ? `<section class="panel">
     <div class="ph"><h5>Uploads & versions</h5></div>
-    ${row('Chunk size', 'Per request; must stay below 100 MB for Cloudflare. Larger = fewer requests, smaller = finer resume.', `<input id="u_chunk" class="input" value="${me.upload.chunk_mb}" style="width:60px"> MiB`)}
-    ${row('Parallel requests', 'How many chunks upload at once', `<input id="u_par" class="input" value="${me.upload.parallel}" style="width:60px">`)}
-    ${row('Versions kept', 'Earlier versions per file (replace / edit / restore)', `<input id="u_keep" class="input" value="${me.versions_keep}" style="width:60px">`)}
+    ${row('Chunk size', 'Per request; must stay below 100 MB for Cloudflare. Larger = fewer requests, smaller = finer resume.', `<input id="u_chunk" class="input w-60" value="${me.upload.chunk_mb}"> MiB`)}
+    ${row('Parallel requests', 'How many chunks upload at once', `<input id="u_par" class="input w-60" value="${me.upload.parallel}">`)}
+    ${row('Versions kept', 'Earlier versions per file (replace / edit / restore)', `<input id="u_keep" class="input w-60" value="${me.versions_keep}">`)}
     <div class="act-row"><button class="btn btn-primary" data-act="uSave">Save</button></div>
   </section>` : ''}
   ${can('security.autoban') ? `<section class="panel">
     <div class="ph"><h5>Auto-ban</h5><span class="small dim">scanners probing for .env, wp-login.php, …</span></div>
     ${row('Enabled', 'Bans at the origin and, when permitted, at Cloudflare’s edge', toggle(ab.enabled, 'abToggle'))}
-    ${row('Threshold', 'Probe requests from one IP…', `<input id="ab_probes" class="input" value="${ab.probes}" style="width:60px">`)}
-    ${row('Window', '…within this many minutes', `<input id="ab_win" class="input" value="${ab.window_minutes}" style="width:60px"> min`)}
-    ${row('Ban length', 'Temporary; the entry expires on its own', `<input id="ab_hours" class="input" value="${ab.ban_hours}" style="width:60px"> h`)}
+    ${row('Threshold', 'Probe requests from one IP…', `<input id="ab_probes" class="input w-60" value="${ab.probes}">`)}
+    ${row('Window', '…within this many minutes', `<input id="ab_win" class="input w-60" value="${ab.window_minutes}"> min`)}
+    ${row('Ban length', 'Temporary; the entry expires on its own', `<input id="ab_hours" class="input w-60" value="${ab.ban_hours}"> h`)}
     <div class="act-row"><button class="btn btn-primary" data-act="abSave">Save</button></div>
   </section>` : ''}
   ${can('cdn.manage') ? `<section class="panel span2">
@@ -810,7 +810,7 @@ SETTINGS_PANELS.push((row, toggle) => {
     ${row('Home folder', 'Your uploads at a drive root go here, into type folders', `<select id="ss_mount" class="input">${drives.map((m) => `<option value="${m.mount}" ${ss.home && +ss.home.mount === m.mount ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select> ${num('ss_home', ss.home ? ss.home.path : '', 150)}`)}
     ${row('Drive root → home', 'Off: uploads at the root stay at the root', toggle(ss.root_to_home, 'ssRoot'))}
     ${row('Assets folder', 'Inside other folders, non-code files go to <folder>/this/<type>/ (css and js get their own folders, html stays)', num('ss_assets', ss.assets || 'assets', 120))}
-    <div class="form" style="grid-template-columns:repeat(3,1fr)">${Object.entries(ss.folders || {}).map(([c, f]) => `<label>${esc(c)}<input class="input ss_f" data-cat="${esc(c)}" value="${esc(f)}"></label>`).join('')}</div>
+    <div class="form cols-3f">${Object.entries(ss.folders || {}).map(([c, f]) => `<label>${esc(c)}<input class="input ss_f" data-cat="${esc(c)}" value="${esc(f)}"></label>`).join('')}</div>
     <div class="act-row"><button class="btn btn-primary" data-act="ssSave">Save</button></div>
   </section>
   <section class="panel">
@@ -851,7 +851,7 @@ Object.assign(ACT, {
       const r = await post('/api/2fa/begin', {});
       openSheet('Authenticator app', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
         <div><p class="small">Or enter this key in the app:</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
-        <label class="wide" style="display:grid;gap:5px;margin-top:12px">Code from the app<input id="tf_code" class="input" inputmode="numeric" autocomplete="one-time-code" style="font-size:22px;letter-spacing:.2em;width:170px"></label></div></div>`,
+        <label class="wide d-grid gap-5 mt-12">Code from the app<input id="tf_code" class="input fs-22 ls-code w-170" inputmode="numeric" autocomplete="one-time-code"></label></div></div>`,
       '<button class="btn btn-primary" data-act="tfEnable">Turn on</button>');
     } catch (e) { note(e.message); }
   },

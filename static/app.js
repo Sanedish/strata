@@ -255,10 +255,10 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
     ${[0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${W}" y1="${(h * f).toFixed(1)}" y2="${(h * f).toFixed(1)}" stroke="var(--color-neutral-300)" stroke-width="0.5"/>`).join('')}
     ${series.map((s) => `<polyline points="${s.data.map((p) => px(p[0]) + ',' + py(p[1])).join(' ')}" fill="none" stroke="${s.color || 'var(--color-text)'}" stroke-width="2" vector-effect="non-scaling-stroke"${s.dash ? ' stroke-dasharray="5 4"' : ''}><title>${esc(s.label)}</title></polyline>`).join('')}
   </svg><div class="axis"><span>${esc(fmtX(x0))}</span><span>max ${esc(fmtY(y1))}</span><span>${esc(fmtX(x1))}</span></div>
-  <div class="legend" style="margin-top:6px">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
+  <div class="legend mt-6">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
 const loading = (msg = 'Waiting for the collector…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
-const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800" style="font-size:15px;color:var(--color-text)">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
+const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800 fs-15 c-text">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
 
 /* ------------------------------------------------------------------ data */
 
@@ -529,7 +529,7 @@ function renderFooter() {
     <span class="row">${icon('database', 'sm')}${fmt.n(db.rows)} requests stored · ${esc(fmt.bytes(db.size))} · since ${esc(fmt.dt(db.first))}</span>
     <span>Caddy ${esc(c.version || '')} ${c.up ? '· up ' + esc(fmt.dur(c.uptime)) : '<b class="hot">unreachable</b>'}</span>
     <span>cloudflared ${esc(t.version || '')} ${t.up ? '· up ' + esc(fmt.dur(t.uptime)) : '<b class="hot">unreachable</b>'}</span>
-    <div style="flex:1"></div>
+    <div class="fill"></div>
     ${(INST.siblings || []).map((s) => `<button class="link" data-act="openSibling" data-arg="${esc(s.url)}" title="Open the ${esc(s.name)} dashboard">${esc(s.name)} ↗</button>`).join('')}
     <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the polling interval · right-click to pick">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
     <span class="clock">${fmt.time(Date.now() / 1000)}</span>`);
@@ -572,17 +572,17 @@ function auxPanel(a) {
   return `<aside class="aside">
     <div class="pad"><div class="cap red">${esc(a.kicker)}</div><h5>${esc(a.title)}</h5></div>
     ${a.svg || sparkSvg(a.series, { max: a.max })}
-    <div style="padding:10px 16px 4px;flex:none">${(a.gauges || []).join('')}</div>
-    <div style="border-top:2px solid var(--color-divider);padding:10px 16px 6px;flex:none"><div class="cap">${esc(a.logLabel)}</div></div>
+    <div class="px-16 pt-10 pb-4 flex-none">${(a.gauges || []).join('')}</div>
+    <div class="bt-div px-16 pt-10 pb-6 flex-none"><div class="cap">${esc(a.logLabel)}</div></div>
     <div class="loglines">${log || '<div class="logline"><span>—</span><span></span></div>'}</div>
   </aside>`;
 }
 function tblView(o) {
-  const tabs = o.tabs ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div style="flex:1"></div><button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>` : '';
+  const tabs = o.tabs ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div class="fill"></div><button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>` : '';
   return `<div class="split" style="grid-template-columns:1fr 300px">
     <section class="aside">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>${esc(o.title)}</h5><span class="small dim ell">${esc(o.note || '')}</span></div>
-      <div style="border-top:2px solid var(--color-divider)"></div>${tabs}
+      <div class="ph ph-pad"><h5>${esc(o.title)}</h5><span class="small dim ell">${esc(o.note || '')}</span></div>
+      <div class="bt-div"></div>${tabs}
       ${table(o.key, o.labels, o.rows, o)}
     </section>
     ${auxPanel(o.aux)}
@@ -626,9 +626,9 @@ function trafficChart() {
 }
 function bigGraph(title, sub, val, arr, readouts, opts = {}) {
   return `<section class="big" data-menu="graph" data-arg="${esc(title)}">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h5>${esc(title)}</h5>
-      <span class="h800 ${opts.hot ? 'hot' : ''}" style="font-size:14px;white-space:nowrap">${esc(val)}</span></div>
-    <div class="small dim ell" style="margin:1px 0 6px">${esc(sub)}</div>
+    <div class="d-flex between items-baseline gap-8"><h5>${esc(title)}</h5>
+      <span class="h800 ${opts.hot ? 'hot' : ''} fs-14 nowrap">${esc(val)}</span></div>
+    <div class="small dim ell mx-0 mt-1 mb-6">${esc(sub)}</div>
     ${sparkSvg(arr, { w: 240, h: 64, cls: '', max: opts.max, stroke: opts.hot ? 'var(--color-accent)' : 'var(--color-text)' })}
     <div class="readouts">${readouts.map(([k, v]) => `<div><div class="cap">${esc(k)}</div><div>${esc(v)}</div></div>`).join('')}</div>
   </section>`;
@@ -645,16 +645,16 @@ function vSummary() {
   const paths = (st?.paths || []).slice(0, 40);
   const cols = 'grid-template-columns:1fr 50px 64px';
   const top = paths.map((p) => `<div class="mini-r" style="${cols}" data-act="filterPath" data-arg="${esc(p.k)}" data-menu="path" data-arg2="${esc(p.host)}">
-      <span class="ell" title="${esc(p.host + p.k)}">${esc(p.k)}</span><span class="r" style="font-weight:600">${fmt.n(p.c)}</span><span class="r dim">${esc(fmt.bytes(p.b))}</span></div>`).join('');
+      <span class="ell" title="${esc(p.host + p.k)}">${esc(p.k)}</span><span class="r fw-600">${fmt.n(p.c)}</span><span class="r dim">${esc(fmt.bytes(p.b))}</span></div>`).join('');
   const H = L?.hist || {}, c = L?.caddy || {}, t = L?.tunnel || {}, h = L?.host || {}, nas = (L?.storage || [])[0] || {};
   const axis = live ? ['−5 min', '1 s buckets', 'now'] : src ? [fmt.dt(src.t0), bucketLabel(src.step) + ' buckets', 'now'] : ['', '', ''];
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
-    <div class="grid2" style="grid-template-columns:1.35fr 1fr;border-bottom:2px solid var(--color-divider);flex:1">
+  return `<div class="col-fill">
+    <div class="grid2 cols-135 bb-div fill">
       <section class="panel" data-menu="traffic">
         <div class="ph"><h5>${icon('activity')}Traffic</h5><span class="small dim ell">${live ? 'live · right-click for options' : esc(rangeLabel()) + engineNote(st)}</span>
-          <span class="h800" style="font-size:15px;white-space:nowrap">${fmt.n(total)} req · ${esc(fmt.bytes(bytes))}</span></div>
-        <div class="legend"><span><i></i>Requests</span><span><i style="background:var(--color-accent)"></i>Errors</span>
-          <span><i style="height:8px;background:color-mix(in srgb,var(--color-text) 14%,transparent)"></i>Bandwidth (scaled)</span></div>
+          <span class="h800 fs-15 nowrap">${fmt.n(total)} req · ${esc(fmt.bytes(bytes))}</span></div>
+        <div class="legend"><span><i></i>Requests</span><span><i class="bg-accent"></i>Errors</span>
+          <span><i class="h-8 bg-faint"></i>Bandwidth (scaled)</span></div>
         ${trafficChart()}
         <div class="axis">${axis.map((a) => `<span>${esc(a)}</span>`).join('')}</div>
         <div class="strip">${strip || '<div class="rest">no edge traffic recorded yet</div>'}
@@ -688,16 +688,16 @@ function reqFilterBar() {
   const sel = (id, opts, cur, title) => `<select id="${id}" class="input" title="${esc(title)}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const hosts = (D.stats?.hosts || []).map((h) => [h.k, h.k]);
   const active = Object.values(S.rf).filter(Boolean).length;
-  return `<div class="tbar" style="padding:6px 18px">${icon('funnel', 'sm')}
+  return `<div class="tbar px-18 py-6">${icon('funnel', 'sm')}
     ${sel('rf_status', [['', 'any status'], ['2xx', '2xx ok'], ['3xx', '3xx'], ['4xx', '4xx'], ['5xx', '5xx'], ['404', '404'], ['403', '403'], ['429', '429']], S.rf.status, 'Status')}
     ${sel('rf_method', [['', 'any method'], ['GET', 'GET'], ['HEAD', 'HEAD'], ['POST', 'POST'], ['PUT', 'PUT'], ['OPTIONS', 'OPTIONS'], ['DELETE', 'DELETE']], S.rf.method, 'Method')}
     ${sel('rf_host', [['', 'any host']].concat(hosts), S.rf.host, 'Host')}
     ${sel('rf_kind', [['', 'any client'], ['browser', 'People'], ['player', 'Media players'], ['embed', 'Link previews'], ['bot', 'Bots & tools']], S.rf.kind, 'Client kind')}
     ${sel('rf_since', [['', 'any time'], ['300', 'last 5 min'], ['3600', 'last hour'], ['86400', 'last 24 h'], ['604800', 'last 7 days']], S.rf.since, 'Time window')}
-    <input id="rf_country" class="input" placeholder="CC" value="${esc(S.rf.country)}" style="width:52px" title="Country code" maxlength="2">
-    <input id="rf_min_ms" class="input" placeholder="≥ ms" value="${esc(S.rf.min_ms)}" style="width:64px" title="Slower than (ms)">
+    <input id="rf_country" class="input w-52" placeholder="CC" value="${esc(S.rf.country)}" title="Country code" maxlength="2">
+    <input id="rf_min_ms" class="input w-64" placeholder="≥ ms" value="${esc(S.rf.min_ms)}" title="Slower than (ms)">
     ${active ? `<button class="pill" data-act="rfClear">${icon('x', 'sm')}Clear ${active}</button>` : ''}
-    <div style="flex:1"></div>
+    <div class="fill"></div>
     ${(S.savedFilters || []).map((f, i) => `<button class="pill" data-act="rfLoad" data-arg="${i}" data-menu="savedFilter" data-arg2="${i}" title="Saved filter · right-click to delete">${icon('bookmark', 'sm')}${esc(f.name)}</button>`).join('')}
     <button class="pill" data-act="rfSave" title="Save the current filters">${icon('star', 'sm')}Save</button>
   </div>`;
@@ -726,14 +726,14 @@ function vRequests() {
         <button class="pill ${S.fields ? 'on' : ''}" data-act="fields">${icon('rows-3', 'sm')}Deep fields</button>
         ${S.ipFilter ? `<button class="pill on" data-act="clearIp" title="Clear client filter">client ${esc(S.ipFilter)} ${icon('x', 'sm')}</button>` : ''}
         ${S.q ? `<button class="pill on" data-act="clearQ" title="Clear text filter">“${esc(S.q)}” ${icon('x', 'sm')}</button>` : ''}
-        <div style="flex:1"></div>
+        <div class="fill"></div>
         <span class="small dim">${fmt.n(rows.length)} rows · ${D.req && D.req.older ? 'paged back' : S.paused ? 'paused' : 'tailing'}</span>
         <button class="pill" data-act="exportReq" data-arg="csv" title="Download the loaded rows">${icon('download', 'sm')}CSV</button>
         <button class="pill" data-act="exportReq" data-arg="json">${icon('file-braces', 'sm')}JSON</button>
       </div>
       ${reqFilterBar()}
       ${D.req ? table(key, labels, trs, { empty: 'No requests match. The log fills as traffic arrives through the tunnel.' }) : loading()}
-      ${D.req && D.req.more ? `<div class="tbar" style="justify-content:center;border-bottom:0;border-top:2px solid var(--color-divider)"><button class="pill" data-act="loadOlder">${icon('chevron-down', 'sm')}Load 500 older</button>${D.req.older ? `<button class="pill" data-act="reqLive">${icon('activity', 'sm')}Back to live</button>` : ''}</div>` : ''}
+      ${D.req && D.req.more ? `<div class="tbar jc-center bb-0 bt-div"><button class="pill" data-act="loadOlder">${icon('chevron-down', 'sm')}Load 500 older</button>${D.req.older ? `<button class="pill" data-act="reqLive">${icon('activity', 'sm')}Back to live</button>` : ''}</div>` : ''}
     </section>
     ${ins}
   </div>`;
@@ -762,14 +762,14 @@ function inspector(r) {
     ]);
   }
   return `<aside class="aside">
-    <div style="padding:14px 16px;border-bottom:2px solid var(--color-divider);flex:none">
+    <div class="insp-head">
       <div class="cap red">${esc(r.method)} · ${esc(r.status)}</div>
-      <h5 style="margin:3px 0 2px;font-size:17px;word-break:break-all">${esc(r.path)}</h5>
-      <div class="small dim" style="word-break:break-all">${esc(r.host)}</div>
-      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-        ${r.method === 'GET' && r.status < 400 ? `<button class="btn btn-primary" style="font-size:12px;padding:6px 10px" data-act="openReq">${icon('external-link', 'sm')}Open</button>` : ''}
-        <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" data-act="filterIp" data-arg="${esc(r.ip)}">${icon('user', 'sm')}Only this client</button>
-        <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" data-act="closeIns">${icon('x', 'sm')}Close</button>
+      <h5 class="mx-0 mt-3 mb-2 fs-17 break-all">${esc(r.path)}</h5>
+      <div class="small dim break-all">${esc(r.host)}</div>
+      <div class="hrow mt-10 f-wrap">
+        ${r.method === 'GET' && r.status < 400 ? `<button class="btn btn-primary fs-12 px-10 py-6" data-act="openReq">${icon('external-link', 'sm')}Open</button>` : ''}
+        <button class="btn btn-secondary fs-12 px-10 py-6" data-act="filterIp" data-arg="${esc(r.ip)}">${icon('user', 'sm')}Only this client</button>
+        <button class="btn btn-secondary fs-12 px-10 py-6" data-act="closeIns">${icon('x', 'sm')}Close</button>
       </div>
     </div>
     <div class="stats2">
@@ -976,17 +976,17 @@ function vHistory() {
       const bg = hot ? 'var(--color-accent)' : `color-mix(in srgb,var(--color-text) ${(40 + (v || 0) / m * 50).toFixed(0)}%,transparent)`;
       return `<span title="${esc(hourLbl(i) + ' · ' + (v == null ? 'no data' : fv(v)))}" style="height:${v == null || v === 0 ? 0 : Math.max(3, v / m * 100).toFixed(1)}%;background:${bg}"></span>`;
     }).join('');
-    return `<div class="band"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+    return `<div class="band"><div class="d-flex between items-baseline mb-4">
       <span class="cap">${esc(label)}</span><span class="small dim">${esc(note)}</span></div>
       <div class="slabs">${slabs}</div>
-      <div style="display:flex;justify-content:space-between;font-size:9.5px;margin-top:3px" class="dim"><span>−24 h</span><span>−12 h</span><span>now</span></div></div>`;
+      <div class="dim d-flex between fs-95 mt-3"><span>−24 h</span><span>−12 h</span><span>now</span></div></div>`;
   };
   const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
   const peak = (a) => { let bi = 0; a.forEach((v, i) => { if ((v || 0) > (a[bi] || 0)) bi = i; }); return bi; };
   const mean = (a) => { const v = a.filter((x) => x != null); return v.length ? sum(v) / v.length : null; };
   const pr = peak(h.reqs);
-  return `<section style="padding:16px 18px;flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column" data-scroll="hist">
-    <div class="ph" style="margin-bottom:12px"><h5>${icon('clock-fading')}Last 24 hours</h5><span class="small dim">requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
+  return `<section class="col-fill px-18 py-16 oy-auto" data-scroll="hist">
+    <div class="ph mb-12"><h5>${icon('clock-fading')}Last 24 hours</h5><span class="small dim">requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
     ${band('Requests', `${fmt.n(sum(h.reqs))} total · peak ${fmt.n(h.reqs[pr])} at ${fmt.hm(h.hours[pr])}`, h.reqs, (v) => fmt.n(v) + ' requests')}
     ${band('Bandwidth', fmt.bytes(sum(h.bytes)) + ' sent', h.bytes, (v) => fmt.bytes(v))}
     ${band('Saved by Brotli', fmt.bytes(sum(h.saved)) + ' not sent thanks to precompression', h.saved, (v) => fmt.bytes(v))}
@@ -1025,7 +1025,7 @@ function vEdge() {
   const kpi = (k, v, sub, hot) => `<div><div class="cap">${esc(k)}</div><div class="val ${hot ? 'hot' : ''}">${esc(v)}</div><div class="small dim ell">${esc(sub)}</div></div>`;
   const bars = (list, total, cached, label) => {
     const m = Math.max(1, ...list.map(total));
-    return `<div class="slabs" style="min-height:90px">${list.map((x) => {
+    return `<div class="slabs min-h-90">${list.map((x) => {
       const t = total(x) || 0, c = cached(x) || 0;
       return `<span class="stack" title="${esc(label(x) + ' · ' + fmt.n(t) + ' requests · ' + fmt.pct(share(c, t)) + ' cached')}" style="height:${Math.max(t ? 3 : 0, t / m * 100).toFixed(1)}%">
         <span style="flex:${c};background:var(--color-text)"></span><span style="flex:${t - c};background:var(--color-accent)"></span></span>`;
@@ -1038,7 +1038,7 @@ function vEdge() {
   }));
   const crow = Object.entries(countries).sort((a, b) => b[1].r - a[1].r).slice(0, 40)
     .map(([k, v]) => ({ cells: [cell(cname(k)), cell(k, 'dim'), cell(fmt.n(v.r), 'r h800'), cell(fmt.bytes(v.b), 'r dim'), cell(fmt.n(v.t), 'r ' + (v.t ? 'hot' : 'dim'))] }));
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+  return `<div class="col-fill">
     <div class="kpis">
       ${kpi('Requests · 24 h', fmt.n(req), 'at the Cloudflare edge')}
       ${kpi('Served from cache', fmt.pct(share(creq, req)), fmt.n(creq) + ' requests never hit Caddy')}
@@ -1047,18 +1047,18 @@ function vEdge() {
       ${kpi('Threats', fmt.n(thr), 'blocked or challenged', thr > 0)}
       ${kpi('Unique visitors', fmt.n(uniq), 'peak hour · Cloudflare count')}
     </div>
-    <div class="grid2" style="grid-template-columns:1.35fr 1fr;flex:1">
-      <section class="panel" style="overflow-y:auto">
+    <div class="grid2 cols-135 fill">
+      <section class="panel oy-auto">
         <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">ink = cache hit · red = fetched from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
-        <div class="ph" style="margin-top:18px"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
+        <div class="ph mt-18"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
         ${bars(days, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => x.dimensions.date)}
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
       <section class="aside">
-        <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Countries at the edge</h5><button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
-        <div style="border-top:2px solid var(--color-divider)"></div>
+        <div class="ph ph-pad"><h5>Countries at the edge</h5><button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
+        <div class="bt-div"></div>
         ${table('edge', [{ t: 'Country', w: 170 }, { t: 'CC', w: 40 }, { t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 80, a: 'r' }, { t: 'Threats', w: 60, a: 'r' }], crow)}
       </section>
     </div>
@@ -1080,7 +1080,7 @@ function vInsights() {
   const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
   I.heat.forEach((h) => { grid[(h.d + 6) % 7][h.h] += h.c; });
   const hmax = Math.max(1, ...grid.flat());
-  const heat = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl" style="justify-content:center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
+  const heat = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl jc-center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
     grid.map((row, d) => `<span class="lbl">${days[d]}</span>` + row.map((v, h) =>
       `<span title="${days[d]} ${String(h).padStart(2, '0')}:00 · ${fmt.n(v)} requests" style="background:${v ? `color-mix(in srgb,var(--color-accent) ${(8 + v / hmax * 82).toFixed(0)}%,var(--color-neutral-200))` : 'var(--color-neutral-200)'}"></span>`).join('')).join('') + '</div>';
   const cls = Object.fromEntries(I.classes.map((c) => [c.k, c.c]));
@@ -1088,12 +1088,12 @@ function vInsights() {
   const classBar = `<div class="stackbar">${[[2, 'var(--color-text)'], [3, 'var(--color-neutral-500)'], [4, 'var(--color-accent)'], [5, 'var(--color-accent-800)']]
     .map(([k, col]) => cls[k] ? `<i title="${k}xx · ${fmt.n(cls[k])}" style="flex:${cls[k]};background:${col}"></i>` : '').join('')}</div>
     <div class="small dim">${[2, 3, 4, 5].map((k) => `${k}xx ${fmt.pct(share(cls[k] || 0, ctot))}`).join(' · ')}</div>`;
-  const ret = `<div style="display:flex;gap:26px;margin:4px 0 8px"><div><div class="cap">Returning</div><div class="big-num">${fmt.n(I.returning)}</div></div>
+  const ret = `<div class="d-flex gap-26 mx-0 mt-4 mb-8"><div><div class="cap">Returning</div><div class="big-num">${fmt.n(I.returning)}</div></div>
     <div><div class="cap">New</div><div class="big-num">${fmt.n(I.visitors - I.returning)}</div></div></div>
     <div class="stackbar"><i style="flex:${I.returning || 0};background:var(--color-text)"></i><i style="flex:${(I.visitors - I.returning) || 0};background:var(--color-accent)"></i></div>
     <div class="small dim">Returning = seen before this range began (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
-    <div class="cap" style="margin-top:16px">Status classes</div>${classBar}
-    <div class="cap" style="margin-top:16px">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
+    <div class="cap mt-16">Status classes</div>${classBar}
+    <div class="cap mt-16">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
   const inv = I.inventory;
   const dailyRows = I.daily.slice().reverse().map((d) => ({ cells: [cell(d.k, 'h800'), cell(fmt.n(d.c), 'r'), cell(fmt.n(d.u), 'r dim'), cell(fmt.bytes(d.b), 'r dim'), cell(fmt.n(d.e), 'r ' + (d.e ? 'hot' : 'dim'))] }));
   return `<div class="ins">
@@ -1170,7 +1170,7 @@ function vCompression() {
 const seg = (items, cur, act) => `<div class="seg-row">${items.map(([v, l]) =>
   `<button class="${String(cur) === String(v) ? 'on' : ''}" data-act="${act}" data-arg="${esc(v)}">${l}</button>`).join('')}</div>`;
 const toggle = (on, act) => `<label class="sw" title="${on ? 'On' : 'Off'}"><input type="checkbox" data-change="${act}" ${on ? 'checked' : ''}><b></b></label>`;
-const setRow = (title, desc, control) => `<div class="set-row"><div style="min-width:0"><div class="h800">${esc(title)}</div>
+const setRow = (title, desc, control) => `<div class="set-row"><div class="min-w0"><div class="h800">${esc(title)}</div>
   <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${control}</div></div>`;
 function vSettings() {
   const pct = Math.round(S.scale * 100), eff = Math.round(zoomNow * 100);
@@ -1200,7 +1200,7 @@ function vSettings() {
       <div class="ph"><h5>${icon('palette')}Appearance</h5><span class="small dim">applies instantly · ${S.syncPrefs ? 'synced to your account' : 'remembered in this browser'}</span></div>
       ${row('Theme', 'System follows your operating system’s light / dark setting.', seg([['auto', icon('monitor', 'sm') + 'System'], ['light', icon('sun', 'sm') + 'Light'], ['dark', icon('moon', 'sm') + 'Dark']], S.theme, 'setTheme'))}
       ${row('Accent colour', 'Highlights, charts and active elements. Default: this site’s colour' + (INST.accent ? ' (' + INST.accent + ')' : '') + ' — each site can look different, so you always know which one you are in.',
-        `<span class="row" style="gap:6px">${ACCENTS.map(([c, n]) => `<button class="swatch ${acc.toLowerCase() === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-arg="${c}" title="${esc(n)}"></button>`).join('')}
+        `<span class="row gap-6">${ACCENTS.map(([c, n]) => `<button class="swatch ${acc.toLowerCase() === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-arg="${c}" title="${esc(n)}"></button>`).join('')}
          <input type="color" class="input" data-change="accentPick" value="${esc(acc)}" title="Any colour"><button class="pill" data-act="setAccent" data-arg="" title="Back to this site's colour">${icon('rotate-ccw', 'sm')}Site default</button></span>`)}
       ${row('Density', 'Row height and padding of tables and panels.', seg([['compact', 'Compact'], ['normal', 'Normal'], ['comfy', 'Comfortable']], S.density, 'setDensity'))}
       ${row('Corners', 'Soft is the default. Choose sharp for the original Modernist look or round for more curve.', seg([[0, 'Sharp'], [1, 'Soft'], [2, 'Round']], S.radius, 'setRadius'))}
@@ -1227,12 +1227,12 @@ function vSettings() {
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
       ${row('Collapsed sidebar', 'Icons only (toggle with [ ).', toggle(S.navCollapsed, 'setNavCollapsed'))}
       ${row('Show Infrastructure', 'Network, tunnel, origins, edge, latency, history, system and logs. Click the group heading to toggle it.', toggle(S.deep, 'setDeep'))}
-      <div class="navcfg" style="margin-top:8px">${navRows}</div>
+      <div class="navcfg mt-8">${navRows}</div>
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">the traffic tiles above the monitoring views</span></div>
       ${row('Show everywhere', 'Also show them on Team, Files, configuration pages, Accounts, Code and Settings.', toggle(S.vitalsAll, 'setVitalsAll'))}
-      <div class="form" style="grid-template-columns:1fr 1fr;margin-top:8px">${vitalSlots}</div>
+      <div class="form cols-2 mt-8">${vitalSlots}</div>
       <div class="act-row"><button class="pill" data-act="vitalsReset">${icon('rotate-ccw', 'sm')}Default six</button><button class="pill" data-act="vitalsNone">${icon('eye-off', 'sm')}Hide the strip</button></div>
     </section>
     <section class="panel">
@@ -1260,7 +1260,7 @@ function vSettings() {
     <section class="panel">
       <div class="ph"><h5>${icon('server')}Session & system</h5></div>
       ${row('Signed in', `${L.user || '—'} · ${fmt.n(L.sessions)} active session(s)`, `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
-      <div class="kv" style="padding:10px 0 0">
+      <div class="kv px-0 pt-10 pb-0">
         <span>Site</span><span>${esc(INST.name || '—')} · instance ${esc(INST.id || '—')}</span>
         <span>Caddy</span><span>${esc(c.version || '—')} · ${c.up ? 'up ' + esc(fmt.dur(c.uptime)) : 'unreachable'}</span>
         <span>cloudflared</span><span>${esc(t.version || '—')} · ${t.up ? t.ha + '/4 links · up ' + esc(fmt.dur(t.uptime)) : 'unreachable'}</span>
@@ -1272,7 +1272,7 @@ function vSettings() {
     </section>
     <section class="panel span2">
       <div class="ph"><h5>${icon('keyboard')}Keyboard</h5><span class="small dim">outside text fields</span></div>
-      <div class="kbd" style="grid-template-columns:170px 1fr">${kbd.map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div>
+      <div class="kbd cols-k170">${kbd.map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div>
     </section>
     ${SETTINGS_PANELS.map((f) => { try { return f(row, toggle, seg); } catch (e) { return `<section class="panel"><div class="empty">${esc(e.message)}</div></section>`; } }).join('')}
   </div>`;
@@ -1542,13 +1542,13 @@ function renderOverlay() {
         ${d.check ? `<label class="dlg-check"><input type="checkbox" id="dlgchk" ${d.checkDefault ? 'checked' : ''}> ${esc(d.check)}</label>` : ''}</div>
       <div class="acts"><button class="btn ${d.danger ? 'btn-primary' : 'btn-primary'}" data-act="dlgOk">${esc(d.ok || 'OK')}</button>
         ${d.alt ? `<button class="btn btn-secondary" data-act="dlgAlt">${esc(d.alt)}</button>` : ''}
-        <div style="flex:1"></div><button class="btn btn-secondary" data-act="dlgCancel">Cancel</button></div></div></div>`;
+        <div class="fill"></div><button class="btn btn-secondary" data-act="dlgCancel">Cancel</button></div></div></div>`;
   }
   if (S.help) {
-    html += `<div class="palbg" data-act="helpClose"><div class="dlg" style="width:560px" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
-      <div class="kbd" style="grid-template-columns:150px 1fr">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blacklist · l links · n network · t tunnel · y system · x settings'],
+    html += `<div class="palbg" data-act="helpClose"><div class="dlg w-560" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
+      <div class="kbd cols-k150">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blacklist · l links · n network · t tunnel · y system · x settings'],
         ['1 – 9', 'Views in sidebar order'], ['[', 'Sidebar'], ['T', 'Theme'], ['Space', 'Pause · Files: preview'], ['Esc', 'Close'], ['Del · F2 · Backspace', 'Files: trash · rename · up'], ['Ctrl V', 'Paste images to upload']].map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div></div>
-      <div class="acts"><div style="flex:1"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
+      <div class="acts"><div class="fill"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
   }
   for (const f of OVERLAYS) { try { html += f() || ''; } catch (e) { console.error(e); } }
   if (S.dragOver) html += `<div class="drop"><div>${icon('upload', 'lg')}Drop to upload into ${esc(typeof dropLabel === 'function' ? dropLabel() : S.fpath)}</div></div>`;

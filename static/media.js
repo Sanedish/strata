@@ -445,7 +445,7 @@
     <span class="small dim ell" title="${esc(noteTxt || '')}">${esc(noteTxt || '')}</span>${tools}</div>${body}</section>`;
   const kvHtml = (pairs, style = '') => `<div class="kv" style="padding:8px 0 0;${style}">${pairs.map(([k, v]) =>
     `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;
-  const setRow = (title, desc, control) => `<div class="set-row"><div style="min-width:0"><div class="h800">${esc(title)}</div>
+  const setRow = (title, desc, control) => `<div class="set-row"><div class="min-w0"><div class="h800">${esc(title)}</div>
     <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${control}</div></div>`;
   function findingsSummary(list) {
     const by = new Map();
@@ -468,7 +468,7 @@
     return `<div class="md-find"><div><b class="${(SEV[sev] || 0) >= 2 ? 'hot' : ''}">${esc(txt(first(f.type, f.kind) ?? 'finding', 80))}</b>
       <span class="small dim">${esc(meta)}</span></div>
       ${f.sample != null && f.sample !== '' ? `<div class="md-sample">${esc(txt(f.sample, 200))}</div>` : ''}
-      ${f.where ? `<div class="small dim" style="word-break:break-all">${esc(txt(f.where, 200))}</div>` : ''}</div>`;
+      ${f.where ? `<div class="small dim break-all">${esc(txt(f.where, 200))}</div>` : ''}</div>`;
   }
   function holdButtons(h) {
     const k = esc(h.key), b = [];
@@ -511,10 +511,10 @@
     const bits = [D.md.at ? 'updated ' + fmt.ago(D.md.at) : '', S.paused ? 'sampling paused' : 'refreshing every ' + POLL_MS / 1000 + ' s while this view is open',
       first(ST().version, proc('media').version) ? 'media ' + txt(first(ST().version, proc('media').version), 30) : ''].filter(Boolean);
     const warn = txt(first(ST().error, ST().warning) ?? '', 300); // the bridge's own complaint (e.g. media.db unreadable)
-    return `<div class="tbar md-full" style="border-bottom:0;background:var(--color-bg)"><span class="small dim">${esc(bits.join(' · '))}</span>
+    return `<div class="tbar md-full bb-0 bg-page"><span class="small dim">${esc(bits.join(' · '))}</span>
       ${D.md.err ? `<span class="small hot ell" title="${esc(D.md.err)}">last refresh failed: ${esc(D.md.err)}</span>` : ''}
       ${warn ? `<span class="small hot ell" title="${esc(warn)}">${esc(warn)}</span>` : ''}
-      <div style="flex:1"></div><button class="pill" data-act="mdRefresh">Refresh</button></div>`;
+      <div class="fill"></div><button class="pill" data-act="mdRefresh">Refresh</button></div>`;
   }
 
   function kpisHealth() {
@@ -621,9 +621,9 @@
         : S.md.hf === 'review' ? 'Nothing is held back: every scanned file is clean or released.' : 'No files in this state.' });
     }
     // the inline "1fr 360px" is what layout.js looks for: it adds the drag grip and remembers the aside's width
-    return `<section class="panel md-full md-short" style="padding:0">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
-      <div class="tbar">${pills}<div style="flex:1"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
+    return `<section class="panel md-full md-short p-0">
+      <div class="ph ph-pad"><h5>Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
+      <div class="tbar">${pills}<div class="fill"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
         <input id="md_q" class="input" value="${esc(S.md.qRaw)}" placeholder="Filter paths…" autocomplete="off" spellcheck="false" aria-label="Filter held paths"></div>
       <div class="split ${n > 12 || sel ? 'md-tall' : ''}" style="grid-template-columns:${sel ? '1fr 360px' : '1fr'}">
         <section class="aside">${body}</section>${sel ? holdAside(sel) : ''}</div>
@@ -636,13 +636,13 @@
       ['Updated', srvDt(h.updated)], ['Reviewed by', txt(h.reviewedBy, 80) || '—'], ['Review note', txt(h.reviewNote, 400) || '—'],
       ...Object.entries(h.engines).map(([k, v]) => ['Engine · ' + k, txt(v, 200)])];
     return `<aside class="aside">
-      <div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);flex:none">
+      <div class="px-16 py-12 bb-div flex-none">
         <div class="cap red">${esc(h.state || '?')}${h.severity ? ' · ' + esc(h.severity) : ''}</div>
-        <h5 style="margin:3px 0 2px;font-size:15px;word-break:break-all">${esc(h.path)}</h5>
-        <div class="act-row" style="margin-top:8px">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
+        <h5 class="mx-0 mt-3 mb-2 fs-15 break-all">${esc(h.path)}</h5>
+        <div class="act-row mt-8">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
       </div>
-      <div class="scroll" style="padding:2px 16px 14px" data-scroll="md-aside">
-        <div class="cap" style="margin:8px 0 2px">Findings · ${fmt.n(h.findings.length)} · redacted</div>
+      <div class="scroll px-16 pt-2 pb-14" data-scroll="md-aside">
+        <div class="cap mx-0 mt-8 mb-2">Findings · ${fmt.n(h.findings.length)} · redacted</div>
         ${h.findings.length ? h.findings.map(findingHtml).join('') : '<div class="small dim">No findings recorded.</div>'}
         ${kvHtml(kv, 'padding-top:12px')}
       </div></aside>`;
@@ -652,7 +652,7 @@
     const B = breaker(), mon = monitor();
     const hot = mon.ewma !== null && mon.ewma >= B.cpuTrip, memLow = mon.mem !== null && mon.mem < B.memMin;
     const spark = D.md.cpu.length > 1 ? `<div class="md-spark">${sparkSvg(D.md.cpu, { w: 240, h: 56, cls: '', max: 100,
-      stroke: hot ? 'var(--color-accent)' : 'var(--color-text)' })}</div><div class="small dim" style="margin:-4px 0 10px">CPU EWMA while this view is open · trips at ${esc(B.cpuTrip)} %</div>` : '';
+      stroke: hot ? 'var(--color-accent)' : 'var(--color-text)' })}</div><div class="small dim mx-0 mt-n4 mb-10">CPU EWMA while this view is open · trips at ${esc(B.cpuTrip)} %</div>` : '';
     const body = spark +
       gauge('CPU · EWMA ~5 s', mon.ewma === null ? '—' : pct(mon.ewma), mon.ewma || 0, B.cpuTrip) +
       gauge('Memory', mon.mem === null ? '—' : fmt.bytes(mon.mem * MIB) + ' free' + (mon.memPct !== null ? ' · ' + pct(mon.memPct) + ' used' : ''),
@@ -685,15 +685,15 @@
         <span class="small dim ell" title="${esc(txt(first(c.error, c.need) ?? '', 300))}">${esc(ok ? '' : txt(first(c.need, c.error) ?? '', 140))}</span></div>`;
     }).join('');
     const needs = Object.values(caps).filter((c) => isObj(c) && c.ok === false && c.need).map((c) => txt(c.need, 80));
-    const big = (label, v, hot) => `<div><div class="cap">${esc(label)}</div><div class="big-num ${hot ? 'hot' : ''}" style="font-size:26px">${esc(txt(v ?? '—', 20))}</div></div>`;
-    const body = `<div style="display:flex;gap:26px;margin:2px 0 6px">${big('Configured', N.configured)}${big('Effective', N.effective, diff && N.configured !== 'auto')}</div>
+    const big = (label, v, hot) => `<div><div class="cap">${esc(label)}</div><div class="big-num ${hot ? 'hot' : ''} fs-26">${esc(txt(v ?? '—', 20))}</div></div>`;
+    const body = `<div class="d-flex gap-26 mx-0 mt-2 mb-6">${big('Configured', N.configured)}${big('Effective', N.effective, diff && N.configured !== 'auto')}</div>
       <div class="small dim">${esc(NEG_HELP[N.effective] || '')}</div>
-      ${why ? `<p class="small hot" style="margin:8px 0 0">${esc(why)}</p>` : ''}
-      <div class="cap" style="margin-top:14px">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
+      ${why ? `<p class="small hot mx-0 mt-8 mb-0">${esc(why)}</p>` : ''}
+      <div class="cap mt-14">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
       ${rules.map(([k, v]) => `<div class="logline"><span>${esc(k)}</span><span class="${v === 'installed' ? '' : 'hot'}">${esc(v)}</span></div>`).join('')}
-      ${edgeErr ? `<div class="small hot" style="margin-top:4px">${esc(edgeErr)}</div>` : ''}
-      <div class="cap" style="margin-top:14px">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
-      ${needs.length ? `<p class="small" style="margin:8px 0 0">Add to the Cloudflare token (zone ${esc(INST.zone)}): <b>${esc(needs.join(', '))}</b></p>` : ''}`;
+      ${edgeErr ? `<div class="small hot mt-4">${esc(edgeErr)}</div>` : ''}
+      <div class="cap mt-14">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
+      ${needs.length ? `<p class="small mx-0 mt-8 mb-0">Add to the Cloudflare token (zone ${esc(INST.zone)}): <b>${esc(needs.join(', '))}</b></p>` : ''}`;
     return panelH('Negotiation', 'AVIF / WebP for canonical image URLs', body);
   }
 
@@ -706,7 +706,7 @@
       ${t.known && !t.ok ? `<span class="small hot why">${esc(why)}</span>` : ''}</div>`).join('');
     const av = st.filter(([n]) => n === 'defender' || n === 'clamav').map(([, t]) => t);
     const noAv = av.every((t) => t.known && !t.ok);
-    return rows + (noAv ? '<p class="small hot" style="margin:10px 0 0">No antivirus engine: archives, PDFs, documents, executables and SVGs are held as unscannable.</p>' : '');
+    return rows + (noAv ? '<p class="small hot mx-0 mt-10 mb-0">No antivirus engine: archives, PDFs, documents, executables and SVGs are held as unscannable.</p>' : '');
   }
   function toolsPanel() {
     return panelH('Tools', 'missing tools degrade the pipeline, they never crash it · media/install.ps1 installs them',
@@ -767,7 +767,7 @@
       seg('gate_legacy', [['1', 'Serve'], ['0', 'Block']])) +
       setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
       `<div class="act-row"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>Save & apply</button>
-        ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot" style="align-self:center">unsaved changes</span>' : ''}</div>`;
+        ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot self-center">unsaved changes</span>' : ''}</div>`;
     return panelH('Settings', 'saved to strata.json · Caddy config re-rendered and validated', body, 'md-set');
   }
 
@@ -797,7 +797,7 @@
       <div class="ph"><h5>Jobs</h5><span class="small dim ell">background worker queue · the scan lane never waits behind video</span>
         ${totalFailed ? '<button class="pill" data-act="mdRetry" data-arg="">Retry all failed</button>' : ''}</div>
       ${table('md-jobs', labels, rows)}
-      <div class="cap" style="margin:14px 0 4px">Recently failed${F?.rows?.length ? ' · ' + fmt.n(F.rows.length) : ''}</div>${ftable}
+      <div class="cap mx-0 mt-14 mb-4">Recently failed${F?.rows?.length ? ' · ' + fmt.n(F.rows.length) : ''}</div>${ftable}
     </section>`;
   }
 
@@ -826,9 +826,9 @@
     const body = !E ? loading('Loading events…') : E.err ? `<div class="empty hot">${esc(E.err)}</div>`
       : table('md-events', [{ t: 'When', w: 110 }, { t: 'Kind', w: 180 }, { t: 'Level', w: 64 }, { t: 'Process', w: 64 }, { t: 'Drive', w: 80 },
         { t: 'Path', w: 260 }, { t: 'Detail', w: 420 }], rows, { empty: 'No events in this window: nothing failed or was bypassed.' });
-    return `<section class="panel md-full md-short" style="padding:0">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
-      <div class="tbar">${kindPills}<div style="flex:1"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
+    return `<section class="panel md-full md-short p-0">
+      <div class="ph ph-pad"><h5>Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
+      <div class="tbar">${kindPills}<div class="fill"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
   }
 
   /* media_rules.file_policy_preview(): {counts: {total, dangerous, unknown, safe, rescued}, by_ext: {dangerous: {ext: n},
@@ -870,7 +870,7 @@
           s.rescued ? 'allowed by a rule' : ''].filter(Boolean).join(' · '))}</span></div>`).join('');
       body = `<div class="md-cols">
         <div><div class="cap">By reason</div>${bl(reasonRows, (r) => short(r.k), (r) => REASON_SHORT[r.k] === '404', (r) => reasonLabel(r.k))}
-          <p class="small dim" style="margin:8px 0 0">deny wins over safe · an allow access rule makes an exception (and still passes the scan gate)</p></div>
+          <p class="small dim mx-0 mt-8 mb-0">deny wins over safe · an allow access rule makes an exception (and still passes the scan gate)</p></div>
         <div><div class="cap">By extension</div><div class="md-list" data-scroll="md-pext">${bl(I.exts.slice(0, 80),
           (r) => (/^[a-z0-9]+$/i.test(r.k) ? '.' + r.k : r.k) + (r.r ? ' · ' + (REASON_SHORT[r.r] || r.r) : ''), (r) => REASON_SHORT[r.r] === '404')}</div></div>
         <div><div class="cap">Sample paths${I.samples.length ? ' · ' + fmt.n(I.samples.length) : ''}</div><div class="md-list" data-scroll="md-psamp">${samples
@@ -900,7 +900,7 @@
           and the worker, and renders the file policy, media routes and scan gate into Caddy, validated before the reload.</li>
         <li>The switch-on time becomes the <i>cutover</i>: older files stay online while their first scan runs.</li>
       </ol>
-      ${tools ? `<div class="cap" style="margin-top:14px">Tools on this machine</div>${tools}` : ''}
+      ${tools ? `<div class="cap mt-14">Tools on this machine</div>${tools}` : ''}
       <div class="act-row"><button class="btn btn-secondary" data-act="mdRefresh">Check again</button>
         ${disabled ? `<button class="btn btn-secondary" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>Preview the file policy</button>` : ''}
         <span class="small dim">${D.md.at ? 'checked ' + esc(fmt.ago(D.md.at)) : ''}</span></div>

@@ -404,7 +404,7 @@
       </div>
     </section>
     ${canManage ? `
-      <section class="panel span2" style="border:1px solid var(--color-accent);background:color-mix(in srgb, var(--color-accent) 4%, var(--color-raised))">
+      <section class="panel span2 b-accent bg-accent-tint">
         <div class="ph">
           <div>
             <div class="cap">Root & Staff Administration</div>
