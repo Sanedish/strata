@@ -164,7 +164,7 @@
       facts.push(['Access until', sel.expires ? `<span class="${sel.expired ? 'hot' : ''}">${esc(day(sel.expires))}</span>` : '<span class="dim">no end date</span>']);
       facts.push(['Networks', sel.allowed_ips?.length ? `<code>${esc(sel.allowed_ips.join(', '))}</code>` : '<span class="dim">any</span>']);
     }
-    const actions = isRoot ? `<span class="admin-callout inline">${icon('shield-check', 'sm')} Root is protected: change its password and e-mail under Settings, or from the server CLI.</span>`
+    const actions = isRoot ? `<span class="admin-callout inline">${icon('shield-check', 'sm')} The owner account is protected. Change its password and e-mail in Settings › Account, or from the server CLI.</span>`
       : `${sel.pending ? '' : btn('accountStatus', sel.enabled ? 'Disable' : 'Enable', { arg: sel.enabled ? '0' : '1', icon: sel.enabled ? 'user-x' : 'user-check', disabled: self })}
          ${btn('accountRevokeSessions', 'Sign out everywhere', { icon: 'log-out' })}
          ${btn('accountPasswordReset', sel.pending ? 'New activation link' : 'Password reset link', { icon: 'key-round' })}
@@ -181,8 +181,8 @@
 
   function permissionSection(sel) {
     if (sel.role === 'root') {
-      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>Root</h5></div></div>
-        <p class="acct-note">Root holds every capability, including the ones no other account can be given: managing accounts, editing Strata's code and the sign-in e-mail sender.</p></section>`;
+      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>Owner</h5></div></div>
+        <p class="acct-note">The owner can do everything, including what no other account can be given: managing accounts, editing Strata’s code and the sign-in e-mail sender.</p></section>`;
     }
     const d = draftFor(sel), dirty = draftDirty(sel), isAdmin = d.preset === 'admin';
     const perms = A.accounts.permissions || [], groups = A.accounts.groups || {};
@@ -194,7 +194,7 @@
         <div class="perm-tools">${btn('accountPermGroup', 'All', { arg: g + ':1', small: true, disabled: isAdmin })}${btn('accountPermGroup', 'None', { arg: g + ':0', small: true, disabled: isAdmin })}</div>
         <div class="perm-grid">${items.map((p) => `<label class="perm-option ${d.perms.has(p.id) || isAdmin ? 'on' : ''}"><input type="checkbox" data-change="accountPerm" value="${esc(p.id)}" ${d.perms.has(p.id) || isAdmin ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}><span><b>${esc(p.label)}</b><small>${esc(p.description)}</small><code>${esc(p.id)}</code></span></label>`).join('')}</div></fieldset>`;
     }).join('');
-    const eff = isAdmin ? 'Everything except account management, code editing and the e-mail sender (root only).'
+    const eff = isAdmin ? 'Everything except account management, code editing and the e-mail sender. Those stay with the owner.'
       : d.perms.size ? [...d.perms].sort().map((p) => `<span class="tag" title="${esc(p)}">${esc(permLabel(p))}</span>`).join(' ') : '<span class="warn">No capabilities - this account can sign in but sees nothing.</span>';
     const fileNote = !isAdmin && [...d.perms].some((p) => p.startsWith('files.')) ? '<p class="acct-note">File capabilities only apply inside the storage zones below, and each zone can narrow them further.</p>' : '';
     return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>${esc(presetLabel(d.preset))}</h5></div>
@@ -271,7 +271,7 @@
   }
 
   function vAccounts() {
-    if (!has('accounts.manage')) return adminErr('Account management is reserved for the root account.');
+    if (!has('accounts.manage')) return adminErr('Only the owner can manage accounts.');
     if (!A.accounts && !A.accountsError) loadAccounts();
     if (A.accountsError) return `<div class="admin-page">${adminErr(A.accountsError)}<div class="acct-actions">${btn('accountLoad', 'Try again', { icon: 'refresh-cw' })}</div></div>`;
     if (!A.accounts) return `<div class="admin-page">${loading('Loading accounts…')}</div>`;
@@ -284,7 +284,7 @@
       <div class="acct-linkrow"><input id="act-link-box" class="input" value="${esc(A.activationLink)}" readonly data-act="selectField" aria-label="Activation link">${btn('copyActivationLink', 'Copy', { icon: 'copy' })}</div></section>` : '';
     const policy = A.signups ? `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Registration</div><h5>${A.signups.allowed ? 'Open registration is ON' : 'Invite only'}</h5></div>
       ${A.signups.locked_by_env ? '<span class="small dim">locked by the ALLOW_SIGNUPS environment variable</span>' : btn('toggleSignups', A.signups.allowed ? 'Switch to invite only' : 'Allow open registration', { arg: A.signups.allowed ? '0' : '1' })}</div>
-      <p class="acct-note">Invite only is recommended: accounts then exist only when root creates them here.</p></section>` : '';
+      <p class="acct-note">Invite only is recommended: then only the owner can create accounts, here.</p></section>` : '';
     return `<div class="admin-page acct-page">
       <div class="admin-page-head"><div><div class="cap">Administration · identity &amp; access</div><h3>Accounts</h3><p>Create staff accounts, decide exactly what each one may do and where, and limit when and from where they can sign in. Only root can open this view.</p></div>
         <div class="acct-actions">${btn('accountLoad', 'Refresh', { icon: 'refresh-cw' })}${btn('accountCreateToggle', A.createOpen ? 'Close form' : 'New account', { primary: !A.createOpen, icon: A.createOpen ? 'x' : 'user-plus' })}</div></div>

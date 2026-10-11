@@ -514,7 +514,7 @@
     return `<div class="tbar md-full" style="border-bottom:0;background:var(--color-bg)"><span class="small dim">${esc(bits.join(' · '))}</span>
       ${D.md.err ? `<span class="small hot ell" title="${esc(D.md.err)}">last refresh failed: ${esc(D.md.err)}</span>` : ''}
       ${warn ? `<span class="small hot ell" title="${esc(warn)}">${esc(warn)}</span>` : ''}
-      <div style="flex:1"></div><button class="pill" data-act="mdRefresh">Refresh</button></div>`;
+      <div class="grow"></div><button class="pill" data-act="mdRefresh">Refresh</button></div>`;
   }
 
   function kpisHealth() {
@@ -623,7 +623,7 @@
     // the inline "1fr 360px" is what layout.js looks for: it adds the drag grip and remembers the aside's width
     return `<section class="panel md-full md-short" style="padding:0">
       <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
-      <div class="tbar">${pills}<div style="flex:1"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
+      <div class="tbar">${pills}<div class="grow"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
         <input id="md_q" class="input" value="${esc(S.md.qRaw)}" placeholder="Filter paths…" autocomplete="off" spellcheck="false" aria-label="Filter held paths"></div>
       <div class="split ${n > 12 || sel ? 'md-tall' : ''}" style="grid-template-columns:${sel ? '1fr 360px' : '1fr'}">
         <section class="aside">${body}</section>${sel ? holdAside(sel) : ''}</div>
@@ -639,7 +639,7 @@
       <div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);flex:none">
         <div class="cap red">${esc(h.state || '?')}${h.severity ? ' · ' + esc(h.severity) : ''}</div>
         <h5 style="margin:3px 0 2px;font-size:15px;word-break:break-all">${esc(h.path)}</h5>
-        <div class="act-row" style="margin-top:8px">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
+        <div class="act-row mt-2">${holdButtons(h)} <button class="pill" data-act="mdSelClose">Close</button></div>
       </div>
       <div class="scroll" style="padding:2px 16px 14px" data-scroll="md-aside">
         <div class="cap" style="margin:8px 0 2px">Findings · ${fmt.n(h.findings.length)} · redacted</div>
@@ -689,10 +689,10 @@
     const body = `<div style="display:flex;gap:26px;margin:2px 0 6px">${big('Configured', N.configured)}${big('Effective', N.effective, diff && N.configured !== 'auto')}</div>
       <div class="small dim">${esc(NEG_HELP[N.effective] || '')}</div>
       ${why ? `<p class="small hot" style="margin:8px 0 0">${esc(why)}</p>` : ''}
-      <div class="cap" style="margin-top:14px">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
+      <div class="cap mt-3">Edge rules · ${esc(edgeWord(N))}${N.checked ? ' · checked ' + esc(srvAgo(N.checked)) : ''}</div>
       ${rules.map(([k, v]) => `<div class="logline"><span>${esc(k)}</span><span class="${v === 'installed' ? '' : 'hot'}">${esc(v)}</span></div>`).join('')}
-      ${edgeErr ? `<div class="small hot" style="margin-top:4px">${esc(edgeErr)}</div>` : ''}
-      <div class="cap" style="margin-top:14px">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
+      ${edgeErr ? `<div class="small hot mt-1">${esc(edgeErr)}</div>` : ''}
+      <div class="cap mt-3">Cloudflare token</div>${capRows || '<div class="small dim">Not reported yet.</div>'}
       ${needs.length ? `<p class="small" style="margin:8px 0 0">Add to the Cloudflare token (zone ${esc(INST.zone)}): <b>${esc(needs.join(', '))}</b></p>` : ''}`;
     return panelH('Negotiation', 'AVIF / WebP for canonical image URLs', body);
   }
@@ -828,7 +828,7 @@
         { t: 'Path', w: 260 }, { t: 'Detail', w: 420 }], rows, { empty: 'No events in this window: nothing failed or was bypassed.' });
     return `<section class="panel md-full md-short" style="padding:0">
       <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
-      <div class="tbar">${kindPills}<div style="flex:1"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
+      <div class="tbar">${kindPills}<div class="grow"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
   }
 
   /* media_rules.file_policy_preview(): {counts: {total, dangerous, unknown, safe, rescued}, by_ext: {dangerous: {ext: n},
@@ -900,7 +900,7 @@
           and the worker, and renders the file policy, media routes and scan gate into Caddy, validated before the reload.</li>
         <li>The switch-on time becomes the <i>cutover</i>: older files stay online while their first scan runs.</li>
       </ol>
-      ${tools ? `<div class="cap" style="margin-top:14px">Tools on this machine</div>${tools}` : ''}
+      ${tools ? `<div class="cap mt-3">Tools on this machine</div>${tools}` : ''}
       <div class="act-row"><button class="btn btn-secondary" data-act="mdRefresh">Check again</button>
         ${disabled ? `<button class="btn btn-secondary" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>Preview the file policy</button>` : ''}
         <span class="small dim">${D.md.at ? 'checked ' + esc(fmt.ago(D.md.at)) : ''}</span></div>

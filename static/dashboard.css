@@ -32,6 +32,13 @@ button { font: inherit; color: inherit; }
 .mono { font-family: var(--font-mono); font-size: .92em; }
 .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .grow { flex: 1; min-width: 0; }
+/* spacing on the --space-* tokens (styles.css), in place of one-off inline styles. !important keeps the
+   precedence the inline style had over component rules like .ph and .cap */
+.hrow { display: flex !important; gap: var(--space-2) !important; }
+.mt-1 { margin-top: var(--space-1) !important; }
+.mt-2 { margin-top: var(--space-2) !important; }
+.mt-3 { margin-top: var(--space-3) !important; }
+.mt-4 { margin-top: var(--space-4) !important; }
 
 /* sidebar */
 .brand { height: 66px; box-sizing: border-box; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px 0 16px; border-bottom: 2px solid var(--color-divider); }
@@ -155,7 +162,7 @@ footer .clock { color: var(--color-text); font-family: var(--font-heading); font
 .tbar { display: flex; align-items: center; gap: 7px; padding: 9px 18px; border-bottom: 2px solid var(--color-divider); flex-wrap: wrap; flex: none; }
 .tbar .input { width: auto; height: var(--ctl-sm); min-height: var(--ctl-sm); padding: 3px 8px; font-size: 12.5px; }
 .tbar select.input { padding-right: 22px; }
-.tbar > span[style*="display:flex"] { align-items: center; }
+.tbar > .hrow { align-items: center; }
 .tbar #fsearch, .tbar #blq { flex: 1 1 130px; max-width: 260px; }
 .tbar > span.small:first-child { flex: 1 1 320px; min-width: 0; }
 .twrap { flex: 1; min-height: 0; overflow: auto; }
