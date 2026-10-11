@@ -26,7 +26,8 @@ It runs on the same machine as [Caddy](https://caddyserver.com) and
 [cloudflared](https://github.com/cloudflare/cloudflared). It reads Caddy's access log, writes the Caddy config for
 the folders you serve, and can use the Cloudflare API for DNS, cache purges and blocking IPs at the edge. It is plain
 Python with no web framework, stores everything in SQLite, and the dashboard is vanilla JavaScript with no build
-step.
+step. It is built and used on Windows; on Linux the test suite passes, but no real install has run yet (see
+[Platforms](#platforms)).
 
 I build and run it on Windows. The Linux path is written but has never been run on a real Linux machine, see
 [Platforms](#platforms).
@@ -80,7 +81,7 @@ e-mail (any SMTP server, or Resend) and to webhooks (Discord, Slack, ntfy, or pl
 - **Files:** browse, upload (chunked and resumable, 20 GB per file by default), rename, move, keep versions and
   restore them. Smart-Sort files uploads into folders by type.
 - **Accounts:** an owner, administrators and members with per-permission and per-folder access, end dates and IP
-  allowlists. Every sign-in needs a code sent by e-mail, and the owner can add TOTP. Accounts that can change more than
+  allowlists. Every sign-in needs a code: from an authenticator app for the owner, by e-mail for everyone else. Accounts that can change more than
   files can only sign in from the local network. There are API keys and an audit log.
 - **Health:** Caddy, the tunnel's edge connections, storage latency and the host, polled every few seconds.
 - **Code:** an editor for Strata's own source in the browser, with conflict checks and backups.
@@ -123,8 +124,9 @@ change. In order:
    file is put back.
 4. **Cloudflare Tunnel:** finds cloudflared, backs up its `config.yml` and adds an ingress rule for the CDN hostname.
    Without a tunnel it can create one (a browser opens to sign in to Cloudflare) and point the DNS record at it.
-5. **Keys and the owner account:** a Cloudflare API token (optional), mail for the sign-in codes, and the owner's
-   username, password and e-mail.
+5. **Keys and the owner account:** a Cloudflare API token (optional), mail for the sign-in codes (optional), and the
+   owner's username and password. Then it shows a QR code for an authenticator app, or asks for the owner's e-mail
+   instead.
 6. **`strata.json`**, written to the instance folder. An existing one is backed up first.
 7. **The service:** a Task Scheduler task that starts at boot as SYSTEM and restarts after a failure.
 
@@ -148,19 +150,28 @@ the dashboard only works on Windows for now.
 
 ### Mail for sign-in codes
 
-Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one, so Strata needs a way to
-send mail: any SMTP server (your mail provider's or your own), or a [Resend](https://resend.com) API key with a
-sender on a domain you verified there. Switch between the two under Security › Alerts › Delivery, or from the
-command line (the SMTP password is asked for, never passed as an argument):
+Every sign-in asks for a six-digit code after the password. The owner can take it from an authenticator app, which
+needs no mail setup at all. Every other account gets its code by e-mail, so a site only you sign in to needs no
+e-mail, but inviting people does. Mail goes out through any SMTP server (your mail provider's or your own), or a
+[Resend](https://resend.com) API key with a sender on a domain you verified there. Switch between the two under
+Security › Alerts › Delivery.
+
+When the owner has an authenticator app, sign-in skips the e-mailed code. **Trust this browser for 30 days** on the
+app-code page skips the code too, on that browser only: the password is still needed, and a new password or a new
+app ends the trust. To change any of this later, on the server (the SMTP password is asked for, never passed as an
+argument):
 
 ```
-python auth.py --smtp <host> <port> <user> <from address>
-python auth.py --resend <api key> <from address>
+python auth.py --totp                                     set up the owner's authenticator app
+python auth.py --totp off                                 remove it
+python auth.py --smtp <host> <port> <user> <from address> mail through an SMTP server
+python auth.py --resend <api key> <from address>          mail through Resend
 python auth.py --email <owner address>
 ```
 
 Port 465 uses TLS, any other port STARTTLS. A relay on your own network without encryption can be set to "None" in
-Delivery; Strata then won't send a password to it.
+Delivery; Strata then won't send a password to it. Restart Strata after a change made on the command line. The owner
+can also set up the app in Settings › Security.
 
 ## How it works
 
@@ -206,6 +217,7 @@ rendered Caddy config in `generated/`. One copy of the code can run several site
 | `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | The tunnel and how to restart it after ingress changes |
 | `cloudflare.api_token`, `cloudflare.zone_id` | Optional. The `CF_API_TOKEN` environment variable overrides the token |
 | `alerts.provider`, `alerts.smtp` or `alerts.resend_api_key`, `alerts.from`, `alerts.to` | Mail for sign-in codes and alerts |
+| `auth.totp_secret`, `auth.recovery` | The owner's authenticator app and recovery codes (hashed) |
 | `listen`, `feed_listen`, `transform_listen`, `gate_listen` | Loopback addresses of Strata's own processes |
 
 All defaults are in `DEFAULTS` at the top of [core.py](core.py). `strata.json` holds secrets and is in `.gitignore`.
@@ -214,9 +226,9 @@ All defaults are in `DEFAULTS` at the top of [core.py](core.py). `strata.json` h
 
 | | Windows | Linux |
 |---|---|---|
-| Dashboard, traffic, files, serving, accounts | yes | written, not run yet |
-| Installer | Task Scheduler | systemd, not run yet |
-| Restart the tunnel from the dashboard | yes | no |
+| Dashboard, traffic, files, serving, accounts | yes | test suite passes, no real install yet |
+| Installer | Task Scheduler | systemd, untested |
+| Restart the tunnel from the dashboard | yes | not yet |
 | Drive letters and volume labels in the drive picker | yes | n/a |
 
 ## Development
@@ -253,5 +265,5 @@ the Windows service as SYSTEM, and deciding whether sign-in should work without 
 
 ## License
 
-[MIT](LICENSE). The bundled CodeMirror and Lucide icons keep their own licenses, in `static/vendor/`. The other
-projects Strata depends on are credited under Settings › About.
+[MIT](LICENSE). The bundled CodeMirror (5.65.21) and Lucide icons keep their own licenses, in `static/vendor/`. The
+other projects Strata depends on are credited under Settings › About.

@@ -12,14 +12,14 @@ const ACTION_HELP = {
   allow: 'Always serve what matches. Use it for an exception to a broader hide, forbid or protect rule of the same scope.',
   hide: 'Answers 404 with your normal “not found” page, so the file looks like it does not exist.',
   deny: 'Answers 403 Forbidden.',
-  password: 'The browser asks for a user name and password (HTTP basic auth, bcrypt-hashed by Caddy). Protected responses are sent with Cache-Control: private, no-store so Cloudflare never caches them.',
-  signed: 'Only links created with Strata’s “signed link” (with ?exp=&sig=) work, and only until they expire. Checked by Strata Transform.',
-  ip_allow: 'Only these addresses / ranges get the content; everyone else gets 403. Not cached by Cloudflare.',
-  geo_allow: 'Only visitors from these countries (Cloudflare’s country header). Not cached by Cloudflare.',
+  password: 'Asks for a username and password. Not cached by Cloudflare.',
+  signed: 'Only signed links work, until they expire.',
+  ip_allow: 'Only these addresses get in. Not cached by Cloudflare.',
+  geo_allow: 'Only these countries get in. Not cached by Cloudflare.',
   geo_deny: 'Visitors from these countries get 403. Not cached by Cloudflare.',
-  hotlink: 'Requests with a Referer from other sites get 403; direct visits and your own hosts always work. Protected responses are not cached by Cloudflare.',
-  download: 'Adds Content-Disposition: attachment, so browsers download instead of displaying.',
-  cache: 'Overrides the drive’s Cache-Control for matching paths, for browsers and Cloudflare alike.',
+  hotlink: 'Other sites can’t embed these files. Not cached by Cloudflare.',
+  download: 'Browsers download the file instead of showing it.',
+  cache: 'Sets caching for these paths, instead of the drive’s.',
   redirect: 'Sends visitors elsewhere (301 permanent or 302 temporary).',
   gallery: 'Matching folders open as a thumbnail gallery with a viewer instead of a 404. /folder/* covers the folder and every sub-folder; files are served exactly as before. Listings are never cached by Cloudflare, thumbnails use the drive’s ?w= modifiers. Switch the rule off to hide the gallery again.',
   player: 'Desktop and tablet browsers opening a matching audio file (mp3, flac, m4a, ogg, opus, wav, alac…) get a visualizer page with the cover art, title and artist instead of the bare file. Phones, embedded players, link previews and ?dl=1 still get the file; ?raw=1 always does. Cloudflare stops caching the bare URL (it caches ?raw=1 instead). Tick “Purge” below so older cached copies stop being served.',
@@ -94,9 +94,10 @@ document.addEventListener('change', (e) => {
   const id = e.target.id || '';
   if (/_exp$/.test(id)) { const at = $('#' + id + 'at'); if (at) at.style.display = e.target.value === 'custom' ? 'inline-block' : 'none'; }
   if (id === 'r_action') { const box = $('#r_params'); if (box) box.innerHTML = ruleParams(e.target.value, {}); const h = $('#r_help'); if (h) h.textContent = ACTION_HELP[e.target.value] || ''; }
-  if (id === 'r_cachepre' && e.target.value) $('#p_cache').value = e.target.value;
-  if (id === 'd_cachepre' && e.target.value) $('#d_cache').value = e.target.value;
-  if (id === 'd_edgepre' && e.target.value !== '-') $('#d_edge').value = e.target.value;
+  // a preset select only fills in the text field next to it, then goes back to "presets…"
+  if (id === 'r_cachepre' && e.target.value) { $('#p_cache').value = e.target.value; e.target.value = ''; }
+  if (id === 'd_cachepre' && e.target.value) { $('#d_cache').value = e.target.value; e.target.value = ''; }
+  if (id === 'd_edgepre' && e.target.value !== '-') { $('#d_edge').value = e.target.value; e.target.value = '-'; }
   if (id === 'd_kind') {
     const k = e.target.value;
     document.querySelectorAll('.d-files').forEach((x) => { x.style.display = k === 'files' ? '' : 'none'; });
@@ -127,7 +128,7 @@ function vServing() {
   else if (S.srvTab === 'config') body = configTab(V);
   else if (S.srvTab === 'test') body = testTab();
   else body = drivesTab(V);
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+  return `<div class="col-fill">
     <div class="tbar">${tabs.map(([k, l]) => `<button class="pill ${S.srvTab === k ? 'on' : ''}" data-act="srvTab" data-arg="${k}">${l}</button>`).join('')}
       <div class="grow"></div><span class="small dim">live config ${esc(sv.sha || '—')} · ${esc(sv.reason || '')} · ${esc(fmt.ago(sv.ts))}</span></div>
     <div class="ctab" data-scroll="srv-${S.srvTab}">${body}</div></div>`;
@@ -136,7 +137,7 @@ function drivesTab(V) {
   const rows = V.mounts.map((m) => ({
     cells: [cell(m.name, 'h800'), cell(m.kind === 'proxy' ? 'service' : m.kind, 'dim'), cell(m.path, m.error ? 'hot' : '', m.error || m.path), cell(m.kind === 'page' ? '/ only' : m.prefix, 'dim'),
       cell(m.hosts.join(', '), 'dim'), cell(m.kind === 'proxy' ? '—' : m.cache + (m.edge_cache ? ' · Cloudflare: ' + m.edge_cache : ''), 'dim'),
-      m.kind === 'proxy' ? gateCell(m.gate) : cell([m.precompress ? 'br' : '', m.transforms ? 'modifiers' : '', m.browse ? 'listing' : ''].filter(Boolean).join(' · ') || '—', 'dim'),
+      m.kind === 'proxy' ? gateCell(m.gate) : cell([m.precompress ? 'br' : '', m.transforms ? 'modifiers' : '', m.browse ? 'listing' : ''].filter(Boolean).join(', ') || '—', 'dim'),
       cell(m.disk ? fmt.bytes(m.disk.free) + ' free' : m.kind === 'proxy' ? '' : 'offline', m.disk || m.kind === 'proxy' ? 'r dim' : 'r hot'),
       cell(m.index ? fmt.bytes(m.index.bytes) + ' · ' + fmt.n(m.index.files) : '—', 'r dim'), cell(m.enabled ? 'on' : 'off', m.enabled ? '' : 'hot'),
       hcell(`<button class="pill" data-act="driveEdit" data-arg="${m.id}">Edit</button> <button class="pill danger" data-act="driveDelete" data-arg="${m.id}">Remove</button>`)],
@@ -154,8 +155,8 @@ function gateCell(g) {
     g.users.map((u) => u.user + (u.totp ? ' (2FA)' : '')).concat((g.public || []).map((p) => 'public: ' + p)).join('\n'));
 }
 function gateUserRow(u) {
-  return `<div class="g_row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center"><input class="input g_user" placeholder="user" value="${esc(u.user || '')}" style="flex:1" maxlength="40" autocomplete="off">
-    <input class="input g_pass" type="password" placeholder="${u.user ? '(unchanged)' : 'password, 12+ characters'}" autocomplete="new-password" style="flex:1.3">
+  return `<div class="g_row hrow mb-6 items-center"><input class="input g_user fill" placeholder="user" value="${esc(u.user || '')}" maxlength="40" autocomplete="off">
+    <input class="input g_pass flex-13" type="password" placeholder="${u.user ? '(unchanged)' : 'password, 12+ characters'}" autocomplete="new-password">
     <label class="dlg-check" title="Ask for a code from an authenticator app (TOTP)"><input type="checkbox" class="g_totp" ${u.totp ? 'checked' : ''}> 2FA</label>
     <button class="link" data-act="gDelUser" title="Remove">✕</button></div>`;
 }
@@ -180,7 +181,7 @@ function rulesTab(V) {
 }
 function siteTab(V) {
   const s = V.site;
-  return `<div class="settings" style="grid-template-columns:1fr 1fr"><section class="panel">
+  return `<div class="settings cols-2"><section class="panel">
     <div class="ph"><h5>Error pages</h5></div>
     <div class="set-row"><div><div class="h800">Drive</div><div class="small dim">Where your error pages are stored.</div></div>
       <div class="set-ctl"><select id="s_emount" class="input">${mountOpts(s.error_mount)}</select></div></div>
@@ -190,15 +191,15 @@ function siteTab(V) {
       <div class="set-ctl srow"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
     <div class="ph"><h5>Other hosts</h5></div>
     <div class="set-row"><div><div class="h800">Unknown hostname</div><div class="small dim">Text answered for hosts no drive serves.</div></div>
-      <div class="set-ctl"><input id="s_unknown" class="input" value="${esc(s.unknown_host)}" style="width:240px"></div></div>
+      <div class="set-ctl"><input id="s_unknown" class="input w-240" value="${esc(s.unknown_host)}"></div></div>
     <div class="ph"><h5>Responses</h5></div>
-    <div class="set-row"><div><div class="h800">Response compression</div><div class="small dim">On-the-fly encodings (Brotli comes from the precompressed store).</div></div>
+    <div class="set-row"><div><div class="h800">Response compression</div><div class="small dim">Compress responses on the fly.</div></div>
       <div class="set-ctl"><label class="dlg-check"><input type="checkbox" id="s_gzip" ${s.encode.includes('gzip') ? 'checked' : ''}> gzip</label><label class="dlg-check"><input type="checkbox" id="s_zstd" ${s.encode.includes('zstd') ? 'checked' : ''}> zstd</label></div></div>
-    <div class="set-row"><div><div class="h800">Security headers</div><div class="small dim">X-Content-Type-Options: nosniff and hiding the Server header.</div></div>
+    <div class="set-row"><div><div class="h800">Security headers</div><div class="small dim">Send nosniff and hide the Server header.</div></div>
       <div class="set-ctl"><label class="dlg-check"><input type="checkbox" id="s_nosniff" ${s.nosniff ? 'checked' : ''}> nosniff</label><label class="dlg-check"><input type="checkbox" id="s_hide" ${s.hide_server ? 'checked' : ''}> hide Server</label></div></div>
     <div class="act-row"><button class="btn btn-primary" data-act="siteSave">Save & apply</button></div>
   </section><section class="panel">
-    <div class="ph"><h5>Not logged</h5><span class="small dim">polling endpoints that would drown the statistics</span></div>
+    <div class="ph"><h5>Not logged</h5><span class="small dim">polling paths left out of the stats</span></div>
     ${(s.quiet || []).map((q) => `<div class="logline"><span>${esc(q.host)}</span><span>${esc(q.paths.join(' '))}</span></div>`).join('')}
     <div class="ph smt-3"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
     <div class="ph smt-3"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
@@ -211,21 +212,21 @@ function configTab(V) {
   return `<div class="grid2" style="grid-template-columns:1.2fr 1fr;flex:1;min-height:0">
     <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span class="srow">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
       <pre class="code" data-scroll="caddytext">${esc(shown)}</pre></section>
-    <section class="panel"><div class="ph"><h5>History</h5><span class="small dim">every applied (and refused) change</span></div>
+    <section class="panel"><div class="ph"><h5>History</h5><span class="small dim">every change, applied or refused</span></div>
       ${table('srv-hist', [{ t: '#', w: 50 }, { t: 'When', w: 110 }, { t: 'By', w: 80 }, { t: 'Change', w: 220 }, { t: 'SHA', w: 130 }, { t: 'Result', w: 70 }, { t: '', w: 140 }], rows)}</section></div>`;
 }
 function testTab() {
   const R = D.testRes;
-  return `<div class="settings" style="grid-template-columns:1fr 1fr"><section class="panel">
+  return `<div class="settings cols-2"><section class="panel">
     <div class="ph"><h5>What would happen?</h5><span class="small dim">evaluated against the current rules</span></div>
-    <div class="set-row"><div class="h800">URL</div><div class="set-ctl"><input id="t_url" class="input" value="${esc((R && R.url) || 'https://' + cdnHost() + '/')}" style="width:360px"></div></div>
-    <div class="set-row"><div class="h800">Client IP</div><div class="set-ctl"><input id="t_ip" class="input" value="${esc((R && R.ip) || '')}" placeholder="e.g. 203.0.113.7" style="width:200px"></div></div>
-    <div class="set-row"><div class="h800">Country</div><div class="set-ctl"><input id="t_cc" class="input" value="${esc((R && R.cc) || '')}" placeholder="DE" style="width:80px"></div></div>
-    <div class="set-row"><div class="h800">User agent</div><div class="set-ctl"><input id="t_ua" class="input" value="${esc((R && R.ua) || 'Mozilla/5.0 Chrome/140')}" style="width:300px"></div></div>
-    <div class="set-row"><div class="h800">Referer</div><div class="set-ctl"><input id="t_ref" class="input" value="${esc((R && R.ref) || '')}" placeholder="https://other.site/page" style="width:300px"></div></div>
+    <div class="set-row"><div class="h800">URL</div><div class="set-ctl"><input id="t_url" class="input w-360" value="${esc((R && R.url) || 'https://' + cdnHost() + '/')}"></div></div>
+    <div class="set-row"><div class="h800">Client IP</div><div class="set-ctl"><input id="t_ip" class="input w-200" value="${esc((R && R.ip) || '')}" placeholder="e.g. 203.0.113.7"></div></div>
+    <div class="set-row"><div class="h800">Country</div><div class="set-ctl"><input id="t_cc" class="input w-80" value="${esc((R && R.cc) || '')}" placeholder="DE"></div></div>
+    <div class="set-row"><div class="h800">User agent</div><div class="set-ctl"><input id="t_ua" class="input w-300" value="${esc((R && R.ua) || 'Mozilla/5.0 Chrome/140')}"></div></div>
+    <div class="set-row"><div class="h800">Referer</div><div class="set-ctl"><input id="t_ref" class="input w-300" value="${esc((R && R.ref) || '')}" placeholder="https://other.site/page"></div></div>
     <div class="act-row"><button class="btn btn-primary" data-act="srvTest">Test</button></div>
   </section><section class="panel"><div class="ph"><h5>Result</h5></div>
-    ${R ? `<div class="big-num" style="font-size:24px">${esc(R.result)}</div>${(R.steps || []).map((s) => `<div class="logline"><span>${esc(s)}</span><span></span></div>`).join('')}` : '<div class="empty">Enter a URL and press Test.</div>'}
+    ${R ? `<div class="big-num fs-24">${esc(R.result)}</div>${(R.steps || []).map((s) => `<div class="logline"><span>${esc(s)}</span><span></span></div>`).join('')}` : '<div class="empty">Enter a URL and press Test.</div>'}
   </section></div>`;
 }
 
@@ -248,31 +249,31 @@ function driveEditor(m) {
         <label>Access<select id="g_mode" class="input"><option value="login" ${g.mode !== 'public' ? 'selected' : ''}>Login required (Strata gate)</option><option value="public" ${g.mode === 'public' ? 'selected' : ''}>Public — anyone on the internet</option></select></label>
         <label>Session length (hours)<input id="g_hours" class="input" type="number" min="1" max="168" value="${esc(g.hours || 12)}"></label>
         <div id="g_login" class="wide" style="${g.mode === 'public' ? 'display:none' : ''}">
-          <div class="small dim" style="margin-bottom:6px">Users who may sign in. Passwords are stored as PBKDF2 hashes; 2FA shows a QR code once after saving. Removing a user or changing a password signs them out everywhere.</div>
+          <div class="small dim mb-6">Who may sign in. With 2FA, a QR code shows once after saving.</div>
           <div id="g_users">${(g.users.length ? g.users : [{}]).map(gateUserRow).join('')}</div>
           <button class="pill" data-act="gAddUser">+ user</button>
           <label class="wide smt-2">Public paths — no login (one per line, full URL paths, * = wildcard; e.g. a radio's /listen/*)
             <textarea id="g_public" class="input" rows="3" placeholder="/listen/*&#10;/public/*">${esc((g.public || []).join('\n'))}</textarea></label></div>
       </div>
-      <label class="wide d-local">Cache-Control (browsers)<span class="srow"><select id="d_cachepre" class="input"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input" value="${esc(m.cache || '')}" style="flex:1"></span></label>
-      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span class="srow"><select id="d_edgepre" class="input"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control" style="flex:1"></span></label>
+      <label class="wide d-local">Cache-Control (browsers)<span class="srow"><select id="d_cachepre" class="input preset" aria-label="Cache-Control presets"><option value="">presets…</option>${caches.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_cache" class="input" value="${esc(m.cache || '')}" style="flex:1"></span></label>
+      <label class="wide d-local">Cloudflare cache (edge only, sent as Cloudflare-CDN-Cache-Control)<span class="srow"><select id="d_edgepre" class="input preset" aria-label="Cloudflare cache presets"><option value="-">presets…</option>${edges.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select><input id="d_edge" class="input" value="${esc(m.edge_cache || '')}" placeholder="empty = Cloudflare follows Cache-Control" style="flex:1"></span></label>
       <div class="wide d-local" style="display:flex;gap:16px;flex-wrap:wrap">
         <label class="dlg-check"><input type="checkbox" id="d_pre" ${m.precompress ? 'checked' : ''}> Brotli precompression</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_tf" ${m.transforms ? 'checked' : ''}> Link modifiers (?w ?fm ?ver)</label>
         <label class="dlg-check d-files"><input type="checkbox" id="d_browse_on" ${m.browse ? 'checked' : ''}> Directory listing</label>
         <label class="dlg-check"><input type="checkbox" id="d_en" ${m.enabled ? 'checked' : ''}> Enabled</label></div>
       <label class="wide">Note<input id="d_note" class="input" value="${esc(m.note || '')}"></label>
-    </div><p class="small dim">New hostnames also need a route in cloudflared’s config.yml and a DNS record before the internet can reach them; Strata only changes Caddy.</p>`,
+    </div><p class="small dim">New hostnames also need a tunnel route and a DNS record: this only changes Caddy.</p>`,
   `<button class="btn btn-primary" data-act="driveSave" data-arg="${m.id || ''}">Save & apply</button>`, true);
 }
 async function fsBrowse(path) {
   const box = $('#d_browse'); if (!box) return;
   try {
     const [dr, ls] = await Promise.all([get('/api/drives'), path ? get('/api/fs?path=' + enc(path)) : Promise.resolve(null)]);
-    box.innerHTML = `<div class="fsb"><div class="tbar" style="padding:6px 0;border:0">${dr.drives.map((d) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(d.path)}" title="${esc(d.kind)} ${d.total ? fmt.bytes(d.free) + ' free' : ''}">${esc(d.path)} ${esc(d.label || '')}</button>`).join('')}
+    box.innerHTML = `<div class="fsb"><div class="tbar px-0 py-6 border-0">${dr.drives.map((d) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(d.path)}" title="${esc(d.kind)} ${d.total ? fmt.bytes(d.free) + ' free' : ''}">${esc(d.path)} ${esc(d.label || '')}</button>`).join('')}
       ${dr.served.map((s) => `<button class="pill" data-act="fsBrowse" data-arg="${esc(s.path)}">${esc(s.name)}</button>`).join('')}</div>
-      ${ls ? `<div class="small h800" style="margin:4px 0">${esc(ls.path)} <button class="link" data-act="fsPick" data-arg="${esc(ls.path)}">use this folder</button>${ls.parent ? ` · <button class="link" data-act="fsBrowse" data-arg="${esc(ls.parent)}">up</button>` : ''}</div>
-        <div class="plist" style="max-height:26vh">${ls.dirs.map((d) => `<button data-act="fsBrowse" data-arg="${esc(ls.path.replace(/[\\/]$/, '') + '\\' + d)}"><span class="fico dir"></span>${esc(d)}</button>`).join('') || '<div class="empty">No sub-folders.</div>'}</div>` : ''}</div>`;
+      ${ls ? `<div class="small h800 mx-0 my-4">${esc(ls.path)} <button class="link" data-act="fsPick" data-arg="${esc(ls.path)}">use this folder</button>${ls.parent ? ` · <button class="link" data-act="fsBrowse" data-arg="${esc(ls.parent)}">up</button>` : ''}</div>
+        <div class="plist max-h-26vh">${ls.dirs.map((d) => `<button data-act="fsBrowse" data-arg="${esc(ls.path.replace(/[\\/]$/, '') + '\\' + d)}"><span class="fico dir"></span>${esc(d)}</button>`).join('') || '<div class="empty">No sub-folders.</div>'}</div>` : ''}</div>`;
   } catch (e) { box.innerHTML = `<div class="small hot">${esc(e.message)}</div>`; }
 }
 
@@ -282,16 +283,16 @@ function ruleParams(action, p) {
   if (action === 'password') {
     const users = (p.users && p.users.length ? p.users : [{ user: '' }]);
     return `<label class="wide">Realm (shown in the login prompt)<input id="p_realm" class="input" value="${esc(p.realm || 'Protected')}"></label>
-      <div class="wide" id="p_users">${users.map((u, i) => `<div style="display:flex;gap:6px;margin-bottom:6px"><input class="input p_user" placeholder="user" value="${esc(u.user || '')}" style="flex:1"><input class="input p_pass" type="password" placeholder="${u.user ? '(unchanged)' : 'password'}" autocomplete="new-password" style="flex:1"></div>`).join('')}</div>
+      <div class="wide" id="p_users">${users.map((u, i) => `<div class="hrow mb-6"><input class="input p_user fill" placeholder="user" value="${esc(u.user || '')}"><input class="input p_pass fill" type="password" placeholder="${u.user ? '(unchanged)' : 'password'}" autocomplete="new-password"></div>`).join('')}</div>
       <div class="wide"><button class="pill" data-act="pAddUser">+ user</button></div>`;
   }
-  if (action === 'ip_allow') return `<label class="wide">Allowed IPs / CIDR ranges (one per line)<textarea id="p_ips" class="input" rows="4">${esc((p.ips || []).join('\n'))}</textarea></label>`;
+  if (action === 'ip_allow') return `<label class="wide">Allowed IPs or ranges (one per line)<textarea id="p_ips" class="input" rows="4">${esc((p.ips || []).join('\n'))}</textarea></label>`;
   if (action === 'geo_allow' || action === 'geo_deny') return `<label class="wide">Country codes (DE, AT, US… T1 = Tor, XX = unknown)<input id="p_cc" class="input" value="${esc((p.countries || []).join(', '))}"></label>`;
   if (action === 'hotlink') return `<label class="wide">Sites allowed to embed (one per line; your own hosts are always allowed)<textarea id="p_domains" class="input" rows="3">${esc((p.domains || []).join('\n'))}</textarea></label>`;
-  if (action === 'cache') return `<label class="wide">Cache-Control<span class="srow"><select id="r_cachepre" class="input"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input" value="${esc(p.value || '')}" style="flex:1"></span></label>`;
+  if (action === 'cache') return `<label class="wide">Cache-Control<span class="srow"><select id="r_cachepre" class="input preset" aria-label="Cache-Control presets"><option value="">presets…</option><option>no-store</option><option>public, max-age=3600</option><option>public, max-age=86400</option><option>public, max-age=31536000, immutable</option></select><input id="p_cache" class="input" value="${esc(p.value || '')}" style="flex:1"></span></label>`;
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
-  if (action === 'player') return `<label class="wide">Background folder for files without cover art (URL path on the same drive; a random image is picked per visit)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
+  if (action === 'player') return `<label class="wide">Backgrounds for files without cover art (a folder on this drive)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
   return '';
 }
 function openRuleEditor(r) {
@@ -309,7 +310,7 @@ function openRuleEditor(r) {
       <label>Expires<span class="srow">${expiryFields('r', r.expires)}</span></label>
       <label class="dlg-check" style="align-self:end"><input type="checkbox" id="r_en" ${r.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Note<input id="r_note" class="input" value="${esc(r.note || '')}"></label>
-      <label class="dlg-check wide"><input type="checkbox" id="r_purge" ${r.purge || (!r.id && protective.includes(r.action)) ? 'checked' : ''}> Purge matching files from Cloudflare’s cache (so cached public copies stop being served)</label>
+      <label class="dlg-check wide"><input type="checkbox" id="r_purge" ${r.purge || (!r.id && protective.includes(r.action)) ? 'checked' : ''}> Purge matching files from Cloudflare’s cache</label>
     </div>`, `<button class="btn btn-primary" data-act="ruleSave" data-arg="${r.id || ''}">Save & apply</button>`, true);
 }
 window.openRuleEditor = openRuleEditor;
@@ -344,7 +345,7 @@ Object.assign(ACT, {
         users: [...document.querySelectorAll('#g_users .g_row')].map((r) => ({ user: r.querySelector('.g_user').value.trim(), password: r.querySelector('.g_pass').value, totp: r.querySelector('.g_totp').checked })).filter((u) => u.user) };
       if (body.gate.mode === 'public') {
         const ok = await ask({ kicker: 'Public service', title: 'Anyone on the internet can open ' + (body.path || 'this service'), danger: true, ok: 'Make it public',
-          text: 'Without the Strata login, whatever the service shows is reachable by everyone who finds the URL. Only do this for things built to be public.' });
+          text: 'Without the Strata login, anyone with the URL sees what it shows. Only do this for services meant to be public.' });
         if (!ok) return;
       }
     }
@@ -364,7 +365,7 @@ Object.assign(ACT, {
   gCopy(uri) { copy(uri, 'otpauth link'); },
   async driveDelete(id) {
     const m = D.serv.mounts.find((x) => x.id === +id);
-    const ok = await ask({ kicker: 'Remove drive', title: 'Stop serving ' + m.name + '?', danger: true, ok: 'Remove', text: 'Caddy stops serving it and its access rules are removed. The files on disk are NOT touched.' });
+    const ok = await ask({ kicker: 'Remove drive', title: 'Stop serving ' + m.name + '?', danger: true, ok: 'Remove', text: 'Caddy stops serving it and its rules are removed. The files on disk stay.' });
     if (ok) { try { await mutate('/api/serving/mount/delete', { id: +id }, 'Drive removed'); loadDrives(); } catch { /* shown */ } }
   },
   ruleEdit(id) { openRuleEditor(id ? JSON.parse(JSON.stringify(D.serv.rules.find((r) => r.id === +id))) : null); },
@@ -381,9 +382,9 @@ Object.assign(ACT, {
     try { await mutate('/api/serving/rule', r, r.enabled ? 'Rule enabled' : 'Rule disabled'); } catch { /* shown */ }
   },
   async ruleMove(arg) { const [id, d] = arg.split('|'); try { await mutate('/api/serving/rule/move', { id: +id, delta: +d }, 'Order changed'); } catch { /* shown */ } },
-  pAddUser() { $('#p_users').insertAdjacentHTML('beforeend', '<div style="display:flex;gap:6px;margin-bottom:6px"><input class="input p_user" placeholder="user" style="flex:1"><input class="input p_pass" type="password" placeholder="password" autocomplete="new-password" style="flex:1"></div>'); },
+  pAddUser() { $('#p_users').insertAdjacentHTML('beforeend', '<div class="hrow mb-6"><input class="input p_user fill" placeholder="user"><input class="input p_pass fill" type="password" placeholder="password" autocomplete="new-password"></div>'); },
   async rulePreset() {
-    const m = await pickFolder({ title: 'Only serve this folder (everything else on the drive answers 404)', mount: (D.serv.mounts.find((x) => x.kind === 'files') || {}).id, path: '/' });
+    const m = await pickFolder({ title: 'Only serve this folder: the rest of the drive answers 404', mount: (D.serv.mounts.find((x) => x.kind === 'files') || {}).id, path: '/' });
     if (!m) return;
     try {
       await mutate('/api/serving/rule', { name: 'Only ' + m.path, mount: m.mount, action: 'allow', patterns: [m.path.replace(/\/$/, '') + '/*'] }, '');
@@ -420,7 +421,7 @@ Object.assign(ACT, {
 </body>
 </html>
 `;
-    try { await post('/api/files/text', { mount, path, text, create: true }); note(`Created ${path} · remember to save the site settings`); }
+    try { await post('/api/files/text', { mount, path, text, create: true }); note(`Created ${path}. Save the site settings to use it.`); }
     catch (e) { if (!/exists/.test(e.message)) return note(e.message, { err: true }); }
     openEditor(mount, path);
   },
@@ -438,7 +439,7 @@ Object.assign(ACT, {
     try { const r = await get('/api/serving/history/' + id); D.histView = { id, content: r.content }; render(true); } catch (e) { note(e.message); }
   },
   async histRestore(id) {
-    const ok = await ask({ kicker: 'Restore revision', title: 'Put revision #' + id + ' live?', ok: 'Restore', text: 'Caddy runs that exact config again (validated first). Your rules in the database stay as they are; the next change re-renders from them.' });
+    const ok = await ask({ kicker: 'Restore revision', title: 'Put revision #' + id + ' live?', ok: 'Restore', text: 'Caddy runs that config again. The next change rebuilds it from your current rules.' });
     if (!ok) return;
     try { const r = await post('/api/serving/rollback', { id: +id }); note(r.note); await loadServ(); render(true); } catch (e) { note(e.message); }
   },
@@ -462,7 +463,7 @@ function blValueHint() {
 }
 function vBlacklist() {
   const V = D.serv;
-  if (!V) return loading('Loading blacklist…');
+  if (!V) return loading('Loading the blocklist…');
   const now = Date.now() / 1000;
   const act = (b) => b.enabled && (!b.expires || b.expires > now);
   const f = S.blFilter;
@@ -479,12 +480,12 @@ function vBlacklist() {
   const ab = D.me?.autoban || {};
   return `<div class="split" style="grid-template-columns:1fr 330px"><section class="aside">
     <div class="tbar">
-      <select id="bl_kind" class="input" style="font-size:12px;padding:4px">${kinds.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
-      <input id="bl_value" class="input" list="bl_list" placeholder="203.0.113.7" style="width:190px;font-size:12.5px;padding:5px 8px"><datalist id="bl_list"></datalist>
-      <select id="bl_action" class="input" style="font-size:12px;padding:4px"><option value="block">block</option><option value="challenge">challenge (edge)</option></select>
-      <select id="bl_scope" class="input" style="font-size:12px;padding:4px"><option value="both">origin + edge</option><option value="origin">origin only</option><option value="edge">edge only</option></select>
-      <span style="display:flex;gap:4px">${expiryFields('bl', null)}</span>
-      <input id="bl_note" class="input" placeholder="note" style="width:130px;font-size:12.5px;padding:5px 8px">
+      <select id="bl_kind" class="input fs-12 p-4">${kinds.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
+      <input id="bl_value" class="input w-190 fs-125 px-8 py-5" list="bl_list" placeholder="203.0.113.7"><datalist id="bl_list"></datalist>
+      <select id="bl_action" class="input fs-12 p-4"><option value="block">block</option><option value="challenge">challenge (edge)</option></select>
+      <select id="bl_scope" class="input fs-12 p-4"><option value="both">origin + edge</option><option value="origin">origin only</option><option value="edge">edge only</option></select>
+      <span class="d-flex gap-4">${expiryFields('bl', null)}</span>
+      <input id="bl_note" class="input w-130 fs-125 px-8 py-5" placeholder="note">
       <button class="pill on" data-act="blAdd">Add</button><button class="pill" data-act="blImport">Import list…</button>
     </div>
     <div class="tbar" style="padding:6px 18px">${[['active', 'Active'], ['auto', 'Auto-bans'], ['expired', 'Expired'], ['off', 'Disabled'], ['all', 'All']].map(([k, l]) => `<button class="pill ${f === k ? 'on' : ''}" data-act="blFilter" data-arg="${k}">${l}</button>`).join('')}
@@ -495,7 +496,7 @@ function vBlacklist() {
   </section>
   <aside class="aside">
     <div class="pad"><div class="cap red">Cloudflare edge</div><h5>${edge.ok ? 'Synced ' + esc(fmt.ago(edge.ts)) : caps.lists && caps.lists.ok === false ? 'Needs token permissions' : edge.error ? 'Not synced' : 'Checking…'}</h5></div>
-    <div style="padding:0 16px 10px" class="small">
+    <div class="small px-16 pt-0 pb-10">
       ${edge.ok ? `${fmt.n(edge.ips)} IPs in list <code>strata_blacklist</code> · ${fmt.n(edge.rules)} WAF rule(s)${edge.overflow ? ' · <span class="hot">expression too long, some entries origin-only</span>' : ''}` : `<span class="dim">${esc(edge.error || '')}</span>`}
       <p class="dim">The origin blacklist stops requests that reach Caddy. Cloudflare can still answer a banned visitor from its cache. Pushing the list to the edge closes that gap.</p>
       ${['lists', 'waf', 'purge'].map((k) => caps[k] ? `<div class="logline"><span>${esc({ lists: 'IP list', waf: 'WAF custom rules', purge: 'Cache purge' }[k])}</span><span class="${caps[k].ok ? '' : 'hot'}">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : 'untested'}</span></div>` : '').join('')}
@@ -512,17 +513,17 @@ Object.assign(ACT, {
   blFilter(f) { S.blFilter = f; render(true); },
   async blAdd() {
     const body = { kind: $('#bl_kind').value, value: $('#bl_value').value, action: $('#bl_action').value, scope: $('#bl_scope').value, expires: readExpiry('bl'), note: $('#bl_note').value };
-    if (!body.value.trim()) return note('Enter a value');
-    try { await mutate('/api/serving/bl', body, 'Blacklisted ' + body.value); } catch { /* shown */ }
+    if (!body.value.trim()) return note('Enter what to block');
+    try { await mutate('/api/serving/bl', body, 'Blocked ' + body.value); } catch { /* shown */ }
   },
   async blQuick(arg) {
     const [kind, value, secs] = arg.split('|');
-    try { await mutate('/api/serving/bl', { kind, value, expires: secs ? Date.now() / 1000 + +secs : null, note: 'from the dashboard' }, 'Blacklisted ' + value); } catch { /* shown */ }
+    try { await mutate('/api/serving/bl', { kind, value, expires: secs ? Date.now() / 1000 + +secs : null, note: 'from the dashboard' }, 'Blocked ' + value); } catch { /* shown */ }
   },
   async blToggle(id) { const b = D.serv.blacklist.find((x) => x.id === +id); try { await mutate('/api/serving/bl/toggle', { id: +id, enabled: !b.enabled }, b.enabled ? 'Disabled' : 'Enabled'); } catch { /* shown */ } },
   async blDelete(id) { try { await mutate('/api/serving/bl/delete', { ids: [+id] }, 'Removed'); } catch { /* shown */ } },
   blImport() {
-    openSheet('Import blacklist', 'Paste a list', `<div class="form">
+    openSheet('Import to the blocklist', 'Paste a list', `<div class="form">
       <label>Type<select id="bi_kind" class="input">${Object.entries(D.serv.bl_kinds).map(([k, l]) => `<option value="${k}" ${k === 'ip' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
       <label>Expires<span class="srow">${expiryFields('bi', null)}</span></label>
       <label class="wide">One entry per line (# starts a comment)<textarea id="bi_text" class="input" rows="10" placeholder="203.0.113.7&#10;198.51.100.0/24  # scanner range"></textarea></label>
@@ -532,12 +533,12 @@ Object.assign(ACT, {
   async blImportGo() {
     try {
       const r = await post('/api/serving/bl/bulk', { kind: $('#bi_kind').value, text: $('#bi_text').value, note: $('#bi_note').value, expires: readExpiry('bi'), scope: 'both' });
-      note('Imported ' + r.added + (r.errors.length ? ' · ' + r.errors.length + ' rejected' : ''));
+      note('Imported ' + r.added + (r.errors.length ? ', ' + r.errors.length + ' rejected' : ''));
       if (r.errors.length) alert(r.errors.join('\n'));
       closeSheet(); await loadServ(); render(true);
     } catch (e) { note(e.message); }
   },
-  async cfSync() { try { await post('/api/cloudflare/sync', {}); note('Edge sync queued'); setTimeout(() => { loadServ().then(refreshControl); }, 6000); } catch (e) { note(e.message); } },
+  async cfSync() { try { await post('/api/cloudflare/sync', {}); note('Cloudflare sync queued'); setTimeout(() => { loadServ().then(refreshControl); }, 6000); } catch (e) { note(e.message); } },
   async cfRecheck() { D.cf = null; render(true); await loadCf(); render(true); },
 });
 function ipRange(ip) {
@@ -548,9 +549,9 @@ const baseIpMenu = MENUS.ip;
 MENUS.ip = (ip) => {
   const m = baseIpMenu(ip);
   m.items = m.items.filter((i) => !/Caddy block rule|WAF expression/.test(i.label)).concat([
-    item('Blacklist ' + ip, '', () => ACT.blQuick('ip|' + ip + '|'), { sep: true, danger: true }),
-    item('Blacklist for 24 hours', '', () => ACT.blQuick('ip|' + ip + '|86400'), { danger: true }),
-    item('Blacklist range ' + ipRange(ip), '', () => ACT.blQuick('cidr|' + ipRange(ip) + '|'), { danger: true }),
+    item('Block ' + ip, '', () => ACT.blQuick('ip|' + ip + '|'), { sep: true, danger: true }),
+    item('Block for 24 hours', '', () => ACT.blQuick('ip|' + ip + '|86400'), { danger: true }),
+    item('Block range ' + ipRange(ip), '', () => ACT.blQuick('cidr|' + ipRange(ip) + '|'), { danger: true }),
   ]);
   return m;
 };
@@ -560,10 +561,10 @@ MENUS.req = (id) => {
   const r = (D.req?.rows || []).find((x) => x.id === +id);
   if (!m || !r) return m;
   m.items = m.items.filter((i) => !/Caddy block rule/.test(i.label)).concat([
-    item('Blacklist client ' + r.ip, '', () => ACT.blQuick('ip|' + r.ip + '|'), { sep: true, danger: true }),
-    item('Blacklist range ' + ipRange(r.ip), '', () => ACT.blQuick('cidr|' + ipRange(r.ip) + '|'), { danger: true }),
-    r.ua ? item('Blacklist this user agent', '', () => ACT.blQuick('ua_contains|' + r.ua.slice(0, 120) + '|'), { danger: true }) : null,
-    r.country && CC_RE.test(r.country) ? item('Blacklist country ' + r.country, '', () => ACT.blQuick('country|' + r.country + '|'), { danger: true }) : null,
+    item('Block client ' + r.ip, '', () => ACT.blQuick('ip|' + r.ip + '|'), { sep: true, danger: true }),
+    item('Block range ' + ipRange(r.ip), '', () => ACT.blQuick('cidr|' + ipRange(r.ip) + '|'), { danger: true }),
+    r.ua ? item('Block this user agent', '', () => ACT.blQuick('ua_contains|' + r.ua.slice(0, 120) + '|'), { danger: true }) : null,
+    r.country && CC_RE.test(r.country) ? item('Block country ' + r.country, '', () => ACT.blQuick('country|' + r.country + '|'), { danger: true }) : null,
   ].filter(Boolean));
   return m;
 };
@@ -617,7 +618,7 @@ function openLinkEditor(o, retried) {
   const l = o && o.code ? o : Object.assign({ code: '', mount: (o && o.mount) || (D.serv.mounts.find((m) => m.kind === 'files') || {}).id, path: (o && o.path) || '/', url: '', mods: {}, max_clicks: null, expires: null, note: '' }, o || {});
   const md = l.mods || {};
   const sel = (id, vals, cur) => `<select id="${id}" class="input">${vals.map(([v, t]) => `<option value="${v}" ${String(cur || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
-  openSheet(l.code ? 'Edit link' : 'Share & links', l.code ? '/l/' + l.code : (l.path || 'New link'), `
+  openSheet(l.code ? 'Edit link' : 'Share', l.code ? '/l/' + l.code : (l.path || 'New link'), `
     <div class="share-dialog-layout">
       <!-- Direct & Target info -->
       <div class="share-card share-target-card">
@@ -639,8 +640,8 @@ function openLinkEditor(o, retried) {
       <!-- Short tracked link options -->
       <div class="share-card">
         <div class="share-card-head">
-          <div class="cap">Branded short link</div>
-          <div class="small dim">Custom link with visitor counter, optional expiry, and access limits.</div>
+          <div class="cap">Short link</div>
+          <div class="small dim">Counts clicks and can expire.</div>
         </div>
         <div class="share-grid smt-2">
           <label>Short code
@@ -664,12 +665,12 @@ function openLinkEditor(o, retried) {
       <!-- Signed time-limited link -->
       <div class="share-card l-int">
         <div class="share-card-head">
-          <div class="cap">Cryptographically signed link</div>
-          <div class="small dim">Works for protected paths or folders with "signed links only" rule.</div>
+          <div class="cap">Signed link</div>
+          <div class="small dim">Opens paths that allow signed links only.</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-          ${sel('l_signdur', [['3600', '1 hour valid'], ['86400', '24 hours valid'], ['604800', '7 days valid'], ['2592000', '30 days valid']], ['3600', '86400', '604800', '2592000'].includes(String(shareSeconds())) ? String(shareSeconds()) : '604800')}
-          <button class="btn btn-secondary" data-act="linkSign">Generate signed link</button>
+        <div class="d-flex gap-8 items-center mt-8 f-wrap">
+          ${sel('l_signdur', [['3600', 'for 1 hour'], ['86400', 'for 24 hours'], ['604800', 'for 7 days'], ['2592000', 'for 30 days']], ['3600', '86400', '604800', '2592000'].includes(String(shareSeconds())) ? String(shareSeconds()) : '604800')}
+          <button class="btn btn-secondary" data-act="linkSign">Create signed link</button>
         </div>
         <div class="code small" id="l_signed" style="margin-top:8px;display:none"></div>
       </div>
@@ -683,7 +684,7 @@ function openLinkEditor(o, retried) {
           <label>Fit${sel('m_fit', [['', 'inside (default)'], ['cover', 'cover (crop)'], ['contain', 'contain (pad)'], ['fill', 'fill (stretch)']], md.fit)}</label>
           <label>Format${sel('m_fm', [['', 'original'], ['webp', 'WebP'], ['avif', 'AVIF'], ['jpeg', 'JPEG'], ['png', 'PNG']], md.fm)}</label>
           <label>Quality<input id="m_q" class="input" value="${esc(md.q || '')}" placeholder="1–100"></label>
-          <label>Version<input id="m_ver" class="input" value="${esc(md.ver || '')}" placeholder="N = historical"></label>
+          <label>Version<input id="m_ver" class="input" value="${esc(md.ver || '')}" placeholder="old version number"></label>
           <label>Cache-bust<input id="m_v" class="input" value="${esc(md.v || '')}" placeholder="?v="></label>
           <label>Tracking tag<input id="m_t" class="input" value="${esc(md.t || '')}" placeholder="?t=social"></label>
         </div>
@@ -774,7 +775,7 @@ SETTINGS_PANELS.push((row) => {
   const owner = meOwner();
   return `<section class="panel">
     <div class="ph"><h5>${icon('lock')}Sign-in</h5><span class="small dim">${owner ? 'owner account' : 'your account'}</span></div>
-    ${owner ? row('Two-factor login', me.totp ? `On. ${me.recovery_left} recovery codes left.` : 'Off. Turn it on to ask for a code from an authenticator app after the password.',
+    ${owner ? row('Authenticator app', me.totp ? `Replaces the e-mailed code. ${me.recovery_left} recovery codes left.` : 'Use an app instead of e-mailed codes.',
       me.totp ? '<button class="pill" data-act="tfRecovery">New recovery codes</button> <button class="pill danger" data-act="tfDisable">Turn off</button>' : '<button class="pill on" data-act="tfBegin">Set up</button>') : ''}
     ${row('Password', 'Changing it signs out every session.', '<button class="pill" data-act="pwChange">Change…</button>')}
     ${row('Sessions', (owner ? fmt.n(me.sessions) + ' active. ' : '') + 'Kept across restarts' + (me.session_hours ? `, ${esc(me.session_hours)} h at most.` : '.'), `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
@@ -915,27 +916,27 @@ Object.assign(ACT, {
   async tfBegin() {
     try {
       const r = await post('/api/2fa/begin', {});
-      openSheet('Two-factor login', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
-        <div><p class="small">Or type this key into the app (time-based, 6 digits, 30 s):</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
-        <label class="wide" style="display:grid;gap:5px;margin-top:12px">Code from the app<input id="tf_code" class="input" inputmode="numeric" autocomplete="one-time-code" style="font-size:22px;letter-spacing:.2em;width:170px"></label></div></div>`,
+      openSheet('Authenticator app', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
+        <div><p class="small">Or enter this key in the app:</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
+        <label class="wide d-grid gap-5 mt-12">Code from the app<input id="tf_code" class="input fs-22 ls-code w-170" inputmode="numeric" autocomplete="one-time-code"></label></div></div>`,
       '<button class="btn btn-primary" data-act="tfEnable">Turn on</button>');
     } catch (e) { note(e.message); }
   },
   async tfEnable() {
     try {
       const r = await post('/api/2fa/enable', { code: $('#tf_code').value });
-      openSheet('Two-factor login is on', 'Save your recovery codes', `<p class="small">Each code works once if you lose your phone. They are shown only now.</p><div class="code">${r.recovery.map(esc).join('<br>')}</div>`,
+      openSheet('Authenticator app is on', 'Save your recovery codes', `<p class="small">If you lose your phone, each code works once instead of a code from the app. They are shown only now.</p><div class="code">${r.recovery.map(esc).join('<br>')}</div>`,
         `<button class="btn btn-primary" data-act="fcopy" data-arg="${esc(r.recovery.join('\n'))}">Copy codes</button>`);
       D.me = null; if (S.view === 'settings') render(true);
     } catch (e) { note(e.message); }
   },
   async tfDisable() {
-    const code = await ask({ kicker: 'Turn off two-factor login', title: 'Enter a current code or a recovery code', input: '', ok: 'Turn off', danger: true });
+    const code = await ask({ kicker: 'Turn off the authenticator app', title: 'Enter a current code or a recovery code', input: '', ok: 'Turn off', danger: true });
     if (!code) return;
-    try { await post('/api/2fa/disable', { code }); note('Two-factor login is off'); D.me = null; render(true); } catch (e) { note(e.message); }
+    try { await post('/api/2fa/disable', { code }); note('Authenticator app is off'); D.me = null; render(true); } catch (e) { note(e.message); }
   },
   async tfRecovery() {
-    const code = await ask({ kicker: 'New recovery codes', title: 'Enter a current code', input: '', ok: 'Generate' });
+    const code = await ask({ kicker: 'New recovery codes', title: 'Enter a code from the app', input: '', ok: 'Create' });
     if (!code) return;
     try { const r = await post('/api/2fa/recovery', { code }); openSheet('Recovery codes', 'New codes (the old ones stop working)', `<div class="code">${r.recovery.map(esc).join('<br>')}</div>`, `<button class="btn btn-primary" data-act="fcopy" data-arg="${esc(r.recovery.join('\n'))}">Copy codes</button>`); D.me = null; } catch (e) { note(e.message); }
   },
@@ -945,7 +946,7 @@ Object.assign(ACT, {
       <label class="wide">Repeat<input id="pw_new2" class="input" type="password" autocomplete="new-password"></label></div>`, '<button class="btn btn-primary" data-act="pwSave">Change password</button>');
   },
   async pwSave() {
-    if ($('#pw_new').value !== $('#pw_new2').value) return note('The new passwords differ');
+    if ($('#pw_new').value !== $('#pw_new2').value) return note('The new passwords don’t match');
     try { await post('/api/password', { current: $('#pw_cur').value, new: $('#pw_new').value }); closeSheet(); location.href = '/login'; } catch (e) { note(e.message); }
   },
   async nSave() {
@@ -981,7 +982,7 @@ Object.assign(ACT, {
   },
   cfPurgeUrls() { openSheet('Cloudflare', 'Purge URLs from the cache', '<div class="form"><label class="wide">One URL per line<textarea id="cf_urls" class="input" rows="8" placeholder="https://${esc(cdnHost())}/file.png"></textarea></label></div>', '<button class="btn btn-primary" data-act="cfPurgeGo">Purge</button>'); },
   async cfPurgeGo() { try { const r = await post('/api/cloudflare/purge', { urls: $('#cf_urls').value.split(/\s+/).filter(Boolean) }); note('Purged ' + r.purged + ' URL(s)'); closeSheet(); } catch (e) { note(e.message); } },
-  async cfPurgeAll() { const ok = await ask({ kicker: 'Cloudflare', title: 'Purge the entire cache of the zone?', danger: true, ok: 'Purge everything', text: 'Every visitor fetches from your origin again until the cache refills.' }); if (ok) { try { await post('/api/cloudflare/purge-all', {}); note('Cache purged'); } catch (e) { note(e.message); } } },
+  async cfPurgeAll() { const ok = await ask({ kicker: 'Cloudflare', title: 'Purge the entire cache of the zone?', danger: true, ok: 'Purge everything', text: 'Every visitor hits the origin until the cache refills.' }); if (ok) { try { await post('/api/cloudflare/purge-all', {}); note('Cache purged'); } catch (e) { note(e.message); } } },
 });
 
 VIEWFN.serving = vServing;

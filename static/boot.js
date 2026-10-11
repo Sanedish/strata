@@ -12,7 +12,7 @@
   const accent = get('accent', null) || inst;
   if (accent && /^#[0-9a-f]{6}$/i.test(accent)) r.style.setProperty('--color-accent', accent);
   r.dataset.density = get('density', 'normal');
-  r.dataset.radius = String(get('radius', 0));
+  r.dataset.radius = String(get('radius', 1));
   r.dataset.font = get('font', 'archivo');
   const z = get('zoom', 1);
   if (typeof z === 'number' && z !== 1 && z >= 0.5 && z <= 3) { r.style.zoom = String(z); r.style.setProperty('--ui-zoom', String(z)); }

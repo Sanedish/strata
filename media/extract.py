@@ -320,9 +320,10 @@ def _zip(path, root, lim, budget, res, tools):
             if why:
                 _bad(res, lim, name, why)
                 continue
-            mode = (info.external_attr >> 16) & 0xFFFF
-            if info.create_system == 3 and mode and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
-                _bad(res, lim, name, "symlink" if stat.S_ISLNK(mode) else "device or special file")
+            # only the file-type bits count: zip writers such as Python's store a plain file as bare permissions (0o600)
+            kind = stat.S_IFMT((info.external_attr >> 16) & 0xFFFF)
+            if info.create_system == 3 and kind and kind not in (stat.S_IFREG, stat.S_IFDIR):
+                _bad(res, lim, name, "symlink" if kind == stat.S_IFLNK else "device or special file")
                 continue
             if info.is_dir():
                 _mkdir(res, lim, root, name, parts)

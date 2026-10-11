@@ -2,6 +2,7 @@
 
     python auth.py <username>      # prompts for the password (or reads it from stdin) and stores the hash
     python auth.py --api-key <name>  # prints a new API key once; only its sha256 is stored (auth.api_keys)
+    python auth.py --totp [off]    # sets up (or removes) the owner's authenticator app, which replaces the e-mailed code
 """
 import base64
 import collections
@@ -13,6 +14,7 @@ import sys
 import threading
 import time
 
+import alerts
 import core
 
 ITERATIONS = 600_000
@@ -108,6 +110,25 @@ def qr_svg(text):
         return ""
 
 
+def qr_text(text):
+    """The same QR code drawn with block characters for a terminal, or "" without the qrcode package."""
+    try:
+        import io
+        import qrcode
+        q = qrcode.QRCode(border=2)
+        q.add_data(text)
+        out = io.StringIO()
+        q.print_ascii(out=out, invert=True)
+        return out.getvalue()
+    except Exception:
+        return ""
+
+
+def spaced(secret):
+    """ABCD EFGH ...: easier to type into an authenticator app."""
+    return " ".join(secret[i:i + 4] for i in range(0, len(secret), 4))
+
+
 def recovery_codes(n=10):
     """Returns (plain codes for the user, hashes to store)."""
     codes = ["%s-%s" % (secrets.token_hex(3), secrets.token_hex(3)) for _ in range(n)]
@@ -121,19 +142,25 @@ def normalize_recovery(code):
 
 # ---------------------------------------------------------------- trusted-browser cookie (skips the 2FA step)
 
-def trust_token(key, user, pw_hash, days=TRUST_DAYS):
+def _trust_mac(key, user, exp, bind):
+    msg = "%s|%d|%s" % (user.lower(), exp, hashlib.sha256(bind.encode()).hexdigest())
+    return hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+
+
+def trust_token(key, user, bind, days=TRUST_DAYS):
+    """A "trust this browser" cookie value. bind is whatever must not change while the trust holds (the password
+    hash and the authenticator key): changing either ends it."""
     exp = int(time.time() + days * 86400)
-    mac = hmac.new(key.encode(), ("%s|%d|%s" % (user, exp, pw_hash[-24:])).encode(), hashlib.sha256).hexdigest()
-    return "%d.%s" % (exp, mac)
+    return "%d.%s" % (exp, _trust_mac(key, user, exp, bind))
 
 
-def trust_ok(key, token, user, pw_hash):
+def trust_ok(key, token, user, bind):
     try:
         exp, mac = token.split(".", 1)
-        if int(exp) < time.time():
+        exp = int(exp)
+        if exp < time.time():
             return False
-        want = hmac.new(key.encode(), ("%s|%s|%s" % (user, exp, pw_hash[-24:])).encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(mac, want)
+        return hmac.compare_digest(mac, _trust_mac(key, user, exp, bind))
     except (ValueError, AttributeError):
         return False
 
@@ -146,11 +173,11 @@ class Sessions:
         self.lock = threading.Lock()
         self.by_hash = {}  # sha256(token) -> {user, exp, ip}; the raw token only lives in the browser cookie
 
-    def create(self, user, ip, ttl=None):
+    def create(self, user, ip, ttl=None, **extra):
         token = secrets.token_urlsafe(32)
         with self.lock:
             self.by_hash[token_hash(token)] = {"user": user, "exp": time.time() + (ttl or self.ttl), "ip": ip,
-                                               "created": time.time(), "ttl": ttl or self.ttl, "attempts": 0}
+                                               "created": time.time(), "ttl": ttl or self.ttl, "attempts": 0, **extra}
         return token
 
     def get(self, token):
@@ -279,8 +306,44 @@ if __name__ == "__main__":
         save_config({"auth": {"allow_signups": allowed}})
         print("account registration enabled: %s" % allowed)
         sys.exit(0)
+    if sys.argv[1:] == ["--totp", "off"]:
+        save_config({"auth": {"totp_secret": "", "recovery": [], "totp_last": 0}})
+        print("removed the owner's authenticator app. Restart Strata to apply it.")
+        mail = CFG.get("alerts", {})
+        if not alerts.mail_ready(mail):
+            print("E-mail isn't set up either, so the owner can't sign in until you run: python auth.py --totp")
+        sys.exit(0)
+    if sys.argv[1:] == ["--totp"]:
+        owner = str(CFG["auth"].get("user") or "owner")
+        secret = totp_secret()
+        uri = totp_uri(secret, owner)
+        print("Scan this with your authenticator app:\n")
+        try:
+            print(qr_text(uri) or "(no QR code: the qrcode package isn't installed)")
+        except UnicodeEncodeError:  # a console that can't draw the block characters
+            print("(this console can't show the QR code)")
+        print("Or enter this key in the app: %s\n" % spaced(secret))
+        step = None
+        for _ in range(3):
+            try:
+                step = totp_verify(secret, input("Code from the app: "))
+            except EOFError:
+                break
+            if step:
+                break
+            print("That code didn't match. Check that the time on your phone is correct.")
+        if not step:
+            sys.exit("Nothing changed.")
+        codes, hashes = recovery_codes()
+        save_config({"auth": {"totp_secret": secret, "totp_last": step, "recovery": hashes}})
+        print("\nThe owner now signs in with a code from this app. If you lose your phone, each of these recovery codes "
+              "works once instead:")
+        print("\n".join("  " + c for c in codes))
+        print("They are shown only now. Restart Strata to use the app.")
+        sys.exit(0)
     if len(sys.argv) != 2:
-        sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | --smtp <host> <port> <user> <from> | --allow-signups <yes|no>")
+        sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | "
+                 "--smtp <host> <port> <user> <from> | --totp [off] | --allow-signups <yes|no>")
     pw = getpass.getpass("Password: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\r\n")
     pw = pw.lstrip("﻿")  # Windows PowerShell prefixes piped input with a BOM
     if len(pw) < 8:

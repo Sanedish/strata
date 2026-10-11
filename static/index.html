@@ -9,9 +9,9 @@
 <link rel="icon" href="/favicon.ico">
 <script src="boot.js"></script>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="dashboard.css">
 <link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
 <link rel="stylesheet" href="vendor/codemirror/addon/dialog/dialog.min.css">
-<link rel="stylesheet" href="dashboard.css">
 <link rel="stylesheet" href="custom.css">
 </head>
 <body>
@@ -35,11 +35,11 @@
   </aside>
   <div class="col">
     <header>
-      <div style="min-width:0">
+      <div class="min-w0">
         <h4 id="title">Summary</h4>
         <div class="sub small dim ell" id="sub"></div>
       </div>
-      <div style="flex:1"></div>
+      <div class="fill"></div>
       <div class="seg-row" id="ranges"></div>
       <label class="qwrap"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input id="q" class="input" placeholder="Filter requests…  ( / )" autocomplete="off" spellcheck="false"></label>
       <button class="tbtn ink" id="upbtn" data-act="go" data-arg="upload" title="Upload files (U)"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Upload</button>
@@ -72,6 +72,7 @@
 <script src="vendor/codemirror/mode/markdown/markdown.min.js"></script>
 <script src="vendor/codemirror/addon/edit/matchbrackets.min.js"></script>
 <script src="vendor/codemirror/addon/edit/closebrackets.min.js"></script>
+<script src="vendor/codemirror/addon/fold/xml-fold.min.js"></script>
 <script src="vendor/codemirror/addon/edit/matchtags.min.js"></script>
 <script src="vendor/codemirror/addon/selection/active-line.min.js"></script>
 <script src="vendor/codemirror/addon/search/searchcursor.min.js"></script>

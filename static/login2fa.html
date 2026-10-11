@@ -14,7 +14,7 @@
   :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   .wrap { min-height: calc(100vh / var(--z, 1)); display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box;
     background-image: linear-gradient(var(--color-divider) 2px, transparent 2px); background-size: 100% 66px; }
-  .lock { width: 380px; max-width: 100%; background: var(--color-bg); border: 2px solid var(--color-text); box-shadow: var(--shadow-lg); }
+  .lock { width: min(380px, 100%); background: var(--color-bg); border: 2px solid var(--color-text); box-shadow: var(--shadow-lg); }
   .head { padding: 18px 20px 16px; border-bottom: 2px solid var(--color-divider); display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
   .head b { display: block; font-family: var(--font-heading); font-weight: 800; font-size: 26px; letter-spacing: -0.03em; line-height: 1; }
   .head span { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 50%, transparent); }

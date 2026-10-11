@@ -41,20 +41,45 @@ caddyfile = os.path.join(root, "caddy", "Caddyfile")
 os.makedirs(os.path.dirname(caddyfile))
 with open(caddyfile, "w") as f:
     f.write("{\n\tadmin localhost:2019\n}\n\nsomething.example.org {\n\trespond hi\n}\n")
+WINGET = ["n"] if os.name == "nt" else []      # "Install it with winget?" is only asked on Windows
 answers = [
     "example.org", "", "",                      # domain, CDN host (default cdn.example.org), files folder (default)
-    "n", caddy, caddyfile, "y",                 # no winget, caddy path, Caddyfile, LAN dashboard: yes
+    *WINGET, caddy, caddyfile, "y",             # caddy path, Caddyfile, LAN dashboard: yes
     "n",                                        # no tunnel
     "", "", "", "",                             # no Cloudflare token, default sender, no SMTP server, no Resend key
-    "owner", "a long enough passphrase", "a long enough passphrase", "owner@example.org",
+    "owner", "a long enough passphrase", "a long enough passphrase",
+    "n", "owner@example.org",                   # no authenticator app: sign-in codes by e-mail
 ]
 env = dict(os.environ, PATH=os.environ.get("PATH", ""), PYTHONIOENCODING="utf-8")
 env.pop("STRATA_HOME", None)
 
 
-def install(lines):
-    return subprocess.run([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", home, "--no-service"],
+def install(lines, where=None):
+    return subprocess.run([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where or home, "--no-service"],
                           input="\n".join(lines) + "\n", capture_output=True, text=True, env=env, timeout=120)
+
+
+def install_with_app(lines, where):
+    """Answers `lines`, then reads the key setup.py shows and answers with the app's current code."""
+    import auth  # noqa: E402  (the TOTP the installer and the server use)
+    p = subprocess.Popen([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where, "--no-service"],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    p.stdin.write("\n".join(lines) + "\n")
+    p.stdin.flush()
+    out, key = "", None
+    for line in p.stdout:
+        out += line
+        if "enter the key:" in line:
+            key = line.rsplit(":", 1)[1].replace(" ", "").strip()
+            break
+    if key:
+        import time
+        p.stdin.write(auth._totp(key, int(time.time() // 30)) + "\n")
+        p.stdin.flush()
+    p.stdin.close()
+    out += p.stdout.read()
+    p.wait(120)
+    return p.returncode, out, key
 
 
 proc = None
@@ -88,6 +113,22 @@ try:
           and cfg2["instance"] == cfg["instance"], (cfg2.get("listen"), cfg2.get("instance")))
     check("re-run doesn't add the import twice", open(caddyfile).read().count(imp) == 1)
     check("strata.json backed up on re-run", any(n.startswith("strata.json.") for n in os.listdir(os.path.join(home, "backups"))))
+
+    # a second site whose owner uses an authenticator app instead of e-mail (the default without a Resend key)
+    home2, caddyfile2 = os.path.join(root, "home2"), os.path.join(root, "caddy2", "Caddyfile")
+    os.makedirs(os.path.dirname(caddyfile2))
+    with open(caddyfile2, "w") as f:
+        f.write("{\n\tadmin localhost:2019\n}\n")
+    code, out, key = install_with_app(["example.net", "", "", *WINGET, caddy, caddyfile2, "n", "n", "", "", "", "",
+                                       "owner2", "another long passphrase", "another long passphrase", ""], home2)
+    check("app setup exits cleanly", code == 0 and key, out[-1500:])
+    cfg3 = json.load(open(os.path.join(home2, "strata.json")))
+    a3 = cfg3.get("auth", {})
+    check("the app's key is stored with recovery codes", a3.get("totp_secret") == key and len(a3.get("recovery") or []) == 10
+          and a3.get("totp_last"), {k: v for k, v in a3.items() if k != "password_hash"})
+    check("no e-mail asked for or stored", "to" not in cfg3.get("alerts", {}), cfg3.get("alerts"))
+    import re
+    check("the ten recovery codes are shown", len(set(re.findall(r"\b[0-9a-f]{6}-[0-9a-f]{6}\b", out))) == 10, out[-800:])
 
     # the result starts
     proc = subprocess.Popen([sys.executable, os.path.join(ra.CODE, "strata.py"), "--home", home], cwd=ra.CODE,

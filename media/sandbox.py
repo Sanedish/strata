@@ -410,13 +410,15 @@ def safe_join(root, *parts):
     """root/parts, refusing absolute parts, drive letters, streams (':'), NUL and anything that resolves outside
     root. Raises ValueError."""
     base = os.path.abspath(root)
+    clean = []
     for p in parts:
         s = os.fspath(p)
         if not isinstance(s, str):
             s = os.fsdecode(s)
         if "\x00" in s or ":" in s or s.replace("\\", "/").startswith("/") or os.path.isabs(s):
             raise ValueError("unsafe path component %r" % s)
-    full = os.path.abspath(os.path.join(base, *[os.fspath(p) for p in parts]))
+        clean.append(s.replace("\\", "/"))  # a separator on Windows, so on every platform: a\..\..\x must not pass
+    full = os.path.abspath(os.path.join(base, *clean))
     b, f = os.path.normcase(base), os.path.normcase(full)
     try:
         inside = os.path.commonpath([b, f]) == b

@@ -101,7 +101,7 @@ const store = {
 // every key here is a preference: saved in this browser and, with Settings › Preferences › Sync on, in the account
 const PREFS = {
   view: 'summary', range: 'live', nobots: false, rate: 1000, widths: {}, fields: false, scale: null,
-  reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
+  scale100: false, reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
   zebra: false, navCollapsed: false, navHidden: [], navPinned: [], landing: '', vitals: ['reqs', 'bytes', 'uniq', 'errors', 'latency', 'tunnel'],
   clock24: true, relTimes: true, hiddenPause: true, notify: false, savedFilters: [], syncPrefs: false, palRecent: [],
   confirmDelete: true, vitalsAll: false, hubLast: {}, navOpen: {},
@@ -134,7 +134,9 @@ async function pullPrefs() {
     const r = await get('/api/prefs');
     if (r && r.prefs && r.prefs.syncPrefs) {
       Object.entries(r.prefs).forEach(([k, v]) => { if (k in PREFS) S[k] = v; });
+      const moved = scaleMigrate(r.prefs);
       Object.keys(PREFS).forEach((k) => store.set(k, S[k]));
+      if (moved) pushPrefs();
       applyScale(); applyAppearance(); render(true);
     }
   } catch { /* not synced */ }
@@ -145,7 +147,16 @@ async function pullPrefs() {
 const SCALE_MIN = 0.75, SCALE_MAX = 2, SCALE_DEFAULT = 1;
 const SCALE_PRESETS = [1, 1.15, 1.25, 1.3, 1.4, 1.5, 1.75];
 const clampScale = (v) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(v * 100) / 100));
+// 130 % was the default until October 2026 and was saved with every other preference: move those to the new default
+// once. `prefs` is where the scale came from (this browser, or the account when preferences sync).
+function scaleMigrate(prefs) {
+  if (prefs.scale100) return false;
+  if (S.scale === 1.3) S.scale = SCALE_DEFAULT;
+  S.scale100 = true;
+  return true;
+}
 if (typeof S.scale !== 'number') S.scale = SCALE_DEFAULT;
+if (scaleMigrate({ scale100: S.scale100 })) { store.set('scale', S.scale); store.set('scale100', true); }
 let zoomNow = 1;
 function effectiveScale() {
   let z = S.scale;
@@ -271,7 +282,7 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
   <div class="legend smt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
 const loading = (msg = 'Waiting for the collector…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
-const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800" style="font-size:15px;color:var(--color-text)">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
+const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800 fs-15 c-text">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
 
 /* ------------------------------------------------------------------ data */
 
@@ -561,7 +572,7 @@ function renderFooter() {
     <span>cloudflared ${esc(t.version || '')} ${t.up ? '· up ' + esc(fmt.dur(t.uptime)) : '<b class="hot">unreachable</b>'}</span>
     <div class="grow"></div>
     ${(INST.siblings || []).map((s) => `<button class="link" data-act="openSibling" data-arg="${esc(s.url)}" title="Open the ${esc(s.name)} dashboard">${esc(s.name)} ↗</button>`).join('')}
-    <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the polling interval · right-click to pick">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
+    <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the refresh rate, right-click to pick one">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
     <span class="clock">${fmt.time(Date.now() / 1000)}</span>`);
 }
 
@@ -602,8 +613,8 @@ function auxPanel(a) {
   return `<aside class="aside">
     <div class="pad"><div class="cap red">${esc(a.kicker)}</div><h5>${esc(a.title)}</h5></div>
     ${a.svg || sparkSvg(a.series, { max: a.max })}
-    <div style="padding:10px 16px 4px;flex:none">${(a.gauges || []).join('')}</div>
-    <div style="border-top:2px solid var(--color-divider);padding:10px 16px 6px;flex:none"><div class="cap">${esc(a.logLabel)}</div></div>
+    <div class="px-16 pt-10 pb-4 flex-none">${(a.gauges || []).join('')}</div>
+    <div class="bt-div px-16 pt-10 pb-6 flex-none"><div class="cap">${esc(a.logLabel)}</div></div>
     <div class="loglines">${log || '<div class="logline"><span>—</span><span></span></div>'}</div>
   </aside>`;
 }
@@ -658,9 +669,9 @@ function trafficChart() {
 }
 function bigGraph(title, sub, val, arr, readouts, opts = {}) {
   return `<section class="big" data-menu="graph" data-arg="${esc(title)}">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h5>${esc(title)}</h5>
-      <span class="h800 ${opts.hot ? 'hot' : ''}" style="font-size:14px;white-space:nowrap">${esc(val)}</span></div>
-    <div class="small dim ell" style="margin:1px 0 6px">${esc(sub)}</div>
+    <div class="d-flex between items-baseline gap-8"><h5>${esc(title)}</h5>
+      <span class="h800 ${opts.hot ? 'hot' : ''} fs-14 nowrap">${esc(val)}</span></div>
+    <div class="small dim ell mx-0 mt-1 mb-6">${esc(sub)}</div>
     ${sparkSvg(arr, { w: 240, h: 64, cls: '', max: opts.max, stroke: opts.hot ? 'var(--color-accent)' : 'var(--color-text)' })}
     <div class="readouts">${readouts.map(([k, v]) => `<div><div class="cap">${esc(k)}</div><div>${esc(v)}</div></div>`).join('')}</div>
   </section>`;
@@ -677,16 +688,16 @@ function vSummary() {
   const paths = (st?.paths || []).slice(0, 40);
   const cols = 'grid-template-columns:1fr 50px 64px';
   const top = paths.map((p) => `<div class="mini-r" style="${cols}" data-act="filterPath" data-arg="${esc(p.k)}" data-menu="path" data-arg2="${esc(p.host)}">
-      <span class="ell" title="${esc(p.host + p.k)}">${esc(p.k)}</span><span class="r" style="font-weight:600">${fmt.n(p.c)}</span><span class="r dim">${esc(fmt.bytes(p.b))}</span></div>`).join('');
+      <span class="ell" title="${esc(p.host + p.k)}">${esc(p.k)}</span><span class="r fw-600">${fmt.n(p.c)}</span><span class="r dim">${esc(fmt.bytes(p.b))}</span></div>`).join('');
   const H = L?.hist || {}, c = L?.caddy || {}, t = L?.tunnel || {}, h = L?.host || {}, nas = (L?.storage || [])[0] || {};
   const axis = live ? ['−5 min', '1 s buckets', 'now'] : src ? [fmt.dt(src.t0), bucketLabel(src.step) + ' buckets', 'now'] : ['', '', ''];
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
-    <div class="grid2" style="grid-template-columns:1.35fr 1fr;border-bottom:2px solid var(--color-divider);flex:1">
+  return `<div class="col-fill">
+    <div class="grid2 cols-135 bb-div fill">
       <section class="panel" data-menu="traffic">
         <div class="ph"><h5>${icon('activity')}Traffic</h5><span class="small dim ell">${live ? 'live · right-click for options' : esc(rangeLabel()) + engineNote(st)}</span>
-          <span class="h800" style="font-size:15px;white-space:nowrap">${fmt.n(total)} req · ${esc(fmt.bytes(bytes))}</span></div>
-        <div class="legend"><span><i></i>Requests</span><span><i style="background:var(--color-accent)"></i>Errors</span>
-          <span><i style="height:8px;background:color-mix(in srgb,var(--color-text) 14%,transparent)"></i>Bandwidth (scaled)</span></div>
+          <span class="h800 fs-15 nowrap">${fmt.n(total)} req · ${esc(fmt.bytes(bytes))}</span></div>
+        <div class="legend"><span><i></i>Requests</span><span><i class="bg-accent"></i>Errors</span>
+          <span><i class="h-8 bg-faint"></i>Bandwidth (scaled)</span></div>
         ${trafficChart()}
         <div class="axis">${axis.map((a) => `<span>${esc(a)}</span>`).join('')}</div>
         <div class="strip">${strip || '<div class="rest">no edge traffic recorded yet</div>'}
@@ -720,14 +731,14 @@ function reqFilterBar() {
   const sel = (id, opts, cur, title) => `<select id="${id}" class="input" title="${esc(title)}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const hosts = (D.stats?.hosts || []).map((h) => [h.k, h.k]);
   const active = Object.values(S.rf).filter(Boolean).length;
-  return `<div class="tbar" style="padding:6px 18px">${icon('funnel', 'sm')}
+  return `<div class="tbar px-18 py-6">${icon('funnel', 'sm')}
     ${sel('rf_status', [['', 'any status'], ['2xx', '2xx ok'], ['3xx', '3xx'], ['4xx', '4xx'], ['5xx', '5xx'], ['404', '404'], ['403', '403'], ['429', '429']], S.rf.status, 'Status')}
     ${sel('rf_method', [['', 'any method'], ['GET', 'GET'], ['HEAD', 'HEAD'], ['POST', 'POST'], ['PUT', 'PUT'], ['OPTIONS', 'OPTIONS'], ['DELETE', 'DELETE']], S.rf.method, 'Method')}
     ${sel('rf_host', [['', 'any host']].concat(hosts), S.rf.host, 'Host')}
     ${sel('rf_kind', [['', 'any client'], ['browser', 'People'], ['player', 'Media players'], ['embed', 'Link previews'], ['bot', 'Bots & tools']], S.rf.kind, 'Client kind')}
     ${sel('rf_since', [['', 'any time'], ['300', 'last 5 min'], ['3600', 'last hour'], ['86400', 'last 24 h'], ['604800', 'last 7 days']], S.rf.since, 'Time window')}
-    <input id="rf_country" class="input" placeholder="CC" value="${esc(S.rf.country)}" style="width:52px" title="Country code" maxlength="2">
-    <input id="rf_min_ms" class="input" placeholder="≥ ms" value="${esc(S.rf.min_ms)}" style="width:64px" title="Slower than (ms)">
+    <input id="rf_country" class="input w-52" placeholder="CC" value="${esc(S.rf.country)}" title="Country code" maxlength="2">
+    <input id="rf_min_ms" class="input w-64" placeholder="≥ ms" value="${esc(S.rf.min_ms)}" title="Slower than (ms)">
     ${active ? `<button class="pill" data-act="rfClear">${icon('x', 'sm')}Clear ${active}</button>` : ''}
     <div class="grow"></div>
     ${(S.savedFilters || []).map((f, i) => `<button class="pill" data-act="rfLoad" data-arg="${i}" data-menu="savedFilter" data-arg2="${i}" title="Saved filter · right-click to delete">${icon('bookmark', 'sm')}${esc(f.name)}</button>`).join('')}
@@ -765,7 +776,7 @@ function vRequests() {
       </div>
       ${reqFilterBar()}
       ${D.req ? table(key, labels, trs, { empty: 'No requests match. The log fills as traffic arrives through the tunnel.' }) : loading()}
-      ${D.req && D.req.more ? `<div class="tbar" style="justify-content:center;border-bottom:0;border-top:2px solid var(--color-divider)"><button class="pill" data-act="loadOlder">${icon('chevron-down', 'sm')}Load 500 older</button>${D.req.older ? `<button class="pill" data-act="reqLive">${icon('activity', 'sm')}Back to live</button>` : ''}</div>` : ''}
+      ${D.req && D.req.more ? `<div class="tbar jc-center bb-0 bt-div"><button class="pill" data-act="loadOlder">${icon('chevron-down', 'sm')}Load 500 older</button>${D.req.older ? `<button class="pill" data-act="reqLive">${icon('activity', 'sm')}Back to live</button>` : ''}</div>` : ''}
     </section>
     ${ins}
   </div>`;
@@ -794,14 +805,14 @@ function inspector(r) {
     ]);
   }
   return `<aside class="aside">
-    <div style="padding:14px 16px;border-bottom:2px solid var(--color-divider);flex:none">
+    <div class="insp-head">
       <div class="cap red">${esc(r.method)} · ${esc(r.status)}</div>
-      <h5 style="margin:3px 0 2px;font-size:17px;word-break:break-all">${esc(r.path)}</h5>
-      <div class="small dim" style="word-break:break-all">${esc(r.host)}</div>
-      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-        ${r.method === 'GET' && r.status < 400 ? `<button class="btn btn-primary" style="font-size:12px;padding:6px 10px" data-act="openReq">${icon('external-link', 'sm')}Open</button>` : ''}
-        <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" data-act="filterIp" data-arg="${esc(r.ip)}">${icon('user', 'sm')}Only this client</button>
-        <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" data-act="closeIns">${icon('x', 'sm')}Close</button>
+      <h5 class="mx-0 mt-3 mb-2 fs-17 break-all">${esc(r.path)}</h5>
+      <div class="small dim break-all">${esc(r.host)}</div>
+      <div class="hrow mt-10 f-wrap">
+        ${r.method === 'GET' && r.status < 400 ? `<button class="btn btn-primary fs-12 px-10 py-6" data-act="openReq">${icon('external-link', 'sm')}Open</button>` : ''}
+        <button class="btn btn-secondary fs-12 px-10 py-6" data-act="filterIp" data-arg="${esc(r.ip)}">${icon('user', 'sm')}Only this client</button>
+        <button class="btn btn-secondary fs-12 px-10 py-6" data-act="closeIns">${icon('x', 'sm')}Close</button>
       </div>
     </div>
     <div class="stats2">
@@ -924,7 +935,7 @@ function vOrigins() {
   const st = L.storage || [];
   const nas = st[0] || {};
   return tblView({
-    title: 'Tunnel ingress', note: `${rows.length} rules from cloudflared config.yml · probed every 15 s with HEAD /`, key: 'origins', rows,
+    title: 'Tunnel ingress', note: `${rows.length} rules from cloudflared’s config.yml, checked every 15 s`, key: 'origins', rows,
     tabs: [{ label: 'Edit ingress', icon: 'pencil', act: 'go', arg: 'network', on: false }],
     labels: [{ t: 'Hostname', w: 220 }, { t: 'Service', w: 190 }, { t: 'HTTP', w: 56 }, { t: 'Latency', w: 76, a: 'r' }, { t: 'State', w: 100 }, { t: 'Trend', w: 110 }, { t: 'Error', w: 200 }],
     aux: {
@@ -957,7 +968,7 @@ function vSecurity() {
     title: 'Threat surface', note: `${fmt.n(T.scans)} probe requests · ${fmt.n(T.sus)} suspicious from ${fmt.n(T.sus_ips)} clients (not in error rates) · ${rangeLabel()} · right-click a client to block it`,
     key: 'sec-' + tab, labels, rows,
     tabs: [['scanners', 'Scanners', 'skull'], ['notfound', 'Not found', 'search'], ['ips', 'Top clients', 'users']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'security:' + k, on: tab === k })),
-    empty: tab === 'scanners' ? 'No scanner activity in this range. Probes for .env, wp-login.php and the like show up here.' : undefined,
+    empty: tab === 'scanners' ? 'No scanners in this range. Probes for .env and the like show up here.' : undefined,
     aux: {
       kicker: 'Threats', title: 'Suspicious requests · ' + rangeLabel(), series: st.series.sus || st.series.e4,
       gauges: [
@@ -1008,17 +1019,17 @@ function vHistory() {
       const bg = hot ? 'var(--color-accent)' : `color-mix(in srgb,var(--color-text) ${(40 + (v || 0) / m * 50).toFixed(0)}%,transparent)`;
       return `<span title="${esc(hourLbl(i) + ' · ' + (v == null ? 'no data' : fv(v)))}" style="height:${v == null || v === 0 ? 0 : Math.max(3, v / m * 100).toFixed(1)}%;background:${bg}"></span>`;
     }).join('');
-    return `<div class="band"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+    return `<div class="band"><div class="d-flex between items-baseline mb-4">
       <span class="cap">${esc(label)}</span><span class="small dim">${esc(note)}</span></div>
       <div class="slabs">${slabs}</div>
-      <div style="display:flex;justify-content:space-between;font-size:9.5px;margin-top:3px" class="dim"><span>−24 h</span><span>−12 h</span><span>now</span></div></div>`;
+      <div class="dim d-flex between fs-95 mt-3"><span>−24 h</span><span>−12 h</span><span>now</span></div></div>`;
   };
   const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
   const peak = (a) => { let bi = 0; a.forEach((v, i) => { if ((v || 0) > (a[bi] || 0)) bi = i; }); return bi; };
   const mean = (a) => { const v = a.filter((x) => x != null); return v.length ? sum(v) / v.length : null; };
   const pr = peak(h.reqs);
-  return `<section style="padding:16px 18px;flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column" data-scroll="hist">
-    <div class="ph" style="margin-bottom:12px"><h5>${icon('clock-fading')}Last 24 hours</h5><span class="small dim">requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
+  return `<section class="col-fill px-18 py-16 oy-auto" data-scroll="hist">
+    <div class="ph mb-12"><h5>${icon('clock-fading')}Last 24 hours</h5><span class="small dim">requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
     ${band('Requests', `${fmt.n(sum(h.reqs))} total · peak ${fmt.n(h.reqs[pr])} at ${fmt.hm(h.hours[pr])}`, h.reqs, (v) => fmt.n(v) + ' requests')}
     ${band('Bandwidth', fmt.bytes(sum(h.bytes)) + ' sent', h.bytes, (v) => fmt.bytes(v))}
     ${band('Saved by Brotli', fmt.bytes(sum(h.saved)) + ' not sent thanks to precompression', h.saved, (v) => fmt.bytes(v))}
@@ -1036,7 +1047,7 @@ function vEdge() {
   if (!e) return loading('Asking Cloudflare…');
   const setup = `<div class="setup">
     <h5>Connect Cloudflare edge analytics</h5>
-    <p>Caddy only sees requests that <b>miss</b> Cloudflare’s cache. Cloudflare’s own numbers fill that gap: cache hit ratio, total bandwidth and threats.</p>
+    <p>Caddy only sees requests that <b>miss</b> Cloudflare’s cache. Connect Cloudflare to see the rest.</p>
     <ol>
       <li>Open <b>dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</b>.</li>
       <li>Permissions: <code>Zone · Analytics · Read</code> and <code>Zone · Zone · Read</code>. Zone resources: <code>${esc(INST.zone)}</code> only.</li>
@@ -1045,7 +1056,7 @@ function vEdge() {
     <pre><code>{
   "cloudflare": { "api_token": "paste-token-here", "zone_name": "${esc(INST.zone)}" }
 }</code></pre>
-    <p class="dim">The Network view lists every other permission Strata can use (zone settings, DNS, purge, edge blacklist).</p>
+    <p class="dim">The Network view lists the other permissions Strata can use.</p>
     ${e.configured ? `<p class="hot"><b>Last attempt failed:</b> ${esc(e.error)}</p><button class="btn btn-secondary" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Retry now</button>` : ''}
   </div>`;
   if (!e.configured || !e.ok) return setup;
@@ -1057,7 +1068,7 @@ function vEdge() {
   const kpi = (k, v, sub, hot) => `<div><div class="cap">${esc(k)}</div><div class="val ${hot ? 'hot' : ''}">${esc(v)}</div><div class="small dim ell">${esc(sub)}</div></div>`;
   const bars = (list, total, cached, label) => {
     const m = Math.max(1, ...list.map(total));
-    return `<div class="slabs" style="min-height:90px">${list.map((x) => {
+    return `<div class="slabs min-h-90">${list.map((x) => {
       const t = total(x) || 0, c = cached(x) || 0;
       return `<span class="stack" title="${esc(label(x) + ' · ' + fmt.n(t) + ' requests · ' + fmt.pct(share(c, t)) + ' cached')}" style="height:${Math.max(t ? 3 : 0, t / m * 100).toFixed(1)}%">
         <span style="flex:${c};background:var(--color-text)"></span><span style="flex:${t - c};background:var(--color-accent)"></span></span>`;
@@ -1070,7 +1081,7 @@ function vEdge() {
   }));
   const crow = Object.entries(countries).sort((a, b) => b[1].r - a[1].r).slice(0, 40)
     .map(([k, v]) => ({ cells: [cell(cname(k)), cell(k, 'dim'), cell(fmt.n(v.r), 'r h800'), cell(fmt.bytes(v.b), 'r dim'), cell(fmt.n(v.t), 'r ' + (v.t ? 'hot' : 'dim'))] }));
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+  return `<div class="col-fill">
     <div class="kpis">
       ${kpi('Requests · 24 h', fmt.n(req), 'at the Cloudflare edge')}
       ${kpi('Served from cache', fmt.pct(share(creq, req)), fmt.n(creq) + ' requests never hit Caddy')}
@@ -1079,9 +1090,9 @@ function vEdge() {
       ${kpi('Threats', fmt.n(thr), 'blocked or challenged', thr > 0)}
       ${kpi('Unique visitors', fmt.n(uniq), 'peak hour · Cloudflare count')}
     </div>
-    <div class="grid2" style="grid-template-columns:1.35fr 1fr;flex:1">
-      <section class="panel" style="overflow-y:auto">
-        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">ink = cache hit · red = fetched from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
+    <div class="grid2 cols-135 fill">
+      <section class="panel oy-auto">
+        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
         <div class="ph smt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
@@ -1089,8 +1100,8 @@ function vEdge() {
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
       <section class="aside">
-        <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Countries at the edge</h5><button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
-        <div style="border-top:2px solid var(--color-divider)"></div>
+        <div class="ph ph-pad"><h5>Countries at the edge</h5><button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
+        <div class="bt-div"></div>
         ${table('edge', [{ t: 'Country', w: 170 }, { t: 'CC', w: 40 }, { t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 80, a: 'r' }, { t: 'Threats', w: 60, a: 'r' }], crow)}
       </section>
     </div>
@@ -1112,7 +1123,7 @@ function vInsights() {
   const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
   I.heat.forEach((h) => { grid[(h.d + 6) % 7][h.h] += h.c; });
   const hmax = Math.max(1, ...grid.flat());
-  const heat = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl" style="justify-content:center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
+  const heat = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl jc-center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
     grid.map((row, d) => `<span class="lbl">${days[d]}</span>` + row.map((v, h) =>
       `<span title="${days[d]} ${String(h).padStart(2, '0')}:00 · ${fmt.n(v)} requests" style="background:${v ? `color-mix(in srgb,var(--color-accent) ${(8 + v / hmax * 82).toFixed(0)}%,var(--color-neutral-200))` : 'var(--color-neutral-200)'}"></span>`).join('')).join('') + '</div>';
   const cls = Object.fromEntries(I.classes.map((c) => [c.k, c.c]));
@@ -1120,7 +1131,7 @@ function vInsights() {
   const classBar = `<div class="stackbar">${[[2, 'var(--color-text)'], [3, 'var(--color-neutral-500)'], [4, 'var(--color-accent)'], [5, 'var(--color-accent-800)']]
     .map(([k, col]) => cls[k] ? `<i title="${k}xx · ${fmt.n(cls[k])}" style="flex:${cls[k]};background:${col}"></i>` : '').join('')}</div>
     <div class="small dim">${[2, 3, 4, 5].map((k) => `${k}xx ${fmt.pct(share(cls[k] || 0, ctot))}`).join(' · ')}</div>`;
-  const ret = `<div style="display:flex;gap:26px;margin:4px 0 8px"><div><div class="cap">Returning</div><div class="big-num">${fmt.n(I.returning)}</div></div>
+  const ret = `<div class="d-flex gap-26 mx-0 mt-4 mb-8"><div><div class="cap">Returning</div><div class="big-num">${fmt.n(I.returning)}</div></div>
     <div><div class="cap">New</div><div class="big-num">${fmt.n(I.visitors - I.returning)}</div></div></div>
     <div class="stackbar"><i style="flex:${I.returning || 0};background:var(--color-text)"></i><i style="flex:${(I.visitors - I.returning) || 0};background:var(--color-accent)"></i></div>
     <div class="small dim">Returning = seen before this range began (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
@@ -1202,7 +1213,7 @@ function vCompression() {
 const seg = (items, cur, act) => `<div class="seg-row">${items.map(([v, l]) =>
   `<button class="${String(cur) === String(v) ? 'on' : ''}" data-act="${act}" data-arg="${esc(v)}">${l}</button>`).join('')}</div>`;
 const toggle = (on, act) => `<label class="sw" title="${on ? 'On' : 'Off'}"><input type="checkbox" data-change="${act}" ${on ? 'checked' : ''}><b></b></label>`;
-const setRow = (title, desc, control) => `<div class="set-row"><div style="min-width:0"><div class="h800">${esc(title)}</div>
+const setRow = (title, desc, control) => `<div class="set-row"><div class="min-w0"><div class="h800">${esc(title)}</div>
   <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${control}</div></div>`;
 function vSettings() {
   const pct = Math.round(S.scale * 100), eff = Math.round(zoomNow * 100);
@@ -1605,8 +1616,8 @@ function renderOverlay() {
         <div class="grow"></div><button class="btn btn-secondary" data-act="dlgCancel">Cancel</button></div></div></div>`;
   }
   if (S.help) {
-    html += `<div class="palbg" data-act="helpClose"><div class="dlg" style="width:560px" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
-      <div class="kbd" style="grid-template-columns:150px 1fr">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blacklist · l links · n network · t tunnel · y system · x settings'],
+    html += `<div class="palbg" data-act="helpClose"><div class="dlg w-560" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
+      <div class="kbd cols-k150">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blocklist · l links · n network · t tunnel · y system · x settings'],
         ['1 – 9', 'Views in sidebar order'], ['[', 'Sidebar'], ['T', 'Theme'], ['Space', 'Pause · Files: preview'], ['Esc', 'Close'], ['Del · F2 · Backspace', 'Files: trash · rename · up'], ['Ctrl V', 'Paste images to upload']].map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div></div>
       <div class="acts"><div class="grow"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
   }
@@ -1704,7 +1715,7 @@ const ACT = {
   fields() { S.fields = !S.fields; persist(); render(); },
   cycleRate() {
     if (S.paused) { S.paused = false; render(); return; }
-    S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; persist(); render(); note('Polling every ' + S.rate + ' ms');
+    S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; persist(); render(); note('Refreshing every ' + S.rate + ' ms');
   },
   themeCycle() { const order = ['auto', 'light', 'dark']; setPref('theme', order[(order.indexOf(S.theme) + 1) % 3]); note('Theme: ' + ({ auto: 'follows the system', light: 'light', dark: 'dark' }[S.theme])); },
   navCollapse() { setPref('navCollapsed', !S.navCollapsed); },
@@ -1788,7 +1799,7 @@ const ACT = {
     }
     setPref('notify', !!v);
   },
-  async setSync(v) { S.syncPrefs = !!v; persist(); if (v) { await pushPrefs(); note('Preferences are now stored in your account'); } render(true); },
+  async setSync(v) { S.syncPrefs = !!v; persist(); if (v) { await pushPrefs(); note('Preferences now sync to your account'); } render(true); },
   vitalSlot(v, el) { const i = +el.dataset.arg; const list = (S.vitals || []).slice(); while (list.length <= i) list.push(''); list[i] = v; S.vitals = list.filter(Boolean); persist(); render(true); },
   vitalsReset() { S.vitals = PREFS.vitals.slice(); persist(); render(true); },
   vitalsNone() { S.vitals = []; persist(); render(true); },
@@ -1808,7 +1819,7 @@ const ACT = {
     inp.click();
   },
   async resetPrefs() {
-    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Strata preference in this browser?', ok: 'Reset', text: 'Appearance, scale, layout, polling rate, filters and column widths go back to their defaults. Nothing on the server changes.' });
+    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Strata preference in this browser?', ok: 'Reset', text: 'Everything on the Settings page goes back to its default. Only this browser changes.' });
     if (!ok) return;
     try { Object.keys(localStorage).filter((k) => k.startsWith('strata:')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
     if (S.syncPrefs) { try { await post('/api/prefs', { prefs: {}, ts: Date.now() / 1000 }); } catch { /* ignore */ } }
@@ -1932,7 +1943,7 @@ const MENUS = {
       item('Open History', '', () => go('history'), { icon: 'clock-fading' }),
       item('Customise the strip…', '', () => go('settings'), { icon: 'sliders-horizontal' }),
       item(S.paused ? 'Resume sampling' : 'Freeze sampling', 'space', () => ACT.pause(), { sep: true, icon: S.paused ? 'play' : 'pause' }),
-      item('Polling interval…', S.rate + ' ms', () => ACT.cycleRate(), { icon: 'refresh-cw' }),
+      item('Refresh rate…', S.rate + ' ms', () => ACT.cycleRate(), { icon: 'refresh-cw' }),
     ] };
   },
   traffic() {
@@ -1940,7 +1951,7 @@ const MENUS = {
       .concat([item('Copy series as CSV', '', () => copySeries(), { sep: true, icon: 'clipboard-copy' }), item(S.paused ? 'Resume sampling' : 'Freeze sampling', 'space', () => ACT.pause(), { icon: 'pause' })]) };
   },
   rate() {
-    return { kicker: 'Polling interval', title: 'Currently ' + S.rate + ' ms', items: RATES.map((r, i) => item(r + ' ms' + (r === S.rate ? '  ·  current' : ''), i === 0 ? 'fastest' : i === RATES.length - 1 ? 'calmest' : '', () => { S.rate = r; persist(); render(); })) };
+    return { kicker: 'Refresh rate', title: 'Currently ' + S.rate + ' ms', items: RATES.map((r, i) => item(r + ' ms' + (r === S.rate ? '  ·  current' : ''), i === 0 ? 'fastest' : i === RATES.length - 1 ? 'calmest' : '', () => { S.rate = r; persist(); render(); })) };
   },
 };
 function appMenu(kicker = 'Strata', title = INST.name || 'CDN Monitor') {

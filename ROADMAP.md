@@ -1,6 +1,6 @@
 # Strata roadmap
 
-Written 2026-10-11, updated the same day after Phase 1.
+Written 2026-10-11, updated the same day after Phase 1, after 2c, 2d and 2e, and after the release fixes.
 
 ## Done in this round
 
@@ -25,7 +25,7 @@ Internal names (`office.py`, `/api/office/*`, the `office.*` permission keys) ar
 
 | Item | What changed |
 |---|---|
-| Git | The repository has its first commits. `strata.json`, `data/`, `generated/`, `backups/` and `vendor/` are ignored |
+| Git | The repository has its first commits. `strata.json`, `data/`, `generated/`, `backups/` and the top-level `vendor/` (Python packages) are ignored; `static/vendor/` (CodeMirror, icon licenses) is committed |
 | Personal details | Domains, the owner's handle, LAN addresses, NAS paths and machine paths replaced with `example.com`, documentation ranges and `<home>` / `<install folder>`. Tests take tool paths from the environment (`STRATA_CADDY`, `STRATA_SAMPLE_PHOTO`) |
 | Basics | `LICENSE` (MIT), `README.md` with screenshots from the demo instance, `SECURITY.md` (private reports through GitHub) |
 | Installer | `setup.py` / `setup.cmd`: packages, site, Caddy (backup, import line, validation, rollback), Cloudflare Tunnel (backup, ingress rule, DNS route, optional new tunnel), keys, owner, `strata.json` (backup), then a Task Scheduler task (Windows) or systemd unit (Linux). `--check`, `--no-service`, `--uninstall`, `--home`. Safe to re-run |
@@ -41,18 +41,45 @@ Bugs found on the way and fixed:
 
 Still open from Phase 1:
 
-- **The Linux path needs one real run** (a VM or `docker run python:3.12`) of `setup.py` and `tests/run_all.py`.
+- **The Linux install needs one real run** (a VM or `docker run python:3.12`) of `setup.py`, with its systemd units and Caddy and cloudflared from their packages. `tests/run_all.py` passes on Linux now (see "Found on the way" below).
 - **The service as SYSTEM needs one real run as administrator.** The task definition was checked by registering it under a normal account; the boot trigger and SYSTEM account were not.
-- **Decide whether sign-in should work without e-mail.** Today every sign-in needs a code sent through Resend, so a new user must have a Resend account and a verified sender domain before they can sign in at all. Options: TOTP as an alternative second factor for the owner, or e-mail codes only when mail is configured.
+- ~~**Decide whether sign-in should work without e-mail.**~~ Done: the owner can use an authenticator app instead of the e-mailed code (see "Sign-in without e-mail" below). Other accounts still need e-mail.
+
+## Sign-in without e-mail: done
+
+| Change | Where |
+|---|---|
+| The owner can sign in with an authenticator app instead of the e-mailed code. With the app set up, sign-in is the password plus the app code; the e-mailed code is skipped | `strata.py` `login()` |
+| First-run setup (`/setup`) and the installer offer the app first; e-mail and a Resend key are needed only for e-mailed codes. Both show the recovery codes once | `static/setup.html`, `static/setupdone.html`, `setup.py` |
+| `python auth.py --totp` sets up the app from the server, `--totp off` removes it: the way back in for a locked-out owner | `auth.py` |
+| A half-finished sign-in remembers which code it waits for, and each code page accepts only its own. Before, `/login/2fa` accepted any pending sign-in, so posting there skipped the e-mail step | `strata.py` |
+| The app can't be turned off while e-mail isn't set up, and e-mail can't be removed while the owner has no app: either would lock the owner out | `strata.py` |
+| Sign-in pages no longer scroll sideways on a phone: their cards were wider than a 390 px screen | `static/login*.html`, `static/setup*.html` |
+
+Other accounts still get e-mailed codes, so inviting people still needs Resend.
+
+## Found on the way: fixed
+
+| Problem | Fix | Where |
+|---|---|---|
+| No code editor on a fresh clone: `vendor/` in `.gitignore` also matched `static/vendor/`, so CodeMirror and the Lucide license never reached the repository | The pattern is anchored (`/vendor/`) and `static/vendor/` holds CodeMirror 5.65.21. `index.html` also loads `addon/fold/xml-fold`, which `matchtags` needs: without it the editor showed no lines | `.gitignore`, `static/vendor/`, `static/index.html` |
+| The preset select next to Cache-Control and Cloudflare cache (drive editor, rule editor) took the whole row and left the text field 18 px wide | The select is a compact "presets…" menu that fills the field in and resets. Text inputs in sheets also lost an 8 px margin meant for stacked dialogs, which put them out of line with the selects and buttons beside them | `static/control.js`, `static/dashboard.css` |
+| "Trust this browser for 30 days" did nothing | It sets a cookie only the sign-in pages receive, and the owner's next sign-ins from that browser skip the app code. The password is still checked. A new password or a new app ends the trust | `strata.py`, `auth.py` |
+| Before the privacy note is accepted, `guard()` sent the 428 and then a redirect in the same response, and answered POST and PUT before reading the body (as did the two local-network refusals), which Caddy reports as a 502 | One answer, after the body is read | `strata.py` |
+| On Linux, 33 Strata Media unit tests failed and 2 errored | All 438 pass (16 skipped: Windows-only features, Defender, Caddy not installed, the opt-in sample photo). Three real bugs: every member of a zip written by Python was flagged as a "device or special file" archive bomb, `safe_join()` let `a\..\..\x` through, and `config.resolve()` refused every file under a `//server/share` root. The two bridge failures came from the demo using the test ports: it moved to 1848x, and a plain kill now stops its server too | `media/extract.py`, `media/sandbox.py`, `media/config.py`, `tests/demo.py` |
+| New browsers got Sharp corners on the sign-in pages; the default is Soft | `boot.js` uses the same default as the dashboard | `static/boot.js` |
+| Serving › Site and Test stayed two columns on a phone | The narrow-screen rule wins over the column helper | `static/dashboard.css` |
+
+Still open: the same `commonpath` comparison as in `config.resolve()` is in `files.py` and `strata.py`, so on POSIX they refuse every file under a `//server/share` root. That fails closed, and on Linux a share is mounted at a normal path anyway, so it stays as is.
 
 ## Phase 2: done (de-sloppify)
 
 | Item | What changed |
 |---|---|
-| 2c Scale | New browsers start at 100 %. Auto-fit is gone (browser zoom does that). A browser that already saved a scale keeps it |
+| 2c Scale | New browsers start at 100 %. Auto-fit is gone (browser zoom does that). Browsers and synced accounts still on the old 130 % default move to 100 % once (`scale100` in the preferences); any other saved scale is kept |
 | 2b Hubs | The sidebar has 11 entries instead of 26. **Traffic** (Requests, Visitors, Content, Insights), **Security** (Blocklist, Scanners, Alerts), **Health** (Tunnel, Origins, Edge, Latency, History, System, Logs), **Files** (Files, Analyze) and **Site** (Serving, Links, Compression, Media) are one entry each, with a tab row. A hub opens the tab used last and shows the badge of a tab that needs attention. The Infrastructure toggle (`I`) is gone |
 | 2a Settings | Two tabs, **Preferences** and **Account**, plus a filter that searches both. Server settings open in a sheet from the page they configure: Security › Alerts › Delivery, Blocklist › Auto-ban, Links and Files (gear button). Cloudflare is **Network › Cache**; version read-outs are on **Health › System**. The keyboard list, the duplicate Session panel and the admin callout are gone |
-| 2d Styles | The 517-line `<style>` block moved from `index.html` to the top of `dashboard.css`, unchanged. The spacing tokens already existed (`--space-1` … `--space-8` in `styles.css`), so no new ones. The most common inline styles became classes: `.grow` spacers, `.hrow`, `.mt-1` … `.mt-4` (about 60 of 290). The rest are one-off widths on inputs |
+| 2d Styles | The 517-line `<style>` block moved from `index.html` to the top of `dashboard.css`, unchanged. The spacing tokens already existed (`--space-1` … `--space-8` in `styles.css`), so no new ones. The most common inline styles became classes: `.grow` spacers, `.srow`, `.smt-1` … `.smt-4`. A second pass from the release-fixes branch turned most of the remaining static `style="..."` attributes into helpers nested under `#app` (the last section of `dashboard.css`, e.g. `.hrow`, `.mt-8`, `.fill`); the first pass's names were changed to `.srow` / `.smt-N` so the two sets don't clash |
 | 2e Copy | Settings rows, the moved sections, em-dash asides in `control.js`, `storage.js`, `app.js` and `office.js`, and every user-visible "root" on Accounts (now **Owner**) |
 
 How it is built, for whoever touches it next:

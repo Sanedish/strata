@@ -193,7 +193,7 @@
     const self = isMe(p.user);
     return `<div class="office-profile">
       <div class="op-hero">${avatar(p.user, p.avatar, 'lg', true)}
-        <div class="op-hero-txt"><div class="row" style="flex-wrap:wrap;gap:6px"><h3>${esc(p.user)}</h3>${badgeFor(p)}</div>
+        <div class="op-hero-txt"><div class="row f-wrap gap-6"><h3>${esc(p.user)}</h3>${badgeFor(p)}</div>
           <div class="op-title">${esc(p.title || (self ? 'Add a job title' : p.role))}</div>
           ${p.status ? `<div class="op-status">${esc(p.status)}</div>` : ''}</div>
         <div class="op-hero-act">${self && !O.editProfile ? `<button class="btn btn-secondary sm" data-act="officeProfileEdit">${icon('pencil', 'sm')} Edit profile</button>` : ''}

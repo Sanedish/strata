@@ -20,7 +20,7 @@
     catch (e) { A.systemError = e.message; render(true); }
   }
   function vSystem() {
-    if (!has('system.read')) return adminErr('System health access is not assigned to this account.');
+    if (!has('system.read')) return adminErr('This account can’t see system health. Ask an administrator for access.');
     if (!A.system) { if (!A.systemError) loadSystem(); return `<div class="sys-page">${loading('Reading instance health…')}</div>`; }
     const s = A.system, c = s.counts || {}, r = s.runtime_log || {};
     const services = (s.processes || []).map((p) => `<div class="sys-row"><div><b>${esc(p.name)}</b><small>${esc(p.addr || 'no listener configured')}</small></div>${status(!!p.up, 'Online', 'Offline')}</div>`).join('');
@@ -87,7 +87,7 @@
       <button class="btn btn-secondary" data-act="logSearch">${icon('search', 'sm')} Search</button><button class="btn btn-secondary" data-act="logRefresh">${icon('refresh-cw', 'sm')} Refresh</button></div>`;
   }
   function vLogs() {
-    if (!has('logs.read')) return adminErr('Log access is not assigned to this account.');
+    if (!has('logs.read')) return adminErr('This account can’t see logs. Ask an administrator for access.');
     if (A.logSource === 'activity' && !has('audit.read')) A.logSource = 'runtime';
     if (!A.logs && !A.logError) loadLogs();
     const source = A.logs;
@@ -98,7 +98,7 @@
     else if (A.logSource === 'activity') body = `<div class="admin-log-meta">Append-only account activity · ${fmt.n(source.rows?.length)} shown${source.append_only ? ' · dashboard deletion is disabled' : ''}</div><div class="admin-table-wrap"><table class="admin-table log-table"><thead><tr><th>When</th><th>Account</th><th>Action</th><th>Source IP</th><th>Target / detail</th><th>Result</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td>${esc(r.user || 'anonymous')}</td><td class="mono">${esc(r.action)}</td><td class="mono">${esc(r.ip)}</td><td class="log-target" title="${esc([r.target, r.note].filter(Boolean).join(' · '))}">${esc([r.target, r.note].filter(Boolean).join(' · '))}</td><td>${status(!!r.ok, 'OK', 'Denied')}</td></tr>`).join('') || '<tr><td colspan="6">No account events match this filter.</td></tr>'}</tbody></table></div>`;
     else body = `<div class="admin-log-meta">Caddy requests · last 7 days · ${fmt.n(source.rows?.length)} shown</div><div class="admin-table-wrap"><table class="admin-table log-table"><thead><tr><th>When</th><th>Request</th><th>Path</th><th>Status</th><th>Bytes</th><th>Duration</th><th>IP / region</th><th>Client</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td class="mono">${esc(r.method)} ${esc(r.host)}</td><td class="log-target" title="${esc(r.path)}">${esc(r.path)}</td><td class="${r.status >= 400 ? 'hot' : ''}">${esc(r.status)}</td><td>${fmt.bytes(r.bytes)}</td><td>${fmt.ms(r.dur)}</td><td class="mono">${esc(r.ip)} · ${esc(r.country || '—')}</td><td title="${esc(r.ua)}">${esc(r.agent || r.ua || '—')}</td></tr>`).join('') || '<tr><td colspan="8">No website requests match this filter.</td></tr>'}</tbody></table></div>`;
     const more = A.logSource === 'activity' ? source?.next : source?.more ? source?.cursor : null;
-    return `<div class="admin-page logs-page"><div class="admin-page-head"><div><div class="cap">Operations · logs</div><h3>Log explorer</h3><p>Inspect process output, website requests, and account activity with bounded queries.</p></div></div>${logToolbar()}<section class="panel log-panel">${body}${more ? `<div class="admin-more"><button class="btn btn-secondary" data-act="logMore">Load older entries</button></div>` : ''}</section></div>`;
+    return `<div class="admin-page logs-page"><div class="admin-page-head"><div><div class="cap">Operations · logs</div><h3>Log explorer</h3><p>Process output, requests and account activity.</p></div></div>${logToolbar()}<section class="panel log-panel">${body}${more ? `<div class="admin-more"><button class="btn btn-secondary" data-act="logMore">Load older entries</button></div>` : ''}</section></div>`;
   }
 
   /* ---------------------------------------------------------------- accounts (root only; the server enforces it) */
@@ -156,13 +156,13 @@
     return `<button class="account-card ${u.user === A.accountSelected ? 'on' : ''}" data-act="accountSelect" data-arg="${esc(u.user)}" aria-pressed="${u.user === A.accountSelected}" title="${esc(u.user + (u.email ? ' · ' + u.email : ''))}">
       ${avatar(u.user, u.avatar, '', u.enabled && !u.pending)}
       <span class="account-main"><b>${esc(u.user)}</b><small>${esc(u.email || 'no e-mail address')}</small>
-        <span class="account-tags"><span class="tag">${esc(u.role === 'root' ? 'Root' : presetLabel(u.preset))}</span>${u.administrative && u.role !== 'root' ? '<span class="tag tag-accent">Moderator</span>' : ''}<span class="account-state ${state[1]}">${state[0]}</span></span></span>
+        <span class="account-tags"><span class="tag">${esc(u.role === 'root' ? 'Owner' : presetLabel(u.preset))}</span>${u.administrative && u.role !== 'root' ? '<span class="tag tag-accent">Moderator</span>' : ''}<span class="account-state ${state[1]}">${state[0]}</span></span></span>
     </button>`;
   }
 
   function identitySection(sel) {
     const isRoot = sel.role === 'root', self = sel.user.toLowerCase() === String(D.me?.user || '').toLowerCase();
-    const facts = [['E-mail', sel.email ? `${esc(sel.email)} <span class="${sel.email_verified ? 'ok' : 'warn'}">· ${sel.email_verified ? 'verified' : 'not verified yet'}</span>` : '<span class="warn">none - required for sign-in codes</span>'],
+    const facts = [['E-mail', sel.email ? `${esc(sel.email)} <span class="${sel.email_verified ? 'ok' : 'warn'}">· ${sel.email_verified ? 'verified' : 'not verified yet'}</span>` : '<span class="warn">none: needed for sign-in codes</span>'],
       ['Status', !sel.enabled ? (sel.pending ? '<span class="warn">Waiting for activation</span>' : '<span class="hot">Disabled</span>') : sel.expired ? '<span class="hot">Access period ended</span>' : '<span class="ok">Enabled</span>'],
       ['Last sign-in', esc(stamp(sel.last_login))], ['Created', esc(stamp(sel.created))],
       ['Home folder', sel.home ? `<code>${esc(sel.home.path)}</code>` : '<span class="dim">no storage assigned</span>']];
@@ -176,9 +176,9 @@
          ${btn('accountPasswordReset', sel.pending ? 'New activation link' : 'Password reset link', { icon: 'key-round' })}
          ${btn('accountDelete', 'Delete account', { icon: 'trash-2', danger: true, disabled: self })}`;
     const adminBox = isRoot ? '' : `<label class="acct-admin-flag ${sel.administrative ? 'on' : ''}"><input type="checkbox" data-change="accountAdministrative" ${sel.administrative ? 'checked' : ''} ${A.busy || self ? 'disabled' : ''}>
-        <span><b>Team moderator</b><small>Runs the office: pins and removes noticeboard posts and team notes, sees colleagues' contact details, and switches colleagues' office access and job titles. Grants nothing outside the office — files, monitoring and settings stay exactly as set below.</small></span></label>`;
+        <span><b>Team moderator</b><small>Moderates the noticeboard and notes and manages colleagues’ Team access. Grants nothing outside Team.</small></span></label>`;
     return `<section class="panel acct-sec"><div class="acct-ident">${avatar(sel.user, sel.avatar, 'lg', sel.enabled && !sel.pending)}<div><div class="cap">Identity &amp; status</div><h4 class="acct-name">${esc(sel.user)}</h4>
-        ${sel.avatar && !self ? btn('accountAvatarRemove', 'Remove picture', { small: true, icon: 'x', title: 'Remove this profile picture (for example if it is inappropriate)' }) : ''}</div></div>
+        ${sel.avatar && !self ? btn('accountAvatarRemove', 'Remove picture', { small: true, icon: 'x', title: 'Remove this profile picture' }) : ''}</div></div>
       <dl class="acct-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
       ${adminBox}
       ${sel.note ? `<p class="acct-note"><b>Note:</b> ${esc(sel.note)}</p>` : ''}
@@ -205,20 +205,20 @@
     const fileNote = !isAdmin && [...d.perms].some((p) => p.startsWith('files.')) ? '<p class="acct-note">File capabilities only apply inside the storage zones below, and each zone can narrow them further.</p>' : '';
     return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>${esc(presetLabel(d.preset))}</h5></div>
         <label class="acct-preset">Preset<select class="input" id="account-preset" data-change="accountPreset">${PRESET_ORDER.filter((k) => presetsById()[k] || k === 'custom').map((k) => `<option value="${k}" ${d.preset === k ? 'selected' : ''}>${esc(presetLabel(k))}</option>`).join('')}</select></label></div>
-      ${isAdmin ? '<p class="admin-callout">Administrators can use and change every part of the dashboard except accounts, the code editor and the e-mail sender. They can only sign in from the local network.</p>' : grid + fileNote}
+      ${isAdmin ? '<p class="admin-callout">Administrators can change everything except accounts, code and the e-mail sender. They sign in only from the local network.</p>' : grid + fileNote}
       <div class="acct-effective"><span class="cap">Effective access</span><div class="tags">${eff}</div></div>
-      <div class="acct-savebar ${dirty ? 'dirty' : ''}"><span class="small">${dirty ? 'Unsaved changes · saving signs this account out' : 'No unsaved changes'}</span><div class="grow"></div>
+      <div class="acct-savebar ${dirty ? 'dirty' : ''}"><span class="small">${dirty ? 'Unsaved changes. Saving signs this account out.' : 'No unsaved changes'}</span><div class="grow"></div>
         ${btn('accountDiscard', 'Discard', { disabled: !dirty })}${btn('accountSave', 'Save permissions', { primary: true, icon: 'check', disabled: !dirty })}</div></section>`;
   }
 
   function capChecks(name, selected, held) {
     const fileCaps = (A.accounts.permissions || []).filter((p) => p.group === 'files');
-    return `<div class="cap-checks">${fileCaps.map((p) => `<label class="cap-check ${held && !held.has(p.id) ? 'lack' : ''}" title="${esc(p.description + (held && !held.has(p.id) ? ' - not in this account\'s permissions, so it has no effect yet' : ''))}"><input type="checkbox" name="${name}" value="${esc(p.id)}" ${selected.has(p.id) ? 'checked' : ''} ${p.id === 'files.read' ? 'disabled checked' : ''}><span>${esc(p.label)}</span></label>`).join('')}</div>`;
+    return `<div class="cap-checks">${fileCaps.map((p) => `<label class="cap-check ${held && !held.has(p.id) ? 'lack' : ''}" title="${esc(p.description + (held && !held.has(p.id) ? ': not in this account’s permissions, so it has no effect yet' : ''))}"><input type="checkbox" name="${name}" value="${esc(p.id)}" ${selected.has(p.id) ? 'checked' : ''} ${p.id === 'files.read' ? 'disabled checked' : ''}><span>${esc(p.label)}</span></label>`).join('')}</div>`;
   }
 
   function zoneSection(sel) {
     if (sel.role === 'root' || sel.role === 'admin') {
-      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Storage access</div><h5>All drives</h5></div></div><p class="acct-note">${sel.role === 'root' ? 'Root' : 'Administrators'} can reach every drive; storage zones only restrict employee accounts.</p></section>`;
+      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Storage access</div><h5>All drives</h5></div></div><p class="acct-note">${sel.role === 'root' ? 'The owner' : 'Administrators'} can reach every drive. Storage zones only limit members.</p></section>`;
     }
     const drives = fileDrives();
     const driveName = (m) => drives.find((x) => String(x.mount) === String(m))?.name || 'Drive ' + m;
@@ -233,39 +233,39 @@
       }
       const lacking = z.caps.filter((c) => !held.has(c));
       return `<div class="zone-row ${z.expired ? 'expired' : ''}"><span class="zone-where"><b>${esc(driveName(z.mount))}</b><code>${esc(z.path)}</code>${sel.home && sel.home.path === z.path && String(sel.home.mount) === String(z.mount) ? '<span class="tag">home</span>' : ''}${z.expired ? '<span class="tag tag-hot">ended</span>' : z.expires ? `<span class="tag">until ${esc(day(z.expires))}</span>` : ''}</span>
-        <span class="zone-caps">${z.caps.map((c) => `<span class="tag ${held.has(c) ? '' : 'tag-dim'}" title="${held.has(c) ? '' : 'not in the account permissions - no effect'}">${esc(permLabel(c))}</span>`).join('')}</span>
+        <span class="zone-caps">${z.caps.map((c) => `<span class="tag ${held.has(c) ? '' : 'tag-dim'}" title="${held.has(c) ? '' : 'not in the account permissions, so no effect'}">${esc(permLabel(c))}</span>`).join('')}</span>
         <span class="zone-btns"><button class="icbtn" data-act="zoneEdit" data-arg="${esc(z.id)}" title="Change what is allowed in ${esc(z.path)}" aria-label="Edit access to ${esc(z.path)}"${A.busy ? ' disabled' : ''}>${icon('pencil', 'sm')}</button>
         <button class="icbtn" data-act="zoneDelete" data-arg="${esc(z.id)}" title="Remove access to ${esc(z.path)}" aria-label="Remove access to ${esc(z.path)}"${A.busy ? ' disabled' : ''}>${icon('trash-2', 'sm')}</button></span>
         ${lacking.length && !z.expired ? `<small class="zone-hint">${lacking.length} allowed action${lacking.length === 1 ? '' : 's'} here ${lacking.length === 1 ? 'is' : 'are'} not in the account permissions and ${lacking.length === 1 ? 'has' : 'have'} no effect.</small>` : ''}</div>`;
     }).join('');
     return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Storage access</div><h5>${zones.length} storage zone${zones.length === 1 ? '' : 's'}</h5></div></div>
-      <p class="acct-note">A zone is a folder this account may use, with its own list of allowed actions. Inside it, the account can do what both the zone and its permissions allow.</p>
-      <div class="zone-list">${rows || '<div class="admin-callout">No storage assigned: this account cannot see or change any files.</div>'}</div>
+      <p class="acct-note">A folder this account may use, and what it may do there.</p>
+      <div class="zone-list">${rows || '<div class="admin-callout">No storage yet: this account can’t see any files.</div>'}</div>
       ${drives.length ? `<div class="zone-add"><div class="cap">Add a zone</div>
         <div class="zone-form"><label>Drive<select class="input" id="zone-mount">${drives.map((x) => `<option value="${esc(x.mount)}">${esc(x.name)}</option>`).join('')}</select></label>
           <label>Folder<input class="input" id="zone-path" value="/users/${esc(sel.user)}" autocomplete="off" spellcheck="false"></label>
           <label>Access until (optional)<input class="input" type="date" id="zone-exp"></label></div>
         ${capChecks('zone-new-cap', new Set(['files.read', 'files.download']), held)}
-        <div class="acct-actions">${btn('zoneAdd', 'Add zone', { icon: 'plus' })}<span class="small dim">Granting a folder that already has a zone replaces its actions.</span></div></div>` : '<p class="acct-note warn">No file drives are configured yet (Serving).</p>'}</section>`;
+        <div class="acct-actions">${btn('zoneAdd', 'Add zone', { icon: 'plus' })}<span class="small dim">Granting a folder that already has a zone replaces its actions.</span></div></div>` : '<p class="acct-note warn">No file drives yet. Add one under Serving.</p>'}</section>`;
   }
 
   function limitsSection(sel) {
     if (sel.role === 'root') return '';
     return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Sign-in limits</div><h5>When and from where</h5></div></div>
       <div class="limits-grid">
-        <label>Access until<input class="input" type="date" id="lim-exp" value="${esc(dateIn(sel.expires))}"><small>Sign-in and every open session end after this day. Empty = no end.</small></label>
-        <label>Longest session (hours)<input class="input" type="number" min="0.25" max="2160" step="0.25" id="lim-hours" value="${esc(sel.session_hours ?? '')}" placeholder="instance default"><small>Counted from sign-in; activity does not extend it.</small></label>
-        <label class="wide">Allowed networks<textarea class="input" id="lim-ips" rows="2" spellcheck="false" placeholder="any network - e.g. 192.168.1.0/24, 10.8.0.5">${esc((sel.allowed_ips || []).join(', '))}</textarea><small>IP addresses or ranges (CIDR), comma separated. Empty = anywhere this dashboard is reachable.</small></label>
+        <label>Access until<input class="input" type="date" id="lim-exp" value="${esc(dateIn(sel.expires))}"><small>Sign-in ends after this day. Empty: no end.</small></label>
+        <label>Longest session (hours)<input class="input" type="number" min="0.25" max="2160" step="0.25" id="lim-hours" value="${esc(sel.session_hours ?? '')}" placeholder="instance default"><small>Counted from sign-in.</small></label>
+        <label class="wide">Allowed networks<textarea class="input" id="lim-ips" rows="2" spellcheck="false" placeholder="any network, e.g. 192.168.1.0/24, 10.8.0.5">${esc((sel.allowed_ips || []).join(', '))}</textarea><small>Addresses or ranges, comma separated. Empty: any network.</small></label>
         <label class="wide">Note for administrators<textarea class="input" id="lim-note" rows="2" maxlength="500" placeholder="e.g. contractor for the Q4 relaunch">${esc(sel.note || '')}</textarea></label>
       </div>
-      <div class="acct-actions">${btn('accountLimitsSave', 'Save limits', { primary: true, icon: 'check' })}<span class="small dim">Saving signs the account out so the limits apply at once.</span></div></section>`;
+      <div class="acct-actions">${btn('accountLimitsSave', 'Save limits', { primary: true, icon: 'check' })}<span class="small dim">Saving signs the account out.</span></div></section>`;
   }
 
   function createSection() {
     if (!A.createOpen) return '';
     const drives = fileDrives();
-    return `<section class="panel acct-sec acct-create" aria-label="Create account"><div class="acct-sec-head"><div><div class="cap">New account</div><h5>Create an account and an activation link</h5></div>${btn('accountCreateToggle', 'Close', { icon: 'x' })}</div>
-      <p class="acct-note">The person sets their own password through a single-use link (valid 24 hours). Sign-in always needs a code sent to their e-mail, so add an address they can read.</p>
+    return `<section class="panel acct-sec acct-create" aria-label="Create account"><div class="acct-sec-head"><div><div class="cap">New account</div><h5>Create an account</h5></div>${btn('accountCreateToggle', 'Close', { icon: 'x' })}</div>
+      <p class="acct-note">They set their password with a link that works once, for 24 hours. Sign-in codes go to their e-mail.</p>
       <div class="create-grid">
         <label>Username<input id="invite-user" class="input" autocomplete="off" spellcheck="false" maxlength="60" placeholder="e.g. alex" value="${esc(A.createUser || '')}"><small>2–60 letters, digits, dot, dash, underscore</small></label>
         <label>E-mail<input id="invite-email" class="input" type="email" autocomplete="off" placeholder="name@example.com" value="${esc(A.createEmail || '')}"><small>Receives the link and sign-in codes</small></label>
@@ -286,13 +286,13 @@
     const filtered = list.filter((u) => !q || u.user.toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q));
     const sel = list.find((x) => x.user === A.accountSelected);
     const link = A.activationLink ? `<section class="panel acct-link" role="status"><div class="acct-sec-head"><div><div class="cap">Single-use link · valid 24 hours</div><h5>${esc(A.activationKind)} for ${esc(A.activationUser)}</h5></div>${btn('dismissActivation', 'Done', { icon: 'check' })}</div>
-      <p class="acct-note">${A.activationMailed ? 'It was e-mailed to the account address. ' : ''}Anyone holding this link can set the password - share it only with that person. It is shown once.</p>
+      <p class="acct-note">${A.activationMailed ? 'It was e-mailed to the account address. ' : ''}Anyone with this link can set the password: share it only with that person. It’s shown once.</p>
       <div class="acct-linkrow"><input id="act-link-box" class="input" value="${esc(A.activationLink)}" readonly data-act="selectField" aria-label="Activation link">${btn('copyActivationLink', 'Copy', { icon: 'copy' })}</div></section>` : '';
     const policy = A.signups ? `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Registration</div><h5>${A.signups.allowed ? 'Open registration is ON' : 'Invite only'}</h5></div>
       ${A.signups.locked_by_env ? '<span class="small dim">locked by the ALLOW_SIGNUPS environment variable</span>' : btn('toggleSignups', A.signups.allowed ? 'Switch to invite only' : 'Allow open registration', { arg: A.signups.allowed ? '0' : '1' })}</div>
       <p class="acct-note">Invite only is recommended: then only the owner can create accounts, here.</p></section>` : '';
     return `<div class="admin-page acct-page">
-      <div class="admin-page-head"><div><div class="cap">Administration · identity &amp; access</div><h3>Accounts</h3><p>Create staff accounts, decide exactly what each one may do and where, and limit when and from where they can sign in. Only root can open this view.</p></div>
+      <div class="admin-page-head"><div><div class="cap">Administration · identity &amp; access</div><h3>Accounts</h3><p>Who can sign in, and what they can do.</p></div>
         <div class="acct-actions">${btn('accountLoad', 'Refresh', { icon: 'refresh-cw' })}${btn('accountCreateToggle', A.createOpen ? 'Close form' : 'New account', { primary: !A.createOpen, icon: A.createOpen ? 'x' : 'user-plus' })}</div></div>
       ${link}${createSection()}
       <div class="account-layout">
@@ -378,17 +378,17 @@
       const result = await post('/api/ide/save', { path: A.ide.path, text, expect_sha: A.ide.sha });
       A.ide.sha = result.sha256; A.ide.text = text; A.ide.saved = text;
       A.ide.drafts[A.ide.path] = { text, sha: result.sha256, saved: text };
-      note('Saved ' + A.ide.path + (result.backup ? ' · previous version backed up' : ''));
+      note('Saved ' + A.ide.path + (result.backup ? ', previous version backed up' : ''));
       updateIdeStatus(); render(true);
-    } catch (e) { note(e.message + (e.message.includes('changed since') ? ' · your editor text is still here; reload to inspect the disk version.' : ''), { err: true }); }
+    } catch (e) { note(e.message + (e.message.includes('changed since') ? '. Your text is still here: reload to see the version on disk.' : ''), { err: true }); }
   }
   function vIde() {
-    if (!has('code.read')) return adminErr('Source-code access is not assigned to this account.');
+    if (!has('code.read')) return adminErr('This account can’t see the source code. Ask the owner for access.');
     if (!A.ide.tree && !A.ide.error) loadIdeTree();
     if (A.ide.editor) rememberIdeDraft();
     const write = has('code.write'), path = A.ide.path;
     const state = A.ide.error ? `<div class="empty">${esc(A.ide.error)}</div>` : !A.ide.tree ? loading('Indexing source files…') : treeMarkup() || '<div class="empty">No source files are in the IDE scope.</div>';
-    const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Local CodeMirror editor with syntax highlighting, line numbers, bracket matching, search and conflict-safe saves.</p><p>${write ? 'Every save makes a private backup before writing atomically.' : 'This account has read-only source access.'}</p></div>`;
+    const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Edit Strata’s own source files.</p><p>${write ? 'Every save keeps a backup first.' : 'This account can only read the source.'}</p></div>`;
     return `<div class="admin-page ide-page"><div class="admin-page-head"><div><div class="cap">Administration · source</div><h3>Strata web IDE</h3><p>Source changes apply to every Strata instance using this shared code folder.</p></div><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
       <div class="ide-workspace"><aside class="ide-sidebar"><div class="ide-tree-head">${icon('folder-tree', 'sm')} Source files</div><input class="input" id="ide-search" placeholder="Filter files…" value="${esc(A.ide.search)}"><div class="ide-tree">${state}</div></aside><section class="ide-main">${editor}</section></div></div>`;
   }
@@ -414,7 +414,7 @@
         <div class="acct-actions"><label class="btn btn-secondary ${A.avatarBusy ? 'disabled' : ''}">${icon('upload', 'sm')}<span>${A.avatarBusy ? 'Uploading…' : D.me.avatar ? 'Change picture' : 'Upload picture'}</span><input type="file" id="profile-avatar" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" data-change="avatarPick" hidden ${A.avatarBusy ? 'disabled' : ''}></label>
           ${D.me.avatar ? `<button class="btn btn-secondary" data-act="avatarRemove" ${A.avatarBusy ? 'disabled' : ''}>${icon('x', 'sm')}<span>Remove</span></button>` : ''}</div></div></div>`}
       ${D.me.expires || D.me.session_hours ? `<p class="small dim">${D.me.expires ? 'Your access ends on ' + esc(new Date(D.me.expires * 1000).toLocaleDateString()) + '. ' : ''}${D.me.session_hours ? 'Sessions last at most ' + esc(D.me.session_hours) + ' h.' : ''}</p>` : ''}
-      <p class="small dim">Change your sign-in address by confirming a one-time code sent to that address. Passwords require at least 12 characters.</p>
+      <p class="small dim">To change your sign-in e-mail, confirm a code sent to the new address.</p>
       <div class="profile-grid">
         <label>Sign-in e-mail<input class="input" id="profile-email" type="email" value="${esc(A.emailPending || D.me.email || '')}" autocomplete="email"></label>
         <label>Current password<input class="input" id="profile-password" type="password" autocomplete="current-password"></label>
@@ -523,7 +523,7 @@
       return busy('accountAvatarRemove', async () => { await post('/api/accounts/avatar/delete', { user }); note('Profile picture removed'); await loadAccounts(); });
     },
     async toggleSignups(val) {
-      if (val === '1' && !(await ask({ kicker: 'Registration', title: 'Allow open registration?', danger: true, ok: 'Allow', text: 'Anyone who can reach the sign-in page could then try to create an account. Invite only is safer.' }))) return;
+      if (val === '1' && !(await ask({ kicker: 'Registration', title: 'Allow open registration?', danger: true, ok: 'Allow', text: 'Anyone who can reach the sign-in page could create an account. Invite only is safer.' }))) return;
       return busy('toggleSignups', async () => { await post('/api/settings/signups', { allowed: val === '1' }); note(val === '1' ? 'Open registration enabled' : 'Invite only'); await loadAccounts(); });
     },
     accountInvite() {
@@ -531,7 +531,7 @@
       const preset = $('#invite-preset')?.value || 'read_only', mount = $('#invite-mount')?.value;
       A.createUser = username; A.createEmail = email;
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,59}$/.test(username)) { A.createError = 'Use 2–60 letters, digits, dots, dashes or underscores, starting with a letter or digit.'; return render(true); }
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { A.createError = 'That e-mail address does not look valid.'; return render(true); }
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { A.createError = 'That e-mail address doesn’t look valid.'; return render(true); }
       A.createError = '';
       return busy('accountInvite', async () => {
         try {
@@ -546,7 +546,7 @@
     async accountStatus(enable) {
       const user = A.accountSelected;
       const ok = await ask({ kicker: enable === '1' ? 'Enable account' : 'Disable account', title: `${enable === '1' ? 'Enable' : 'Disable'} ${user}?`, danger: enable !== '1',
-        ok: enable === '1' ? 'Enable' : 'Disable', text: enable === '1' ? 'The account can sign in again with its password and an e-mail code.' : 'Signs the account out everywhere and blocks sign-in until it is enabled again.' });
+        ok: enable === '1' ? 'Enable' : 'Disable', text: enable === '1' ? 'The account can sign in again with its password and an e-mail code.' : 'Signs the account out and blocks sign-in until you enable it.' });
       if (!ok) return;
       return busy('accountStatus', async () => { await post('/api/accounts/status', { user, enabled: enable === '1' }); note(enable === '1' ? `${user} enabled` : `${user} disabled and signed out`); await loadAccounts(); });
     },
@@ -557,7 +557,7 @@
     },
     async accountPasswordReset() {
       const user = A.accountSelected;
-      if (!(await ask({ kicker: 'Password reset', title: `Create a password reset link for ${user}?`, ok: 'Create link', text: 'The link lets its holder set a new password once (valid 24 hours). It does not enable a disabled account.' }))) return;
+      if (!(await ask({ kicker: 'Password reset', title: `Create a password reset link for ${user}?`, ok: 'Create link', text: 'The link sets a new password once, within 24 hours. It doesn’t enable a disabled account.' }))) return;
       return busy('accountPasswordReset', async () => {
         const res = await post('/api/accounts/password-reset', { user });
         Object.assign(A, { activationLink: res.link, activationUser: user, activationKind: 'Password reset link', activationMailed: !!res.email_sent });
@@ -569,7 +569,7 @@
         text: `Removes the sign-in, permissions, storage zones, profile picture and sessions. Type ${user} to confirm.`, input: '',
         check: `Also delete the private folder /users/${user} and its files` });
       if (!res) return;
-      if (res.value !== user) return note('Not deleted: the typed name did not match', { err: true });
+      if (res.value !== user) return note('Not deleted: the name you typed didn’t match', { err: true });
       return busy('accountDelete', async () => {
         await post('/api/accounts/delete', { user, storage_action: res.checked ? 'delete' : 'retain' });
         note(`${user} deleted${res.checked ? ' with their private folder' : ' · files kept'}`);

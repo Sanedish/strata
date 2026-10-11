@@ -25,6 +25,8 @@ def login(user, pw):
 ok = True
 for user, pw, want, why in (
         ("lena", "correct horse battery staple 42", "/login?e=email", "right password reaches the e-mail-code step (mail not set up on dev)"),
+        ("dev", "correct horse battery staple 42", "/login?e=setup_required",
+         "an owner with no authenticator app and no e-mail is told how to fix it"),
         ("lena", "wrong password entirely", "/login?e=1", "wrong password is rejected"),
         ("nobody-here", "whatever", "/login?e=1", "unknown account is rejected"),
         ("alexandra.konstantinopoulou-wellington_contractor-2026-team", "x", "/login?e=1", "pending account is rejected")):

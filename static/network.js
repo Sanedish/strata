@@ -64,8 +64,8 @@ function netEmpty(key, title, detail, ic = 'cloud-off') {
 function netTokenNotice() {
   const s = D.net.status;
   if (s?.token) return '';
-  return `<div class="net-callout warn"><div class="row">${icon('key-round')}<b>Cloudflare API token is not configured</b></div>
-    <div class="small">Zone settings and DNS controls need an API token stored in this Strata instance’s server configuration. The dashboard never asks for or stores the token in your browser. Tunnel routes and service exposure can still use cloudflared’s existing login.</div></div>`;
+  return `<div class="net-callout warn"><div class="row">${icon('key-round')}<b>No Cloudflare API token</b></div>
+    <div class="small">Add one to strata.json to change zone settings and DNS. Tunnel routes work without it.</div></div>`;
 }
 function netCapState(cap) {
   if (!cap || cap.ok == null) return ['pending', 'Not checked'];
@@ -86,7 +86,7 @@ function netHeader() {
   const s = D.net.status;
   const zone = s?.zone_name || INST.zone || 'Cloudflare zone';
   return `<div class="net-heading"><div><div class="net-eyebrow">Network control plane</div><h2>${icon('globe')}${esc(zone)}</h2>
-    <p>Cloudflare, DNS, tunnel routing and protected local services for this Strata instance.</p></div>
+    <p>DNS, tunnel routes and local services.</p></div>
     <div class="net-heading-actions">${D.net.loading ? `<span class="small dim row">${icon('loader-circle', 'spin')}Refreshing</span>` : ''}
       <button class="pill" data-act="netReload" title="Refresh this section">${icon('refresh-cw', 'sm')}Refresh</button></div></div>
     <div class="net-tabs" role="tablist">${NET_TABS.filter(([k]) => k !== 'cache' || meCan('cdn.manage')).map(([key, label, ic]) => `<button role="tab" aria-selected="${S.netTab === key}" class="${S.netTab === key ? 'on' : ''}" data-act="netTab" data-arg="${key}">${icon(ic, 'sm')}${esc(label)}</button>`).join('')}</div>`;
@@ -123,7 +123,7 @@ function netOverview() {
     ${netPanel('Tunnel routing', connInfo, routeBody + `<div class="act-row"><button class="pill" data-act="netTab" data-arg="tunnel">Manage routes</button><button class="pill" data-act="netTab" data-arg="expose">Expose a service</button></div>`, 'cable')}
     ${netPanel('Zone settings', 'HTTPS, cache, security and protocol options', `<p class="small dim">Changes are applied to the edge for this zone. Each value is read from Cloudflare before you edit it.</p><button class="btn btn-secondary" data-act="netTab" data-arg="settings">Review zone settings ${icon('arrow-right', 'sm')}</button>`, 'sliders-horizontal')}
     ${netPanel('DNS records', s?.zone_name ? `Managed zone · ${s.zone_name}` : 'Cloudflare zone records', `<p class="small dim">Review and edit supported A, AAAA, CNAME, TXT and MX records. Tunnel DNS records are identified in the list.</p><button class="btn btn-secondary" data-act="netTab" data-arg="dns">Manage DNS ${icon('arrow-right', 'sm')}</button>`, 'route')}
-  </div><div class="net-footnote">${s?.token ? `Permission status last checked ${esc(netDate(s.caps?.zone?.ts))}.` : 'Cloudflare controls remain read-only until a server-side API token is configured.'} ${ing ? `Tunnel configuration: <code>${esc(ing.path || 'available')}</code>.` : ''}</div>`;
+  </div><div class="net-footnote">${s?.token ? `Permission status last checked ${esc(netDate(s.caps?.zone?.ts))}.` : 'Read-only until an API token is set in strata.json.'} ${ing ? `Tunnel configuration: <code>${esc(ing.path || 'available')}</code>.` : ''}</div>`;
 }
 
 function netOptionLabel(s, value) {
@@ -200,7 +200,7 @@ function netTunnel() {
     return { cells: [hcell(`<b>${esc(isLast ? 'All other hosts' : r.hostname)}</b>${r.path ? `<small class="net-route-path">${esc(r.path)}</small>` : ''}`), cell(r.service, 'mono', r.service), cell(r.extra ? 'custom origin options' : isLast ? 'fallback' : '—', 'dim'), hcell(actions)] };
   });
   const restart = cfg.name ? `${cfg.kind || 'service'} · ${cfg.name}` : 'No restart task or service configured';
-  const form = `<div class="net-inline-form"><div class="net-form-head"><div><b>Add tunnel route</b><span>Routes are checked by cloudflared before they are saved. A saved edit needs a tunnel restart to take effect.</span></div></div>
+  const form = `<div class="net-inline-form"><div class="net-form-head"><div><b>Add tunnel route</b><span>Saved routes apply after a tunnel restart.</span></div></div>
     <div class="net-fields net-route-fields"><label>Hostname<input id="ni_host" class="input" placeholder="app.${esc(D.net.status?.zone_name || 'example.com')}" autocomplete="off"></label>
       <label>Forward to<input id="ni_service" class="input" value="${esc(ing.cdn || '')}" placeholder="http://localhost:8080" list="net-services" autocomplete="off"><datalist id="net-services">${[...new Set((ing.rules || []).map((r) => r.service).filter(Boolean))].map((v) => `<option value="${esc(v)}"></option>`).join('')}</datalist></label>
       <label>Path match (optional)<input id="ni_path" class="input" placeholder="/api/*" autocomplete="off"></label>
@@ -212,7 +212,7 @@ function netTunnel() {
     ${netPanel('Tunnel controls', 'Applies to every hostname using this tunnel', `<div class="net-detail"><span>Configuration</span><code>${esc(ing.path || '—')}</code><span>Restart target</span><b>${esc(restart)}</b><span>Default Strata upstream</span><code>${esc(ing.cdn || '—')}</code></div>
       <div class="net-callout warn compact">Restarting interrupts all tunnelled hostnames briefly. A saved route change is not active until the restart succeeds.</div>
       <button class="btn btn-danger" data-act="netRestartTunnel" ${D.net.busy || !cfg.name ? 'disabled' : ''}>${icon('refresh-cw', 'sm')}Restart tunnel</button>
-      ${n.pendingRestart ? '<div class="net-callout warn compact">You have unsaved-in-runtime route changes. Restart the tunnel to apply them.</div>' : ''}
+      ${n.pendingRestart ? '<div class="net-callout warn compact">Some route changes aren’t live yet. Restart the tunnel to apply them.</div>' : ''}
       <div class="net-test"><b>Test a URL against ingress rules</b><span>Cloudflared reports which rule would handle it.</span><div class="row"><input id="ni_test" class="input" value="${esc(n.testUrl || '')}" placeholder="https://app.${esc(D.net.status?.zone_name || 'example.com')}/" autocomplete="off"><button class="pill" data-act="netTestIngress">Test</button></div>${test}</div>`, 'cable')}
   </div>`;
 }
@@ -226,8 +226,8 @@ function netExpose() {
       ${exposure.url ? `<div class="row net-result-url"><code>${esc(exposure.url)}</code><button class="pill" data-act="netOpenExposure">${icon('external-link', 'sm')}Open</button><button class="pill" data-act="netCopyExposure">${icon('copy', 'sm')}Copy URL</button></div>` : ''}
       <div class="small dim">A later failure can leave an earlier step in place. Review each step before retrying.</div></div>` : '';
   return `${n.status?.token ? '' : netTokenNotice()}${netError('listening', 'Could not inspect local listening ports')}
-    <div class="net-expose-grid"><section class="panel net-panel net-wizard"><div class="ph"><h5>${icon('plug')}Expose a local service</h5><span class="small dim">Caddy proxy · Cloudflare Tunnel · optional DNS</span></div>
-      <p class="small dim">Route a LAN or localhost app through this Strata instance. Strata validates the upstream, updates Caddy, adds the tunnel route and DNS, then can restart cloudflared.</p>
+    <div class="net-expose-grid"><section class="panel net-panel net-wizard"><div class="ph"><h5>${icon('plug')}Expose a local service</h5><span class="small dim">publish an app through Strata</span></div>
+      <p class="small dim">Publish an app from this machine or your network. Strata sets up Caddy, the tunnel route and DNS.</p>
       <div class="net-fields">
         <label>Service name<input id="ne_name" class="input" placeholder="My app" maxlength="60" autocomplete="off"></label>
         <label>Upstream address<input id="ne_upstream" class="input" placeholder="127.0.0.1:1234" list="net-port-options" autocomplete="off"><datalist id="net-port-options">${ports.map((p) => `<option value="127.0.0.1:${p.port}">${esc(p.process || 'local process')} · ${esc(p.addr)}:${p.port}</option>`).join('')}</datalist></label>

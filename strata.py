@@ -63,23 +63,65 @@ IDE_EXTS = {".py", ".js", ".mjs", ".cjs", ".css", ".html", ".htm", ".json", ".md
 IDE_SKIP = {".git", ".hg", ".svn", "__pycache__", "vendor", "node_modules", "generated", "data", ".strata"}
 # first-run owner setup (/setup): loopback only, gone once strata.json has an owner
 SETUP_LOCK = threading.Lock()
+SETUP_TOTP = {}  # "secret": the authenticator key /setup shows until the owner exists (one per process)
 SETUP_ERRORS = {"user": "Usernames are 2 to 60 letters, digits, dots, dashes or underscores.",
                 "password": "Use at least 12 characters for the password.",
                 "repeat": "The two passwords don't match.",
                 "email": "Enter a valid e-mail address.",
-                "mail": "Sign-in codes are sent by e-mail: enter a sender address and an SMTP server or a Resend API key."}
-SETUP_MAIL = ('<p class="note">Strata e-mails a code at every sign-in. Use the SMTP server of any mail provider or your own '
-              'mail server, or a <a href="https://resend.com" target="_blank" rel="noopener">Resend</a> API key.</p>'
-              '<label>Send codes from<input name="mail_from" type="email" placeholder="strata@example.com" required></label>'
-              '<label>SMTP server<input name="smtp_host" placeholder="smtp.example.com" autocomplete="off" spellcheck="false"></label>'
-              '<label>SMTP port<input name="smtp_port" inputmode="numeric" placeholder="587 (STARTTLS) or 465 (TLS)"></label>'
-              '<label>SMTP user name<input name="smtp_user" autocomplete="off" spellcheck="false"></label>'
-              '<label>SMTP password<input name="smtp_password" type="password" autocomplete="off"></label>'
-              '<label>Or: Resend API key<input name="resend_key" autocomplete="off" spellcheck="false"></label>')
+                "mail": "Enter a sender address and an SMTP server or a Resend API key, or use an authenticator app instead.",
+                "totp": "That code didn't match. Enter the code your app shows now.",
+                "factor": "Choose how you get your sign-in code."}
+SETUP_FACTOR = '''<fieldset class="factor"><legend>Sign-in code</legend>
+  <label><input type="radio" name="factor" value="app"%(app)s><span>Authenticator app</span></label>
+  <label><input type="radio" name="factor" value="email"%(email)s><span>E-mail</span></label>
+</fieldset>
+<div class="if-app">
+  %(qr)s<p class="note">Scan this with your authenticator app, or enter the key <code>%(key)s</code></p>
+  <label>Code from the app<input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false"></label>
+</div>
+<div class="if-email">
+  <label>E-mail<input name="email" type="email" autocomplete="email"></label>%(mail)s
+</div>'''
+SETUP_MAIL = ('\n  <p class="note">Codes are sent through the SMTP server of any mail provider or your own mail server, or through '
+              '<a href="https://resend.com" target="_blank" rel="noopener">Resend</a>.</p>'
+              '\n  <label>Send codes from<input name="mail_from" type="email" placeholder="strata@example.com"></label>'
+              '\n  <label>SMTP server<input name="smtp_host" placeholder="smtp.example.com" autocomplete="off" spellcheck="false"></label>'
+              '\n  <label>SMTP port<input name="smtp_port" inputmode="numeric" placeholder="587 (STARTTLS) or 465 (TLS)"></label>'
+              '\n  <label>SMTP user name<input name="smtp_user" autocomplete="off" spellcheck="false"></label>'
+              '\n  <label>SMTP password<input name="smtp_password" type="password" autocomplete="off"></label>'
+              '\n  <label>Or: Resend API key<input name="resend_key" autocomplete="off" spellcheck="false"></label>')
 
 
 def mail_configured():
     return alerts.mail_ready()
+
+
+def owner_mail_ready():
+    """True when an e-mailed sign-in code can reach the owner."""
+    owner = accounts.get(str(CFG["auth"].get("user") or "")) or {}
+    return mail_configured() and bool(accounts.EMAIL_RE.fullmatch(str(owner.get("email") or "")))
+
+
+def trust_bind(acct):
+    """What a trusted browser stays bound to: a new owner password or a new authenticator app ends the trust."""
+    return "%s|%s" % (acct.get("password_hash") or "", CFG["auth"].get("totp_secret") or "")
+
+
+def setup_secret():
+    """The key /setup offers stays the same across reloads, so a mistyped code doesn't mean scanning again."""
+    with SETUP_LOCK:
+        if not SETUP_TOTP.get("secret"):
+            SETUP_TOTP["secret"] = auth.totp_secret()
+        return SETUP_TOTP["secret"]
+
+
+def setup_factor():
+    secret = setup_secret()
+    svg = auth.qr_svg(auth.totp_uri(secret, CFG["instance"].get("name") or "owner"))
+    app = not mail_configured()  # the app is the default unless e-mail is already set up
+    return SETUP_FACTOR % {"app": " checked" if app else "", "email": "" if app else " checked",
+                           "qr": '<div class="qr">%s</div>' % svg if svg else "", "key": auth.spaced(secret),
+                           "mail": "" if mail_configured() else SETUP_MAIL}
 
 
 class DBSessions(auth.Sessions):
@@ -601,6 +643,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if user.startswith("api:"):
             if not self.local_network():
+                self.drain()
                 core.audit(self.client_ip(), user, "admin-network-denied", path[:200], ok=False)
                 self.json({"error": "administrative access is available only from the local network"}, 403)
                 return None
@@ -608,6 +651,7 @@ class Handler(BaseHTTPRequestHandler):
         acct = accounts.get(user)
         if acct:
             if self.administrative_account(acct) and not self.local_network():
+                self.drain()
                 core.audit(self.client_ip(), user, "admin-network-denied", path[:200], ok=False)
                 self.json({"error": "administrative access is available only from the local network"}, 403)
                 return None
@@ -615,9 +659,11 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/me" or path == "/api/privacy/accept" or path in ("/privacy", "/privacy/accept") or path.startswith("/") and path.rsplit("/", 1)[-1] in (
                         "styles.css", "favicon.ico"):
                     return user
+                self.drain()
                 if path.startswith("/api/"):
                     self.json({"error": "privacy notice acceptance required", "privacy_required": True}, 428)
-                self.redirect("/privacy")
+                else:
+                    self.redirect("/privacy")
                 return None
         return user
 
@@ -734,9 +780,9 @@ class Handler(BaseHTTPRequestHandler):
             host = "localhost"
         return ("https" if self.secure() else "http") + "://" + host
 
-    def cookie(self, name, value, max_age):
-        return "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
-            name, value, max_age, "; Secure" if self.secure() else "")
+    def cookie(self, name, value, max_age, path="/"):
+        return "%s=%s; Path=%s; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
+            name, value, path, max_age, "; Secure" if self.secure() else "")
 
     # -- GET
     def loopback(self):
@@ -753,37 +799,36 @@ class Handler(BaseHTTPRequestHandler):
             if not self.loopback():
                 return self.redirect("/login?e=setup_local")
             msg = SETUP_ERRORS.get(q.get("e"))
-            mail = "" if mail_configured() else SETUP_MAIL
             return self.html_page("setup.html", dict(page_vars(), **{
-                "<!--ERROR-->": '<div class="err">%s</div>' % msg if msg else "", "<!--MAIL-->": mail}))
+                "<!--ERROR-->": '<div class="err">%s</div>' % msg if msg else "", "<!--FACTOR-->": setup_factor()}))
         if path == "/login":
             if not CFG["auth"].get("password_hash") and q.get("e") != "setup_local":
                 return self.redirect("/setup" if self.loopback() else "/login?e=setup_local")
             if self.user():
                 return self.redirect("/")
-            msg = {"1": "Wrong user or password.", "locked": "Too many attempts — try again in 15 minutes.",
-                   "expired": "That took too long — sign in again.",
-                   "local": "Administrator sign-in is allowed only from the local network.",
-                   "email": "E-mail verification could not be completed. Ask the root administrator to check the e-mail setup.",
-                   "setup_required": "Root e-mail verification is not configured. Configure root e-mail via CLI: python auth.py --email <address>.",
-                   "signups_disabled": "Account registration is currently disabled on this instance.",
+            msg = {"1": "Wrong username or password.", "locked": "Too many attempts. Try again in 15 minutes.",
+                   "expired": "That took too long. Sign in again.",
+                   "local": "Administrators can sign in only from the local network.",
+                   "email": "Couldn't send your sign-in code. Ask the owner to check the e-mail setup.",
+                   "setup_required": "The owner has no way to get a sign-in code. On the server, run: python auth.py --totp",
+                   "signups_disabled": "Sign-ups are turned off on this site.",
                    "enrolled": "Account set up. Sign in with your new password.",
-                   "owner": "Owner account created. Sign in to continue.",
-                   "setup_local": "No owner account yet. Open /setup in a browser on the machine Strata runs on, "
+                   "owner": "Owner created. Sign in to continue.",
+                   "setup_local": "No owner yet. Open /setup in a browser on the machine Strata runs on, "
                                   "or run python setup.py there.",
-                   "acct_expired": "This account's access period has ended. Ask the administrator to extend it.",
-                   "acct_network": "This account may not sign in from this network."}.get(q.get("e"))
+                   "acct_expired": "Your access has ended. Ask an administrator to extend it.",
+                   "acct_network": "This account can't sign in from this network."}.get(q.get("e"))
             return self.html_page("login.html", dict(page_vars(), **{"<!--ERROR-->": '<div class="err">%s</div>' % msg if msg else ""}))
         if path == "/login/2fa":
-            if not App.pending.get(auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)):
+            if (App.pending.get(auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)) or {}).get("step") != "app":
                 return self.redirect("/login?e=expired")
-            msg = {"1": "That code did not match. Codes change every 30 seconds.",
-                   "locked": "Too many attempts — try again in 15 minutes."}.get(q.get("e"))
+            msg = {"1": "That code didn't match. Codes change every 30 seconds.",
+                   "locked": "Too many attempts. Try again in 15 minutes."}.get(q.get("e"))
             return self.html_page("login2fa.html", dict(page_vars(), **{"<!--ERROR-->": '<div class="err">%s</div>' % msg if msg else ""}))
         if path == "/login/otp":
-            if not App.pending.get(auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)):
+            if (App.pending.get(auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)) or {}).get("step") != "email":
                 return self.redirect("/login?e=expired")
-            msg = {"1": "That code did not match or has expired.", "locked": "Too many attempts — try again in 15 minutes."}.get(q.get("e"))
+            msg = {"1": "That code didn't match or has expired.", "locked": "Too many attempts. Try again in 15 minutes."}.get(q.get("e"))
             return self.html_page("loginotp.html", dict(page_vars(), **{"<!--ERROR-->": '<div class="err">%s</div>' % msg if msg else ""}))
         if path == "/privacy":
             user = self.user()
@@ -808,7 +853,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/") and not self.authorize(user, path, "GET", q):
             core.audit(self.client_ip(), user, "access-denied", path[:200], ok=False)
-            return self.json({"error": "this account does not have access to this view or storage area"}, 403)
+            return self.json({"error": "this account can't open this. Ask an administrator for access."}, 403)
         try:
             return self.get_routes(user, path, q)
         except Exception as e:
@@ -1367,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(r)
             body = self.body_form() if path == "/privacy/accept" else self.body_json()
             if path.startswith("/api/") and not self.authorize(user, path, "POST", q, body):
-                return self.json({"error": "this account does not have permission for this action"}, 403)
+                return self.json({"error": "this account can't do this. Ask an administrator for access."}, 403)
             if path == "/privacy/accept":
                 if body.get("accept") != "yes":
                     raise files.FileError(400, "privacy notice acceptance is required")
@@ -1458,7 +1503,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ide/save":
             return self.ide_save(user, ip, b)
         if path.startswith("/api/2fa/") and (accounts.get(user) or {}).get("role") != "root":
-            raise files.FileError(403, "the legacy authenticator factor is managed only by the root account")
+            raise files.FileError(403, "only the owner can set up the authenticator app")
         if path == "/api/audit/events":
             events = b.get("events")
             if not isinstance(events, list) or len(events) > 100:
@@ -1525,9 +1570,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 grants = b.get("permissions") or []
             if invited_role == "root":
-                raise files.FileError(403, "root accounts cannot be created or invited")
+                raise files.FileError(403, "there is only one owner: invite an administrator or a member instead")
             if invited_role == "admin" and actor.get("role") not in ("root", "admin"):
-                raise files.FileError(403, "only a root or administrator can invite an administrator")
+                raise files.FileError(403, "only the owner or an administrator can invite administrators")
             if actor.get("role") not in ("root", "admin") and any(
                     p not in (actor.get("permissions") or []) for p in grants):
                 raise files.FileError(403, "you may only delegate permissions already assigned to your account")
@@ -1558,7 +1603,7 @@ class Handler(BaseHTTPRequestHandler):
             if not acct:
                 raise files.FileError(404, "account not found")
             if acct.get("role") == "root":
-                raise files.FileError(403, "root permissions cannot be altered")
+                raise files.FileError(403, "the owner's permissions can't be changed")
             target_role = str(b.get("role", "employee"))
             preset = str(b.get("preset") or "")
             if preset and preset in accounts.PRESETS and preset != "custom":
@@ -1567,9 +1612,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 grants = b.get("permissions") or []
             if target_role == "root":
-                raise files.FileError(403, "cannot promote account to root")
+                raise files.FileError(403, "an account can't become the owner")
             if target_role == "admin" and actor.get("role") not in ("root", "admin"):
-                raise files.FileError(403, "only a root or administrator can grant administrator access")
+                raise files.FileError(403, "only the owner or an administrator can grant administrator access")
             if actor.get("role") not in ("root", "admin") and any(
                     p not in (actor.get("permissions") or []) for p in grants):
                 raise files.FileError(403, "you may only delegate permissions already assigned to your account")
@@ -1587,7 +1632,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     root_count = db.execute("SELECT COUNT(*) FROM account WHERE role='root' AND enabled=1").fetchone()[0]
                     if root_count <= 1:
-                        raise files.FileError(400, "the last root administrator cannot be disabled")
+                        raise files.FileError(400, "the owner can't be disabled")
                 finally:
                     db.close()
             if target.lower() == user.lower() and not enabled:
@@ -1965,6 +2010,11 @@ class Handler(BaseHTTPRequestHandler):
                                "user": str(sm.get("user") or "").strip()[:200],
                                # empty keeps the stored password, like the Resend key
                                "password": "" if not host else str(sm["password"])[:500] if sm.get("password") else old.get("password", "")}
+            # the merged settings, so switching provider or clearing the SMTP host counts as removing e-mail too
+            removes_mail = mail_configured() and not alerts.mail_ready(dict(CFG["alerts"], **upd))
+            if removes_mail and not CFG["auth"].get("totp_secret"):
+                raise files.FileError(400, "Can't remove e-mail: the owner gets sign-in codes by e-mail. "
+                                           "Set up an authenticator app in Settings first.")
             if "to" in b:
                 to = [t.strip() for t in re.split(r"[,\s;]+", str(b["to"])) if t.strip()]
                 if any(not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", t) for t in to):
@@ -2012,8 +2062,12 @@ class Handler(BaseHTTPRequestHandler):
             A("2fa-enable", user)
             return {"enabled": True, "recovery": codes}
         if path in ("/api/2fa/disable", "/api/2fa/recovery"):
+            # checked before the code, so a recovery code isn't used up by a request that is refused anyway
+            if path.endswith("disable") and not owner_mail_ready():
+                raise files.FileError(400, "Can't turn off the app: e-mail isn't set up, so you couldn't sign in. "
+                                           "Set up e-mail in Settings first.")
             if not self.second_factor_ok(b.get("code")):
-                raise files.FileError(400, "code did not match")
+                raise files.FileError(400, "That code didn't match. Enter the current code or a recovery code.")
             if path.endswith("disable"):
                 core.save_config({"auth": {"totp_secret": "", "recovery": [], "totp_last": 0}})
                 A("2fa-disable", user)
@@ -2180,35 +2234,50 @@ class Handler(BaseHTTPRequestHandler):
         form = self.body_form(4096)
         user = str(form.get("user") or "").strip()
         password = form.get("password") or ""
+        factor = form.get("factor")
         email = str(form.get("email") or "").strip().lower()
         key, sender = str(form.get("resend_key") or "").strip(), str(form.get("mail_from") or "").strip()
         smtp_host = str(form.get("smtp_host") or "").strip().lower()
         smtp_port = int(form.get("smtp_port")) if str(form.get("smtp_port") or "").isdigit() else 0
         if smtp_host and not re.fullmatch(r"[a-z0-9.-]{1,253}", smtp_host):
             smtp_host = ""
+        secret = setup_secret()
+        step = auth.totp_verify(secret, form.get("totp_code")) if factor == "app" else None
         problem = ("user" if not accounts.USER_RE.fullmatch(user) else
                    "password" if len(password) < 12 else
                    "repeat" if password != form.get("password2") else
-                   "email" if not accounts.EMAIL_RE.fullmatch(email) else
-                   "mail" if not mail_configured() and not ((key or smtp_host) and accounts.EMAIL_RE.fullmatch(sender)) else "")
+                   "factor" if factor not in ("app", "email") else
+                   "totp" if factor == "app" and not step else
+                   "email" if factor == "email" and not accounts.EMAIL_RE.fullmatch(email) else
+                   "mail" if factor == "email" and not mail_configured() and not ((key or smtp_host) and accounts.EMAIL_RE.fullmatch(sender))
+                   else "")
         if problem:
             return self.redirect("/setup?e=" + problem)
         with SETUP_LOCK:
             if CFG["auth"].get("password_hash"):  # someone finished first
                 return self.redirect("/login")
-            update = {"auth": {"user": user, "password_hash": auth.hash_password(password)},
-                      "alerts": {"to": [email] + [t for t in CFG["alerts"].get("to") or [] if t != email]}}
-            if smtp_host:
-                update["alerts"].update({"from": sender, "provider": "smtp", "smtp": {
-                    "host": smtp_host, "port": smtp_port, "security": "tls" if smtp_port == 465 else "starttls",
-                    "user": str(form.get("smtp_user") or "").strip()[:200], "password": str(form.get("smtp_password") or "")[:500]}})
-            elif key:
-                update["alerts"].update(resend_api_key=key, provider="resend", **{"from": sender})
+            update = {"auth": {"user": user, "password_hash": auth.hash_password(password)}}
+            codes = []
+            if factor == "app":
+                codes, hashes = auth.recovery_codes()
+                update["auth"].update(totp_secret=secret, totp_last=step, recovery=hashes)
+            else:
+                update["alerts"] = {"to": [email] + [t for t in CFG["alerts"].get("to") or [] if t != email]}
+                if smtp_host:
+                    update["alerts"].update({"from": sender, "provider": "smtp", "smtp": {
+                        "host": smtp_host, "port": smtp_port, "security": "tls" if smtp_port == 465 else "starttls",
+                        "user": str(form.get("smtp_user") or "").strip()[:200], "password": str(form.get("smtp_password") or "")[:500]}})
+                elif key:
+                    update["alerts"].update(resend_api_key=key, provider="resend", **{"from": sender})
             core.save_config(update)
             accounts.bootstrap()
-        core.audit(self.client_ip(), user, "owner-setup", "")
-        log("setup: owner account %s created from %s" % (user, self.client_ip()))
-        return self.redirect("/login?e=owner")
+            SETUP_TOTP.clear()
+        core.audit(self.client_ip(), user, "owner-setup", factor)
+        log("setup: owner account %s created from %s (sign-in code: %s)" % (user, self.client_ip(), factor))
+        if not codes:
+            return self.redirect("/login?e=owner")
+        return self.html_page("setupdone.html", dict(page_vars(), **{
+            "<!--CODES-->": "".join("<li>%s</li>" % c for c in codes)}))
 
     def login(self):
         ip = self.client_ip()
@@ -2238,20 +2307,29 @@ class Handler(BaseHTTPRequestHandler):
             App.limiter.fail(ip)
             core.audit(ip, username, "login", "", ok=False, note="refused: " + problem)
             return self.redirect("/login?e=" + {"expired": "acct_expired", "network": "acct_network"}.get(problem, "1"))
-        tok = App.pending.create(username, ip, ttl=600)
-        pending_cookie = self.cookie(auth.PENDING_COOKIE, tok, 600)
+        # the pending login remembers which second step it waits for: each code page accepts only its own
+        if acct.get("role") == "root" and CFG["auth"].get("totp_secret"):  # the app replaces the e-mailed code
+            trusted = auth.cookie_value(self.headers.get("Cookie"), auth.TRUST_COOKIE)
+            if trusted and auth.trust_ok(CFG["auth"]["cookie_secret"], trusted, username, trust_bind(acct)):
+                core.audit(ip, username, "login-2fa", "", note="trusted browser")
+                return self.finish_login(ip, username, [])
+            tok = App.pending.create(username, ip, ttl=600, step="app")
+            cookies = [self.cookie(auth.PENDING_COOKIE, tok, 600)]
+            if trusted:  # expired, or ended by a new password or a new authenticator app
+                cookies.append(self.cookie(auth.TRUST_COOKIE, "", 0, "/login"))
+            return self.redirect("/login/2fa", cookies)
         email = str(acct.get("email") or "").strip().lower()
         mail_ready = mail_configured()
         if acct.get("role") == "root" and (not accounts.EMAIL_RE.fullmatch(email) or not mail_ready):
-            App.pending.drop(tok)
             App.limiter.fail(ip)
-            core.audit(ip, username, "email-otp.unavailable", "login", ok=False, note="root email or mail provider not configured via CLI")
+            core.audit(ip, username, "email-otp.unavailable", "login", ok=False, note="owner has no authenticator app or e-mail")
             return self.redirect("/login?e=setup_required")
         if not accounts.EMAIL_RE.fullmatch(email) or not mail_ready:
-            App.pending.drop(tok)
             App.limiter.fail(ip)
             core.audit(ip, username, "email-otp.unavailable", "login", ok=False)
             return self.redirect("/login?e=email")
+        tok = App.pending.create(username, ip, ttl=600, step="email")
+        pending_cookie = self.cookie(auth.PENDING_COOKIE, tok, 600)
         try:
             accounts.send_code(username, email, App.alerts, ip, "login")
         except Exception:
@@ -2265,7 +2343,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_ip()
         tok = auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)
         pending = App.pending.get(tok)
-        if not pending:
+        if not pending or pending.get("step") != "email":
             return self.redirect("/login?e=expired")
         if App.limiter.blocked(ip):
             return self.redirect("/login/otp?e=locked")
@@ -2281,9 +2359,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect("/login/otp?e=1")
         accounts.confirm_email(user, email)
         core.audit(ip, user, "email-otp.verify", "login")
-        acct = accounts.get(user) or {}
-        if acct.get("role") == "root" and CFG["auth"].get("totp_secret"):
-            return self.redirect("/login/2fa")
         App.pending.drop(tok)
         return self.finish_login(ip, user, [self.cookie(auth.PENDING_COOKIE, "", 0)])
 
@@ -2291,7 +2366,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_ip()
         ptok = auth.cookie_value(self.headers.get("Cookie"), auth.PENDING_COOKIE)
         pend = App.pending.get(ptok)
-        if not pend:
+        if not pend or pend.get("step") != "app":
             return self.redirect("/login?e=expired")
         if App.limiter.blocked(ip):
             return self.redirect("/login/2fa?e=locked")
@@ -2305,7 +2380,12 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(0.5)
             return self.redirect("/login/2fa?e=1")
         App.pending.drop(ptok)
-        return self.finish_login(ip, pend["user"], [self.cookie(auth.PENDING_COOKIE, "", 0)])
+        cookies = [self.cookie(auth.PENDING_COOKIE, "", 0)]
+        if form.get("trust") == "1":  # the next sign-in from this browser skips the code (sent to /login only)
+            trust = auth.trust_token(CFG["auth"]["cookie_secret"], pend["user"], trust_bind(accounts.get(pend["user"]) or {}))
+            cookies.append(self.cookie(auth.TRUST_COOKIE, trust, auth.TRUST_DAYS * 86400, "/login"))
+            core.audit(ip, pend["user"], "trust-browser", "", note="%d days" % auth.TRUST_DAYS)
+        return self.finish_login(ip, pend["user"], cookies)
 
     def finish_login(self, ip, user, cookies):
         App.limiter.ok(ip)
