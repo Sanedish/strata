@@ -756,7 +756,7 @@ SETTINGS_PANELS.push((row, toggle) => {
   return `
   <section class="panel">
     <div class="ph"><h5>Security</h5><span class="small dim">${isRoot ? 'root sign-in' : 'your sign-in'}</span></div>
-    ${isRoot ? row('Two-factor login', me.totp ? `On · ${me.recovery_left} recovery codes left` : 'Off — a code from an authenticator app is asked after the password.',
+    ${isRoot ? row('Authenticator app', me.totp ? `Replaces the e-mailed code. ${me.recovery_left} recovery codes left.` : 'Use an app instead of e-mailed codes.',
       me.totp ? '<button class="pill" data-act="tfRecovery">New recovery codes</button> <button class="pill danger" data-act="tfDisable">Turn off</button>' : '<button class="pill on" data-act="tfBegin">Set up</button>') : ''}
     ${row('Password', 'Change it here; every session is signed out afterwards.', '<button class="pill" data-act="pwChange">Change…</button>')}
     ${row('Sessions', (isRoot ? fmt.n(me.sessions) + ' active · ' : '') + 'survive restarts' + (me.session_hours ? ' · at most ' + esc(me.session_hours) + ' h' : ''), '<button class="pill" data-act="logout">Sign out</button>')}
@@ -849,8 +849,8 @@ Object.assign(ACT, {
   async tfBegin() {
     try {
       const r = await post('/api/2fa/begin', {});
-      openSheet('Two-factor login', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
-        <div><p class="small">Or type this key into the app (time-based, 6 digits, 30 s):</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
+      openSheet('Authenticator app', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
+        <div><p class="small">Or enter this key in the app:</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
         <label class="wide" style="display:grid;gap:5px;margin-top:12px">Code from the app<input id="tf_code" class="input" inputmode="numeric" autocomplete="one-time-code" style="font-size:22px;letter-spacing:.2em;width:170px"></label></div></div>`,
       '<button class="btn btn-primary" data-act="tfEnable">Turn on</button>');
     } catch (e) { note(e.message); }
@@ -858,15 +858,15 @@ Object.assign(ACT, {
   async tfEnable() {
     try {
       const r = await post('/api/2fa/enable', { code: $('#tf_code').value });
-      openSheet('Two-factor login is on', 'Save your recovery codes', `<p class="small">Each code works once if you lose your phone. They are shown only now.</p><div class="code">${r.recovery.map(esc).join('<br>')}</div>`,
+      openSheet('Authenticator app is on', 'Save your recovery codes', `<p class="small">If you lose your phone, each code works once instead of a code from the app. They are shown only now.</p><div class="code">${r.recovery.map(esc).join('<br>')}</div>`,
         `<button class="btn btn-primary" data-act="fcopy" data-arg="${esc(r.recovery.join('\n'))}">Copy codes</button>`);
       D.me = null; if (S.view === 'settings') render(true);
     } catch (e) { note(e.message); }
   },
   async tfDisable() {
-    const code = await ask({ kicker: 'Turn off two-factor login', title: 'Enter a current code or a recovery code', input: '', ok: 'Turn off', danger: true });
+    const code = await ask({ kicker: 'Turn off the authenticator app', title: 'Enter a current code or a recovery code', input: '', ok: 'Turn off', danger: true });
     if (!code) return;
-    try { await post('/api/2fa/disable', { code }); note('Two-factor login is off'); D.me = null; render(true); } catch (e) { note(e.message); }
+    try { await post('/api/2fa/disable', { code }); note('Authenticator app is off'); D.me = null; render(true); } catch (e) { note(e.message); }
   },
   async tfRecovery() {
     const code = await ask({ kicker: 'New recovery codes', title: 'Enter a current code', input: '', ok: 'Generate' });

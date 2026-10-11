@@ -47,8 +47,8 @@ for repeat offenders, a blocklist that syncs to Cloudflare's edge, a login gate 
 alerts by e-mail.
 
 **Accounts.** An owner, administrators and members with fine-grained permissions, per-folder access zones, end dates,
-IP allowlists, an e-mailed code at every sign-in, optional TOTP for the owner, API keys and an audit log. Accounts
-that can change more than files sign in only from the local network.
+IP allowlists, a code at every sign-in (from an authenticator app for the owner, by e-mail for everyone else), API
+keys and an audit log. Accounts that can change more than files sign in only from the local network.
 
 **Health.** Caddy, the tunnel connections, storage latency and the host itself, polled every few seconds.
 
@@ -101,8 +101,9 @@ before every change. It walks through:
 4. **Cloudflare Tunnel.** Finds cloudflared, backs up its `config.yml` and adds an ingress rule for the CDN hostname.
    With no tunnel yet it can create one (this opens a browser to sign in to Cloudflare) and point the DNS record at
    it.
-5. **Keys and the owner account.** A Cloudflare API token (optional), a [Resend](https://resend.com) API key for the
-   sign-in codes, and the owner's username, password and e-mail.
+5. **Keys and the owner account.** A Cloudflare API token (optional), a [Resend](https://resend.com) API key for
+   e-mailed sign-in codes (optional), and the owner's username and password. Then it shows a QR code for an
+   authenticator app, or asks for the owner's e-mail instead.
 6. **`strata.json`**, written to the instance folder. An existing one is backed up first.
 7. **The service.** A Task Scheduler task that starts at boot as SYSTEM, has no time limit and restarts after a
    failure. Then it waits for the dashboard to answer.
@@ -127,14 +128,21 @@ edges, and reports are welcome. Restarting the tunnel from the dashboard is Wind
 
 ### Sign-in codes
 
-Every sign-in sends a six-digit code by e-mail, and the owner can't sign in without one. That makes a Resend API key
-and a sender address on a domain you verified with Resend a requirement. The free tier is enough. To set or change
-them later:
+Every sign-in asks for a six-digit code after the password. The owner can take it from an authenticator app, which
+needs no mail setup at all. Every other account gets its code by e-mail, sent through [Resend](https://resend.com)
+from a sender address on a domain you verified there (the free tier is enough). So a site only you sign in to needs
+no e-mail, but inviting people does.
+
+When the owner has an authenticator app, sign-in skips the e-mailed code. To change either later, on the server:
 
 ```
-python auth.py --resend <api key> <from address>
+python auth.py --totp                              set up the owner's authenticator app
+python auth.py --totp off                          remove it
+python auth.py --resend <api key> <from address>   e-mail for sign-in codes and alerts
 python auth.py --email <owner address>
 ```
+
+Restart Strata after a change made this way. The owner can also set up the app in Settings › Security.
 
 ## How it fits together
 
@@ -180,6 +188,7 @@ started with its own `--home`. Most settings are changed in the dashboard; these
 | `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | The tunnel and how to restart it after ingress changes |
 | `cloudflare.api_token`, `cloudflare.zone_id` | Optional. The `CF_API_TOKEN` environment variable overrides the token |
 | `alerts.resend_api_key`, `alerts.from`, `alerts.to` | E-mail for sign-in codes and alerts |
+| `auth.totp_secret`, `auth.recovery` | The owner's authenticator app and recovery codes (hashed) |
 | `listen`, `feed_listen`, `transform_listen`, `gate_listen` | Loopback addresses of Strata's own processes |
 
 Every default is in `DEFAULTS` at the top of [core.py](core.py). `strata.json` holds secrets and is in `.gitignore`.

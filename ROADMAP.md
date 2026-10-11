@@ -43,7 +43,20 @@ Still open from Phase 1:
 
 - **The Linux path needs one real run** (a VM or `docker run python:3.12`) of `setup.py` and `tests/run_all.py`.
 - **The service as SYSTEM needs one real run as administrator.** The task definition was checked by registering it under a normal account; the boot trigger and SYSTEM account were not.
-- **Decide whether sign-in should work without e-mail.** Today every sign-in needs a code sent through Resend, so a new user must have a Resend account and a verified sender domain before they can sign in at all. Options: TOTP as an alternative second factor for the owner, or e-mail codes only when mail is configured.
+- ~~**Decide whether sign-in should work without e-mail.**~~ Done: the owner can use an authenticator app instead of the e-mailed code (see "Sign-in without e-mail" below). Other accounts still need e-mail.
+
+## Sign-in without e-mail: done
+
+| Change | Where |
+|---|---|
+| The owner can sign in with an authenticator app instead of the e-mailed code. With the app set up, sign-in is the password plus the app code; the e-mailed code is skipped | `strata.py` `login()` |
+| First-run setup (`/setup`) and the installer offer the app first; e-mail and a Resend key are needed only for e-mailed codes. Both show the recovery codes once | `static/setup.html`, `static/setupdone.html`, `setup.py` |
+| `python auth.py --totp` sets up the app from the server, `--totp off` removes it: the way back in for a locked-out owner | `auth.py` |
+| A half-finished sign-in remembers which code it waits for, and each code page accepts only its own. Before, `/login/2fa` accepted any pending sign-in, so posting there skipped the e-mail step | `strata.py` |
+| The app can't be turned off while e-mail isn't set up, and e-mail can't be removed while the owner has no app: either would lock the owner out | `strata.py` |
+| Sign-in pages no longer scroll sideways on a phone: their cards were wider than a 390 px screen | `static/login*.html`, `static/setup*.html` |
+
+Other accounts still get e-mailed codes, so inviting people still needs Resend.
 
 ## Phase 2: de-sloppify (UX)
 

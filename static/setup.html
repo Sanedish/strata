@@ -13,17 +13,28 @@
   :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   .wrap { min-height: calc(100vh / var(--z, 1)); display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box;
     background-image: linear-gradient(var(--color-divider) 2px, transparent 2px); background-size: 100% 66px; }
-  .lock { width: 420px; max-width: 100%; background: var(--color-bg); border: 2px solid var(--color-text); box-shadow: var(--shadow-lg); }
+  .lock { width: min(420px, 100%); background: var(--color-bg); border: 2px solid var(--color-text); box-shadow: var(--shadow-lg); }
   .head { padding: 18px 20px 16px; border-bottom: 2px solid var(--color-divider); }
   .head b { display: block; font-family: var(--font-heading); font-weight: 800; font-size: 26px; letter-spacing: -0.03em; line-height: 1; }
   .head span { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
   .head p, .note { font-size: 13px; line-height: 1.5; margin: 10px 0 0; color: color-mix(in srgb, var(--color-text) 75%, transparent); }
   form { padding: 18px 20px 20px; display: grid; gap: 14px; }
-  label { display: grid; gap: 5px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; font-family: var(--font-heading); font-weight: 800; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+  label, legend { display: grid; gap: 5px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; font-family: var(--font-heading); font-weight: 800; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
   input { font: inherit; font-size: 15px; letter-spacing: 0; text-transform: none; font-weight: 400; font-family: var(--font-body); color: var(--color-text); background: transparent; border: 0; border-bottom: 2px solid var(--color-divider); padding: 8px 0; outline: none; border-radius: 0; }
   input:focus { border-bottom-color: var(--color-accent); }
   .note { margin: 6px 0 0; }
   .note a { color: inherit; }
+  .note code { font-family: var(--font-mono); font-size: 12.5px; color: var(--color-text); white-space: nowrap; }
+  .factor { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .factor legend { padding: 0; margin-bottom: 5px; }
+  .factor label { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 2px solid var(--color-divider); cursor: pointer;
+    font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--color-text); }
+  .factor label:has(input:checked) { border-color: var(--color-accent); }
+  .factor input { accent-color: var(--color-accent); margin: 0; }
+  .if-app, .if-email { display: grid; gap: 14px; }
+  form:has(input[name=factor][value=app]:checked) .if-email, form:has(input[name=factor][value=email]:checked) .if-app { display: none; }
+  .qr { justify-self: center; background: #fff; padding: 8px; line-height: 0; }
+  .qr svg { width: 168px; height: 168px; }
   button { justify-content: space-between; font-size: 14px; margin-top: 6px; }
   .err { background: var(--color-accent); color: var(--color-bg); font-size: 12.5px; padding: 9px 20px; }
 </style>
@@ -31,15 +42,14 @@
 <body>
 <div class="wrap">
   <div class="lock">
-    <div class="head"><span>First-Time Setup</span><b>Create the intitial Root Account;</b>
-      <p>This account will manage EVERYTHING, including settings for other accounts.<br>This page is localhost only and will never be shown again once your owner acc exists!</p></div>
+    <div class="head"><span>First-Time Setup</span><b>Create the owner</b>
+      <p>The owner can change everything, including other accounts. This page works only on this machine and is gone once the owner exists.</p></div>
     <!--ERROR-->
     <form method="post" action="/setup">
       <label>Username<input name="user" autocomplete="username" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{1,59}" required autofocus></label>
       <label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
       <label>Repeat password<input name="password2" type="password" autocomplete="new-password" minlength="12" required></label>
-      <label>E-mail<input name="email" type="email" autocomplete="email" required></label>
-      <!--MAIL-->
+      <!--FACTOR-->
       <button class="btn btn-primary btn-block" type="submit"><span>Create owner</span><span>→</span></button>
     </form>
   </div>

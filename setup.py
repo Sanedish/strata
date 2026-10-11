@@ -489,16 +489,18 @@ def step_tokens(cfg, raw):
         merge(cfg["update"], {"cloudflare": {"api_token": token, "zone_id": zone_id, "zone_name": zone_name}})
 
     alerts = raw.get("alerts") or {}
-    say("\n  Strata e-mails a sign-in code at every login, through Resend (https://resend.com, free tier is enough).")
+    say("\n  Every sign-in asks for a code after the password. The owner can use an authenticator app; other")
+    say("  accounts get it by e-mail, sent through Resend (https://resend.com, the free tier is enough).")
     key = secret("Resend API key (Enter to %s)" % ("keep the current one" if alerts.get("resend_api_key") else "skip"))
     sender = ask("Send e-mail from", alerts.get("from") or "strata@" + cfg["site"]["domain"])
     if key:
         merge(cfg["update"], {"alerts": {"resend_api_key": key, "from": sender}})
-    elif not alerts.get("resend_api_key"):
-        say("  Without it nobody can sign in. Add it later with: python auth.py --resend <key> <from>")
+    mail = bool(key or alerts.get("resend_api_key"))
 
     auth = raw.get("auth") or {}
     if auth.get("password_hash") and yes("Keep the owner account \"%s\"?" % auth.get("user")):
+        if not mail and not auth.get("totp_secret"):
+            say("  The owner has no way to get a sign-in code. Add an authenticator app with: python auth.py --totp")
         return
     say("\n  The owner account can change everything. Leave the name empty to create it later at /setup.")
     user = ask("Owner username", auth.get("user") or "")
@@ -514,14 +516,55 @@ def step_tokens(cfg, raw):
             say("  the passwords don't match")
         else:
             break
-    email = ""
-    while not re.fullmatch(r"[^\s@]+@[^\s@.]+(\.[^\s@.]{2,})+", email):
-        email = ask("Owner e-mail (sign-in codes go here)", (alerts.get("to") or [""])[0]).lower()
     os.environ["STRATA_HOME"] = cfg["_home"]
     sys.path.insert(0, CODE)
-    import auth as strata_auth  # same hash format the server checks
-    merge(cfg["update"], {"auth": {"user": user, "password_hash": strata_auth.hash_password(pw)},
-                          "alerts": {"to": [email] + [t for t in alerts.get("to") or [] if t != email]}})
+    import auth as strata_auth  # same hash and TOTP format the server checks
+    update = {"auth": {"user": user, "password_hash": strata_auth.hash_password(pw)}}
+    app = owner_app(strata_auth, user) if yes("Use an authenticator app for the owner's sign-in code?", not mail) else None
+    if app:
+        update["auth"].update(app)
+    email_ok = lambda e: re.fullmatch(r"[^\s@]+@[^\s@.]+(\.[^\s@.]{2,})+", e)
+    email = (alerts.get("to") or [""])[0]
+    if app:
+        email = ask("Owner e-mail for alerts (Enter to skip)", email).lower() if mail else ""
+        while email and not email_ok(email):
+            email = ask("Owner e-mail for alerts (Enter to skip)").lower()
+    else:
+        for _ in range(3):  # bounded: with input piped in, an empty answer would otherwise repeat forever
+            email = ask("Owner e-mail (sign-in codes go here)", email).lower()
+            if email_ok(email):
+                break
+            email = ""
+        if not email:
+            say("  No e-mail address, so the owner can't sign in yet. Add an authenticator app with: python auth.py --totp")
+        elif not mail:
+            say("  Without a Resend key the owner can't sign in yet. Add one with: python auth.py --resend <key> <from>, "
+                "or an authenticator app with: python auth.py --totp")
+    if email:
+        update["alerts"] = {"to": [email] + [t for t in alerts.get("to") or [] if t != email]}
+    merge(cfg["update"], update)
+
+
+def owner_app(strata_auth, user):
+    """Shows a new authenticator key and checks a code from the app. Returns the auth settings to store, or None."""
+    secret = strata_auth.totp_secret()
+    qr = strata_auth.qr_text(strata_auth.totp_uri(secret, user))
+    try:
+        if qr:
+            say(qr)
+    except UnicodeEncodeError:  # a console that can't draw the block characters: the key below still works
+        pass
+    say("  Scan this with your authenticator app, or enter the key: %s" % strata_auth.spaced(secret))
+    for _ in range(3):
+        matched = strata_auth.totp_verify(secret, ask("Code from the app"))
+        if matched:
+            codes, hashes = strata_auth.recovery_codes()
+            say("  Recovery codes. If you lose your phone, each works once instead of a code from the app.")
+            say("  They are shown only now:\n    " + "\n    ".join("  ".join(codes[i:i + 2]) for i in range(0, len(codes), 2)))
+            return {"totp_secret": secret, "totp_last": matched, "recovery": hashes}
+        say("  That code didn't match. Check that the time on your phone is correct.")
+    say("  skipped the authenticator app")
+    return None
 
 
 def step_save(cfg, raw, path):
