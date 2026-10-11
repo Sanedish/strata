@@ -485,7 +485,7 @@ function renderNav() {
   if (c.className !== connCls) c.className = connCls;
   patch(c, `<i></i><span>${online ? (S.paused ? 'paused' : hidden() ? 'idle (tab hidden)' : 'live · ' + esc(location.host)) : 'collector unreachable'}</span>`);
   const who = D.me?.user || L?.user;
-  patch($('#who'), who ? `<button class="who-me" data-act="go" data-arg="settings" title="Your profile and preferences">${avatar(who, D.me?.user === who ? D.me.avatar : '', 'sm', !String(who).startsWith('api:'))}<span class="ell">signed in as <b>${esc(who)}</b></span></button><button class="link" data-act="logout">Sign out</button>` : '');
+  patch($('#who'), who ? `<button class="who-me" data-act="setTab" data-arg="account" title="Your account">${avatar(who, D.me?.user === who ? D.me.avatar : '', 'sm', !String(who).startsWith('api:'))}<span class="ell">signed in as <b>${esc(who)}</b></span></button><button class="link" data-act="logout">Sign out</button>` : '');
 }
 function renderHeader() {
   const [title, sub, ic] = VIEWS[S.view];
@@ -1193,7 +1193,6 @@ const setRow = (title, desc, control) => `<div class="set-row"><div style="min-w
   <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${control}</div></div>`;
 function vSettings() {
   const pct = Math.round(S.scale * 100), eff = Math.round(zoomNow * 100);
-  const L = D.live || {}, c = L.caddy || {}, t = L.tunnel || {}, db = L.db || {}, cs = L.compress || {};
   const row = setRow;
   const effNote = eff !== pct ? `Showing ${eff} % on this narrow screen.` : 'Browser zoom (Ctrl + and Ctrl −) works too.';
   const acc = S.accent || INST.accent || '#ec3013';
@@ -1208,22 +1207,23 @@ function vSettings() {
   }).join('')).join('');
   const vitalSlots = Array.from({ length: 8 }, (_, i) => `<select class="input" data-change="vitalSlot" data-arg="${i}">
     <option value="">— empty —</option>${Object.entries(VITALS).map(([k, [l]]) => `<option value="${k}" ${(S.vitals || [])[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`).join('');
-  const kbd = [['Ctrl K', 'Command palette (views, actions, settings, files)'], ['?', 'This list'], ['/', 'Filter requests'], ['g then s r f u a n …', 'Go to a view (first letter)'],
-    ['1 – 9', 'Switch views (sidebar order)'], ['[', 'Collapse / expand the sidebar'], ['T', 'Cycle light / dark / system theme'], [',', 'Settings'],
-    ['B', 'Include / exclude bots'], ['D', 'Deep fields'], ['Space', 'Pause sampling · Files: preview'],
-    ['Esc', 'Close menu / inspector / preview'], ['Del · F2', 'Files: trash · rename'], ['Backspace', 'Files: parent folder'], ['Ctrl A · C · X · V', 'Files: select all · copy · cut · paste'], ['Ctrl V (image)', 'Files / Upload: upload from the clipboard']];
-  return `<div class="settings" data-scroll="settings">
+  const q = (S.setQ || '').trim(), tab = S.setTab || 'prefs';
+  const head = `<div class="set-head span2"><nav class="hubtabs" role="tablist">${[['prefs', 'Preferences', 'sliders-horizontal'], ['account', 'Account', 'user']].map(([k, l, ic]) =>
+    `<button class="${!q && tab === k ? 'on' : ''}" data-act="setTab" data-arg="${k}" role="tab" aria-selected="${!q && tab === k}">${icon(ic, 'sm')}${l}</button>`).join('')}</nav>
+    <label class="set-q">${icon('search')}<input id="setq" class="input" placeholder="Filter settings" value="${esc(S.setQ || '')}" autocomplete="off" spellcheck="false" aria-label="Filter settings"></label></div>`;
+  const account = SETTINGS_PANELS.map((f) => { try { return f(row, toggle, seg); } catch (e) { return `<section class="panel"><div class="empty">${esc(e.message)}</div></section>`; } }).join('');
+  return `<div class="settings" data-scroll="settings">${head}${q || tab === 'account' ? account : ''}${q || tab === 'prefs' ? `
     <section class="panel span2">
-      <div class="ph"><h5>${icon('palette')}Appearance</h5><span class="small dim">applies instantly · ${S.syncPrefs ? 'synced to your account' : 'remembered in this browser'}</span></div>
-      ${row('Theme', 'System follows your operating system’s light / dark setting.', seg([['auto', icon('monitor', 'sm') + 'System'], ['light', icon('sun', 'sm') + 'Light'], ['dark', icon('moon', 'sm') + 'Dark']], S.theme, 'setTheme'))}
-      ${row('Accent colour', 'Highlights, charts and active elements. Default: this site’s colour' + (INST.accent ? ' (' + INST.accent + ')' : '') + ' — each site can look different, so you always know which one you are in.',
+      <div class="ph"><h5>${icon('palette')}Appearance</h5><span class="small dim">${S.syncPrefs ? 'synced to your account' : 'saved in this browser'}</span></div>
+      ${row('Theme', 'System follows your computer’s setting.', seg([['auto', icon('monitor', 'sm') + 'System'], ['light', icon('sun', 'sm') + 'Light'], ['dark', icon('moon', 'sm') + 'Dark']], S.theme, 'setTheme'))}
+      ${row('Accent colour', 'Highlights and charts. Each site can have its own, so you can tell them apart.',
         `<span class="row" style="gap:6px">${ACCENTS.map(([c, n]) => `<button class="swatch ${acc.toLowerCase() === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-arg="${c}" title="${esc(n)}"></button>`).join('')}
          <input type="color" class="input" data-change="accentPick" value="${esc(acc)}" title="Any colour"><button class="pill" data-act="setAccent" data-arg="" title="Back to this site's colour">${icon('rotate-ccw', 'sm')}Site default</button></span>`)}
-      ${row('Density', 'Row height and padding of tables and panels.', seg([['compact', 'Compact'], ['normal', 'Normal'], ['comfy', 'Comfortable']], S.density, 'setDensity'))}
-      ${row('Corners', 'Soft is the default. Choose sharp for the original Modernist look or round for more curve.', seg([[0, 'Sharp'], [1, 'Soft'], [2, 'Round']], S.radius, 'setRadius'))}
-      ${row('Typeface', 'Archivo (default), the system UI font, or monospaced for numbers-heavy work.', seg([['archivo', 'Archivo'], ['system', 'System'], ['mono', 'Mono']], S.font, 'setFont'))}
+      ${row('Density', 'Row height in tables and panels.', seg([['compact', 'Compact'], ['normal', 'Normal'], ['comfy', 'Comfortable']], S.density, 'setDensity'))}
+      ${row('Corners', 'Sharp is the original look.', seg([[0, 'Sharp'], [1, 'Soft'], [2, 'Round']], S.radius, 'setRadius'))}
+      ${row('Typeface', 'Mono lines up numbers.', seg([['archivo', 'Archivo'], ['system', 'System'], ['mono', 'Mono']], S.font, 'setFont'))}
       ${row('Striped tables', 'Alternate row shading in long tables.', toggle(S.zebra, 'setZebra'))}
-      ${row('Reduce motion', 'Turn off row flashes, spinners and transitions.', toggle(S.reduceMotion, 'reduceMotion'))}
+      ${row('Reduce motion', 'No row flashes, spinners or transitions.', toggle(S.reduceMotion, 'reduceMotion'))}
     </section>
     <section class="panel span2">
       <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} %</span></div>
@@ -1239,60 +1239,59 @@ function vSettings() {
       <div class="presets">${SCALE_PRESETS.map((p) => `<button class="pill ${Math.round(p * 100) === pct ? 'on' : ''}" data-act="setScale" data-arg="${p}">${Math.round(p * 100)} %${p === SCALE_DEFAULT ? ' · default' : ''}</button>`).join('')}</div>
     </section>
     <section class="panel">
-      <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin, hide and order the sidebar</span></div>
+      <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin and hide entries</span></div>
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
-      ${row('Collapsed sidebar', 'Icons only (toggle with [ ).', toggle(S.navCollapsed, 'setNavCollapsed'))}
+      ${row('Collapsed sidebar', 'Icons only. Shortcut: [', toggle(S.navCollapsed, 'setNavCollapsed'))}
       <div class="navcfg" style="margin-top:8px">${navRows}</div>
     </section>
     <section class="panel">
-      <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">the traffic tiles above the monitoring views</span></div>
-      ${row('Show everywhere', 'Also show them on Team, Files, configuration pages, Accounts, Code and Settings.', toggle(S.vitalsAll, 'setVitalsAll'))}
+      <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">tiles above the traffic pages</span></div>
+      ${row('Show everywhere', 'Also on Team, Files, settings pages and Admin.', toggle(S.vitalsAll, 'setVitalsAll'))}
       <div class="form" style="grid-template-columns:1fr 1fr;margin-top:8px">${vitalSlots}</div>
       <div class="act-row"><button class="pill" data-act="vitalsReset">${icon('rotate-ccw', 'sm')}Default six</button><button class="pill" data-act="vitalsNone">${icon('eye-off', 'sm')}Hide the strip</button></div>
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('refresh-cw')}Data & refresh</h5></div>
-      ${row('Polling interval', 'How often live vitals and the request log refresh.', seg(RATES.map((r) => [r, r < 1000 ? r + ' ms' : r / 1000 + ' s']), S.rate, 'setRate'))}
-      ${row('Pause in background tabs', 'Stop polling while this tab is hidden (saves the server work).', toggle(S.hiddenPause, 'setHiddenPause'))}
-      ${row('Default range', 'Used by charts, tables and the stats views.', `<select class="input" data-change="setRangeSel">${RANGES.map(([k, l]) => `<option value="${k}" ${S.range === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-      ${row('Include bots in stats', 'Scanners, crawlers and scripts in the aggregate numbers.', toggle(!S.nobots, 'setBots'))}
-      ${row('Deep fields', 'Extra columns in the request log (edge, OS, type, encoding, referrer…).', toggle(S.fields, 'setFields'))}
+      ${row('Polling interval', 'How often live data refreshes.', seg(RATES.map((r) => [r, r < 1000 ? r + ' ms' : r / 1000 + ' s']), S.rate, 'setRate'))}
+      ${row('Pause in background tabs', 'Saves the server work.', toggle(S.hiddenPause, 'setHiddenPause'))}
+      ${row('Default range', 'For charts and tables.', `<select class="input" data-change="setRangeSel">${RANGES.map(([k, l]) => `<option value="${k}" ${S.range === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      ${row('Include bots in stats', 'Crawlers, scanners and scripts.', toggle(!S.nobots, 'setBots'))}
+      ${row('Deep fields', 'More columns in the request log.', toggle(S.fields, 'setFields'))}
       ${row('Column widths', Object.keys(S.widths).length + ' customised column(s).', `<button class="pill" data-act="resetWidths" ${Object.keys(S.widths).length ? '' : 'disabled'}>Reset</button>`)}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('clock')}Time & notifications</h5></div>
       ${row('24-hour clock', 'Otherwise 12-hour with AM / PM.', toggle(S.clock24, 'setClock24'))}
-      ${row('Relative times', '“5 m ago” instead of the date and time.', toggle(S.relTimes, 'setRelTimes'))}
-      ${row('Ask before deleting', 'Confirm moves to the trash (permanent deletes always ask).', toggle(S.confirmDelete, 'setConfirmDelete'))}
-      ${row('Desktop notifications', 'When uploads finish and new alerts arrive (this browser asks for permission once).', toggle(S.notify, 'setNotify'))}
+      ${row('Relative times', '“5 m ago” instead of a date.', toggle(S.relTimes, 'setRelTimes'))}
+      ${row('Ask before deleting', 'Before moving to the trash. Permanent deletes always ask.', toggle(S.confirmDelete, 'setConfirmDelete'))}
+      ${row('Desktop notifications', 'When uploads finish or alerts arrive.', toggle(S.notify, 'setNotify'))}
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('save')}Preferences</h5></div>
-      ${row('Sync to my account', 'Store these preferences on the server, so every browser you sign in with gets them.', toggle(S.syncPrefs, 'setSync'))}
-      ${row('Export / import', 'A JSON file with every preference on this page.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
-      ${row('Reset everything', 'Restore all preferences in this browser to their defaults.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
+      ${row('Sync to my account', 'Use these preferences in every browser.', toggle(S.syncPrefs, 'setSync'))}
+      ${row('Export or import', 'A JSON file with every preference.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
+      ${row('Reset everything', 'Back to the defaults in this browser.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
     </section>
-    <section class="panel">
-      <div class="ph"><h5>${icon('server')}Session & system</h5></div>
-      ${row('Signed in', `${L.user || '—'} · ${fmt.n(L.sessions)} active session(s)`, `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
-      <div class="kv" style="padding:10px 0 0">
-        <span>Site</span><span>${esc(INST.name || '—')} · instance ${esc(INST.id || '—')}</span>
-        <span>Caddy</span><span>${esc(c.version || '—')} · ${c.up ? 'up ' + esc(fmt.dur(c.uptime)) : 'unreachable'}</span>
-        <span>cloudflared</span><span>${esc(t.version || '—')} · ${t.up ? t.ha + '/4 links · up ' + esc(fmt.dur(t.uptime)) : 'unreachable'}</span>
-        <span>Database</span><span>${fmt.n(db.rows)} requests · ${esc(fmt.bytes(db.size))} · since ${esc(fmt.dt(db.first))}</span>
-        <span>Compression</span><span>${cs.running ? 'scanning now' : 'idle'} · variants: ${esc((cs.variants || []).join(', ') || '—')}</span>
-        <span>Public page</span><span>${esc(INST.stats_host || '—')} (redacted feed only)</span>
-      </div>
-      <div class="act-row"><button class="btn btn-secondary" data-act="go" data-arg="system">${icon('cpu', 'sm')}System view</button></div>
-    </section>
-    <section class="panel span2">
-      <div class="ph"><h5>${icon('keyboard')}Keyboard</h5><span class="small dim">outside text fields</span></div>
-      <div class="kbd" style="grid-template-columns:170px 1fr">${kbd.map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div>
-    </section>
-    ${SETTINGS_PANELS.map((f) => { try { return f(row, toggle, seg); } catch (e) { return `<section class="panel"><div class="empty">${esc(e.message)}</div></section>`; } }).join('')}
+` : ''}
   </div>`;
 }
 
+function filterSettings() {
+  const q = (S.setQ || '').trim().toLowerCase();
+  document.querySelectorAll('.settings > .panel').forEach((p) => {
+    const head = q && (p.querySelector('h5')?.textContent || '').toLowerCase().includes(q);
+    let any = !q || head;
+    p.querySelectorAll('.set-row').forEach((r) => { const m = !q || head || r.textContent.toLowerCase().includes(q); r.hidden = !m; any = any || m; });
+    if (q && !p.querySelector('.set-row')) any = p.textContent.toLowerCase().includes(q);
+    p.hidden = !any;
+  });
+}
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'setq') return;
+  const was = !!(S.setQ || '').trim();
+  S.setQ = e.target.value;
+  if (was !== !!S.setQ.trim()) render(true); else filterSettings();
+});
 const VIEWFN = { settings: vSettings, summary: vSummary, requests: vRequests, content: vContent, visitors: vVisitors, insights: vInsights, tunnel: vTunnel, origins: vOrigins, compression: vCompression, security: vSecurity, latency: vLatency, history: vHistory, edge: vEdge };
 
 /* ------------------------------------------------------------------ render loop */
@@ -1324,6 +1323,7 @@ function frame(force) { // coalesce pointer-driven redraws to one per animation 
   if (!rafId) rafId = requestAnimationFrame(() => { const f = rafForce; rafId = 0; rafForce = false; render(f); });
 }
 const AFTER_RENDER = []; // modules push () => void (e.g. virtual lists fill their rows)
+AFTER_RENDER.push(() => { if (S.view === 'settings') filterSettings(); });
 
 /* DOM reconciliation / morphing: dynamically refreshes assets in-place without destroying
    scroll containers, active momentum, or image/video elements, eliminating flicker and scroll disruption. */
@@ -1670,6 +1670,7 @@ const ACT = {
   scope(k) { S.scope = k; D.req = null; render(); pollRequests(true); },
   sort(arg) { const [key, s] = arg.split(':'); S.sort[key] = s; render(true); },
   tab(arg) { const [view, t] = arg.split(':'); S.tab[view] = t; render(true); },
+  setTab(t) { S.setTab = t; S.setQ = ''; if (S.view === 'settings') render(true); else go('settings'); },
   selReq(id) {
     id = +id;
     if (S.sel === id) { S.sel = null; S.selRow = null; render(); return; }
@@ -1858,7 +1859,7 @@ const MENUS = {
     return { kicker: 'Sidebar', title: VIEWS[v][0], items: [
       item('Open', '', () => go(v), { icon: VIEWS[v][2] }),
       item(pin ? 'Unpin' : 'Pin to the top', '', () => ACT.navPin(v), { icon: pin ? 'star-off' : 'star' }),
-      v !== 'settings' ? item('Hide from the sidebar', '', () => { ACT.navHide(v); note(VIEWS[v][0] + ' hidden · Settings › Navigation brings it back'); }, { icon: 'eye-off' }) : null,
+      v !== 'settings' ? item('Hide from the sidebar', '', () => { ACT.navHide(v); note(VIEWS[v][0] + ' hidden. Settings › Navigation brings it back.'); }, { icon: 'eye-off' }) : null,
       item(S.navCollapsed ? 'Expand the sidebar' : 'Collapse the sidebar', '[', () => ACT.navCollapse(), { sep: true, icon: 'panel-left' }),
     ].filter(Boolean) };
   },

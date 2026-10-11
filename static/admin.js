@@ -38,7 +38,20 @@
           <div class="sys-retention"><label>Raw request days<input id="sys-raw-days" type="number" min="1" max="3650" value="${esc(s.raw_retention_days ?? 30)}" ${has('system.manage') ? '' : 'disabled'}></label><label>Aggregate days<input id="sys-agg-days" type="number" min="7" max="3650" value="${esc(s.retention_days ?? 400)}" ${has('system.manage') ? '' : 'disabled'}></label></div>
           <div class="admin-actions">${has('system.manage') ? `<button class="btn btn-primary" data-act="sysRetention">Save retention</button><button class="btn btn-secondary" data-act="sysOptimize">Optimize database</button>` : '<span class="small dim">You have read-only system access.</span>'}</div>
           <p class="small dim">Database optimization runs SQLite ANALYZE and a WAL checkpoint. Keep a current backup before changing retention.</p></section>
+        ${versionsPanel()}
       </div></div>`;
+  }
+  // moved here from Settings: what this instance runs
+  function versionsPanel() {
+    const L = D.live || {}, c = L.caddy || {}, t = L.tunnel || {}, cs = L.compress || {};
+    return `<section class="panel sys-panel"><div class="ph"><h5>${icon('server')} Versions</h5><span class="small dim">this instance</span></div>
+      <div class="kv" style="padding:4px 0 0">
+        <span>Site</span><span>${esc(INST.name || '—')}, instance ${esc(INST.id || '—')}</span>
+        <span>Caddy</span><span>${esc(c.version || '—')}, ${c.up ? 'up ' + esc(fmt.dur(c.uptime)) : 'unreachable'}</span>
+        <span>cloudflared</span><span>${esc(t.version || '—')}, ${t.up ? t.ha + '/4 links, up ' + esc(fmt.dur(t.uptime)) : 'unreachable'}</span>
+        <span>Compression</span><span>${cs.running ? 'scanning now' : 'idle'}, variants: ${esc((cs.variants || []).join(', ') || '—')}</span>
+        <span>Public page</span><span>${esc(INST.stats_host || '—')} (redacted feed)</span>
+      </div></section>`;
   }
 
   async function loadLogs(reset = true) {
@@ -386,10 +399,10 @@
   }
   function accountSettingsPanel() {
     if (!D.me) return '<section class="panel span2"><div class="empty">Loading account profile…</div></section>';
-    const canManage = has('accounts.manage');
     const isKey = String(D.me.user || '').startsWith('api:');
+    const role = { root: 'Owner', admin: 'Administrator' }[D.me.role] || 'Member';
     return `<section class="panel span2">
-      <div class="ph"><h5>${icon('user')} Account profile</h5><span class="small dim">${esc(D.me.role)} · ${D.me.email_verified ? 'e-mail verified' : 'e-mail not verified'}</span></div>
+      <div class="ph"><h5>${icon('user')} Account profile</h5><span class="small dim">${esc(role)} · ${D.me.email_verified ? 'e-mail verified' : 'e-mail not verified'}</span></div>
       ${isKey ? '' : `<div class="profile-pic">${avatar(D.me.user, D.me.avatar, 'lg')}<div>
         <b>Profile picture</b><p class="small dim">PNG, JPEG, WebP, GIF or AVIF up to 8 MB. Shown to your team.</p>
         <div class="acct-actions"><label class="btn btn-secondary ${A.avatarBusy ? 'disabled' : ''}">${icon('upload', 'sm')}<span>${A.avatarBusy ? 'Uploading…' : D.me.avatar ? 'Change picture' : 'Upload picture'}</span><input type="file" id="profile-avatar" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" data-change="avatarPick" hidden ${A.avatarBusy ? 'disabled' : ''}></label>
@@ -403,18 +416,7 @@
         ${A.emailPending ? `<label>Six-digit e-mail code<input class="input" id="profile-code" inputmode="numeric" autocomplete="one-time-code"></label><button class="btn btn-primary" data-act="profileEmailVerify">Verify new address</button>` : ''}
       </div>
     </section>
-    ${canManage ? `
-      <section class="panel span2" style="border:1px solid var(--color-accent);background:color-mix(in srgb, var(--color-accent) 4%, var(--color-raised))">
-        <div class="ph">
-          <div>
-            <div class="cap">Root & Staff Administration</div>
-            <h5>${icon('users')} User Management & Isolated Storage</h5>
-          </div>
-          <button class="btn btn-primary sm" data-act="go" data-arg="accounts">${icon('settings', 'sm')} Open User Management</button>
-        </div>
-        <p class="small dim">Create accounts, pick fine-grained permissions or a preset, assign storage zones with their own allowed actions, set access end dates and allowed networks, revoke sessions, and issue activation links.</p>
-      </section>
-    ` : ''}`;
+`;
   }
   SETTINGS_PANELS.push(accountSettingsPanel);
 

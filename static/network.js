@@ -3,7 +3,7 @@
    Loaded after app.js and control.js. API writes are explicit, reviewed in the UI, and errors stay visible. */
 
 const NET_TABS = [['overview', 'Overview', 'globe'], ['settings', 'Zone settings', 'sliders-horizontal'],
-  ['dns', 'DNS records', 'route'], ['tunnel', 'Tunnel routes', 'cable'], ['expose', 'Expose a service', 'plug']];
+  ['dns', 'DNS records', 'route'], ['tunnel', 'Tunnel routes', 'cable'], ['expose', 'Expose a service', 'plug'], ['cache', 'Cache', 'cloud']];
 const NET_CAPS = [
   ['zone', 'Zone access', 'zone'], ['settings_read', 'Read zone settings', 'settings_read'],
   ['settings', 'Edit zone settings', 'settings'], ['dns_read', 'Read DNS records', 'dns_read'], ['dns', 'Edit DNS records', 'dns'],
@@ -89,13 +89,13 @@ function netHeader() {
     <p>Cloudflare, DNS, tunnel routing and protected local services for this Strata instance.</p></div>
     <div class="net-heading-actions">${D.net.loading ? `<span class="small dim row">${icon('loader-circle', 'spin')}Refreshing</span>` : ''}
       <button class="pill" data-act="netReload" title="Refresh this section">${icon('refresh-cw', 'sm')}Refresh</button></div></div>
-    <div class="net-tabs" role="tablist">${NET_TABS.map(([key, label, ic]) => `<button role="tab" aria-selected="${S.netTab === key}" class="${S.netTab === key ? 'on' : ''}" data-act="netTab" data-arg="${key}">${icon(ic, 'sm')}${esc(label)}</button>`).join('')}</div>`;
+    <div class="net-tabs" role="tablist">${NET_TABS.filter(([k]) => k !== 'cache' || meCan('cdn.manage')).map(([key, label, ic]) => `<button role="tab" aria-selected="${S.netTab === key}" class="${S.netTab === key ? 'on' : ''}" data-act="netTab" data-arg="${key}">${icon(ic, 'sm')}${esc(label)}</button>`).join('')}</div>`;
 }
 function netStatusCard(title, value, note, ic, state = '') {
   return `<div class="net-stat ${state}"><span class="net-stat-icon">${icon(ic)}</span><div><span class="cap">${esc(title)}</span><b>${esc(value)}</b><small>${esc(note)}</small></div></div>`;
 }
 function vNetwork() {
-  const body = ({ overview: netOverview, settings: netZoneSettings, dns: netDns, tunnel: netTunnel, expose: netExpose }[S.netTab] || netOverview)();
+  const body = ({ overview: netOverview, settings: netZoneSettings, dns: netDns, tunnel: netTunnel, expose: netExpose, cache: () => cloudflarePanel(setRow, toggle) }[S.netTab] || netOverview)();
   return `<div class="net-page" data-scroll="network">${netHeader()}<div class="net-content">${body}</div></div>`;
 }
 function netOverview() {

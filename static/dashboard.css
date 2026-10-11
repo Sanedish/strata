@@ -905,3 +905,11 @@ main { background: var(--color-bg); }
 .hubtabs button { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 9px 12px 8px; margin-bottom: -2px; color: color-mix(in srgb, var(--color-text) 68%, transparent); background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-family: var(--font-heading); font-size: 13px; font-weight: 800; }
 .hubtabs button:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 .hubtabs button.on { color: var(--color-accent-700); border-bottom-color: var(--color-accent); }
+/* Settings: tab row and filter on one line; filtered-out rows and panels disappear */
+.set-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.set-head .hubtabs { padding: 0; border-bottom: 0; }
+.set-head .hubtabs button { margin-bottom: 0; }
+.set-q { position: relative; display: flex; align-items: center; flex: 0 1 260px; }
+.set-q .ic { position: absolute; left: 9px; opacity: .55; pointer-events: none; }
+#setq { width: 100%; height: var(--ctl); min-height: var(--ctl); font-size: 12.5px; padding: 4px 10px 4px 30px; }
+.settings [hidden] { display: none !important; }

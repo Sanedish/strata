@@ -487,7 +487,7 @@ function vBlacklist() {
       <div class="act-row"><button class="btn btn-secondary" data-act="cfSync">Sync now</button><button class="btn btn-secondary" data-act="cfRecheck">Re-check</button></div>
     </div>
     <div class="sect"><span class="cap">Auto-ban</span><span class="small ${ab.enabled ? '' : 'hot'}">${ab.enabled ? 'on' : 'off'}</span></div>
-    <div style="padding:0 16px 8px" class="small dim">${ab.enabled ? `IPs sending ${ab.probes} probe requests (.env, wp-login…) within ${ab.window_minutes} min are banned for ${ab.ban_hours} h.` : 'Scanners are not banned automatically.'} <button class="link" data-act="go" data-arg="settings">change</button></div>
+    <div style="padding:0 16px 8px" class="small dim">${ab.enabled ? `IPs sending ${ab.probes} probe requests (.env, wp-login…) within ${ab.window_minutes} min are banned for ${ab.ban_hours} h.` : 'Scanners are not banned automatically.'} <button class="link" data-act="pageSheet" data-arg="autoban">change</button></div>
     <div class="sect"><span class="cap">Top scanners (${esc(rangeLabel())})</span></div>
     <div class="loglines">${scanners.map((s) => `<div class="logline"><span title="${esc(s.agent || '')}">${esc(s.k)} ${esc(s.country || '')} · ${fmt.n(s.scan)} probes</span><span><button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|86400')}">ban 24 h</button> · <button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|')}">ban</button></span></div>`).join('') || '<div class="logline"><span class="dim">no unbanned scanners</span><span></span></div>'}</div>
   </aside></div>`;
@@ -563,7 +563,7 @@ function vLinks() {
     hcell(`<button class="pill" data-act="fcopy" data-arg="${esc(l.short)}">Copy</button> <button class="pill" data-act="linkAlias" data-arg="${esc(l.code)}" title="Another random short code for the same target">Alias</button> <button class="pill" data-act="linkEdit" data-arg="${esc(l.code)}">Edit</button> <button class="pill" data-act="linkStats" data-arg="${esc(l.code)}">Clicks</button> <button class="pill danger" data-act="linkDelete" data-arg="${esc(l.code)}">✕</button>`)] }));
   return `<div style="flex:1;min-height:0;display:flex;flex-direction:column">
     <div class="tbar"><span class="small dim">Short links are logged 302 redirects Cloudflare does not cache, so every click is counted. They can carry modifiers (<code>?w= ?h= ?fit= ?fm= ?q=</code> resize/convert images, <code>?dl=1</code> download, <code>?ver=N</code> old version, <code>?v=</code> cache-bust, <code>?t=</code> tracking tag), expire, or stop after N clicks.</span>
-      <div style="flex:1"></div><button class="pill on" data-act="linkEdit" data-arg="">New link</button></div>
+      <div style="flex:1"></div>${meCan('system.settings') ? sheetBtn('links') : ''}<button class="pill on" data-act="linkEdit" data-arg="">New link</button></div>
     ${table('links', [{ t: 'Code', w: 90 }, { t: 'Short URL', w: 250 }, { t: 'Target', w: 300 }, { t: 'Modifiers', w: 150 }, { t: 'Clicks', w: 80, a: 'r' }, { t: 'Last', w: 80 },
       { t: 'Status', w: 80 }, { t: 'Expires', w: 110 }, { t: 'Note', w: 160 }, { t: '', w: 290 }], rows, { empty: 'No links yet. In Files, select a file and use Share…' })}</div>`;
 }
@@ -589,7 +589,7 @@ function linkPreview() {
   document.querySelectorAll('.l-int').forEach((x) => { x.style.display = ext ? 'none' : ''; });
   document.querySelectorAll('.l-ext').forEach((x) => { x.style.display = ext ? '' : 'none'; });
 }
-// default lifetime of a new share link (Settings > Share links; 0 = never)
+// default lifetime of a new share link (Links › Settings; 0 = never)
 const shareSeconds = () => Math.round(((D.me && D.me.links && D.me.links.default_days) ?? 7) * 86400) || null;
 function randomCode(n = 7) { // no look-alikes (0/O, 1/l/I)
   const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', r = crypto.getRandomValues(new Uint32Array(n));
@@ -721,12 +721,12 @@ function vAlerts() {
   const c = A.config;
   return `<div class="split" style="grid-template-columns:1fr 320px"><section class="aside">
     <div class="tbar">${[['open', 'Open'], ['all', 'All']].map(([k, l]) => `<button class="pill ${S.alFilter === k ? 'on' : ''}" data-act="alFilter" data-arg="${k}">${l}</button>`).join('')}
-      <div style="flex:1"></div><button class="pill" data-act="alAckAll">Mark all done</button></div>
+      <div style="flex:1"></div><button class="pill" data-act="alAckAll">Mark all done</button>${meCan('alerts.config') ? sheetBtn('delivery', 'Delivery') : ''}</div>
     ${table('alerts', [{ t: 'When', w: 110 }, { t: 'Level', w: 80 }, { t: 'Kind', w: 80 }, { t: 'Alert', w: 320 }, { t: 'Detail', w: 360 }, { t: 'Delivery', w: 110 }, { t: '', w: 70 }], rows,
       { empty: 'No open alerts. Failed logins, auto-bans, outages, low disk space and error spikes show up here.' })}</section>
     <aside class="aside"><div class="pad"><div class="cap red">E-mail</div><h5>${c.configured ? 'Resend is configured' : 'Not configured'}</h5></div>
-      <div style="padding:0 16px" class="small">${c.configured ? `To ${esc(c.to.join(', '))} from ${esc(c.from)} · ${esc(c.min_severity)} and above · ${esc(c.digest)} report` : 'Alerts are kept here until you add a Resend API key in Settings › Notifications. Then warnings, critical events and a daily report are e-mailed.'}
-      <div class="act-row"><button class="btn btn-secondary" data-act="go" data-arg="settings">Notification settings</button></div></div></aside></div>`;
+      <div style="padding:0 16px" class="small">${c.configured ? `E-mailed to ${esc(c.to.join(', '))} from ${esc(c.from)}: ${esc(c.min_severity)} and above, ${esc(c.digest)} summary.` : 'Alerts only show here until you add a Resend API key under Delivery. Then they are e-mailed too.'}
+      ${meCan('alerts.config') ? '<div class="act-row"><button class="btn btn-secondary" data-act="pageSheet" data-arg="delivery">Delivery settings</button></div>' : ''}</div></aside></div>`;
 }
 Object.assign(ACT, {
   alFilter(f) { S.alFilter = f; render(true); },
@@ -740,90 +740,107 @@ NAV_BADGES.push(() => {
   return { badges: { alerts: n ? String(n) : al.info ? String(al.info) : '', blacklist: L.blacklist ? fmt.n(L.blacklist) : '' }, alerts: { alerts: n > 0 } };
 });
 
-/* ================================================================== settings panels */
+/* ================================================================== page settings
+   Each section that used to live on Settings is a rows() function. Account security stays on Settings › Account;
+   the rest opens in a sheet from the page it configures. Sheets sit outside #main, so a poll never redraws a
+   half-typed form. Every section shows only when the account may save it (the server checks again). */
 
-SETTINGS_PANELS.push((row, toggle) => {
+const meCan = (c) => (D.me?.capabilities || []).includes(c);
+const meOwner = () => D.me?.role === 'root' || String(D.me?.user || '').startsWith('api:');
+const numIn = (id, v, w = 64) => `<input id="${id}" class="input" value="${esc(v ?? '')}" style="width:${w}px">`;
+
+// Settings › Account (admin.js adds the profile panel)
+SETTINGS_PANELS.push((row) => {
   const me = D.me;
-  if (!me) { loadMe().then(() => { if (S.view === 'settings') render(true); }); return '<section class="panel span2"><div class="empty">Loading account settings…</div></section>'; }
-  // each panel shows only when the account may save it (the server checks again)
-  const can = (c) => (me.capabilities || []).includes(c), isRoot = me.role === 'root' || String(me.user || '').startsWith('api:');
-  const a = D.alertsCfg;
-  if (!a && can('alerts.config') && !D.alertsCfgLoading) { D.alertsCfgLoading = true; get('/api/alerts').then((r) => { D.alertsCfg = r.config; if (S.view === 'settings') render(true); }).catch(() => {}); }
-  const cfg = a || {};
-  const ab = me.autoban;
-  const caps = D.cf?.caps;
-  if (!D.cf && can('cdn.manage') && !D.cfLoading) { D.cfLoading = true; loadCf().then(() => { if (S.view === 'settings') render(true); }); }
-  return `
-  <section class="panel">
-    <div class="ph"><h5>Security</h5><span class="small dim">${isRoot ? 'root sign-in' : 'your sign-in'}</span></div>
-    ${isRoot ? row('Two-factor login', me.totp ? `On · ${me.recovery_left} recovery codes left` : 'Off — a code from an authenticator app is asked after the password.',
+  if (!me) { loadMe().then(() => render(true)); return '<section class="panel span2"><div class="empty">Loading your account…</div></section>'; }
+  const owner = meOwner();
+  return `<section class="panel">
+    <div class="ph"><h5>${icon('lock')}Sign-in</h5><span class="small dim">${owner ? 'owner account' : 'your account'}</span></div>
+    ${owner ? row('Two-factor login', me.totp ? `On. ${me.recovery_left} recovery codes left.` : 'Off. Turn it on to ask for a code from an authenticator app after the password.',
       me.totp ? '<button class="pill" data-act="tfRecovery">New recovery codes</button> <button class="pill danger" data-act="tfDisable">Turn off</button>' : '<button class="pill on" data-act="tfBegin">Set up</button>') : ''}
-    ${row('Password', 'Change it here; every session is signed out afterwards.', '<button class="pill" data-act="pwChange">Change…</button>')}
-    ${row('Sessions', (isRoot ? fmt.n(me.sessions) + ' active · ' : '') + 'survive restarts' + (me.session_hours ? ' · at most ' + esc(me.session_hours) + ' h' : ''), '<button class="pill" data-act="logout">Sign out</button>')}
-  </section>
-  ${can('alerts.config') ? `<section class="panel">
-    <div class="ph"><h5>Notifications</h5><span class="small dim">via Resend</span></div>
-    ${isRoot ? row('Resend API key', cfg.key_set ? 'set (hidden)' : 'not set — alerts stay in the Alerts view', `<input id="n_key" class="input" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off" style="width:170px">`) : ''}
-    ${isRoot ? row('From', 'A sender on a domain verified in Resend · it also delivers sign-in codes, so only root can change it', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:230px">`) : ''}
-    ${row('To', 'Comma separated', `<input id="n_to" class="input" value="${esc((cfg.to || []).join(', '))}" style="width:230px">`)}
-    ${row('Send', 'Minimum level that is e-mailed', `<select id="n_sev" class="input">${['info', 'warning', 'critical'].map((s) => `<option ${cfg.min_severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}
-    ${row('Report', 'Summary e-mail', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input" value="${esc(cfg.digest_hour ?? 8)}" style="width:44px">:00`)}
-    <div class="act-row"><button class="btn btn-primary" data-act="nSave">Save</button><button class="btn btn-secondary" data-act="nTest" ${cfg.configured ? '' : 'disabled'}>Send test</button>${cfg.key_set && isRoot ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}</div>
-  </section>` : ''}
-  ${can('system.settings') ? `<section class="panel">
-    <div class="ph"><h5>Uploads & versions</h5></div>
-    ${row('Chunk size', 'Per request; must stay below 100 MB for Cloudflare. Larger = fewer requests, smaller = finer resume.', `<input id="u_chunk" class="input" value="${me.upload.chunk_mb}" style="width:60px"> MiB`)}
-    ${row('Parallel requests', 'How many chunks upload at once', `<input id="u_par" class="input" value="${me.upload.parallel}" style="width:60px">`)}
-    ${row('Versions kept', 'Earlier versions per file (replace / edit / restore)', `<input id="u_keep" class="input" value="${me.versions_keep}" style="width:60px">`)}
-    <div class="act-row"><button class="btn btn-primary" data-act="uSave">Save</button></div>
-  </section>` : ''}
-  ${can('security.autoban') ? `<section class="panel">
-    <div class="ph"><h5>Auto-ban</h5><span class="small dim">scanners probing for .env, wp-login.php, …</span></div>
-    ${row('Enabled', 'Bans at the origin and, when permitted, at Cloudflare’s edge', toggle(ab.enabled, 'abToggle'))}
-    ${row('Threshold', 'Probe requests from one IP…', `<input id="ab_probes" class="input" value="${ab.probes}" style="width:60px">`)}
-    ${row('Window', '…within this many minutes', `<input id="ab_win" class="input" value="${ab.window_minutes}" style="width:60px"> min`)}
-    ${row('Ban length', 'Temporary; the entry expires on its own', `<input id="ab_hours" class="input" value="${ab.ban_hours}" style="width:60px"> h`)}
-    <div class="act-row"><button class="btn btn-primary" data-act="abSave">Save</button></div>
-  </section>` : ''}
-  ${can('cdn.manage') ? `<section class="panel span2">
-    <div class="ph"><h5>Cloudflare</h5><span class="small dim">edge blacklist and cache purges use the API token in strata.json</span></div>
-    ${caps ? ['zone', 'lists', 'waf', 'purge'].map((k) => caps[k] ? row({ zone: 'Zone access', lists: 'IP list (edge blacklist)', waf: 'WAF custom rules (edge blacklist)', purge: 'Cache purge' }[k],
-      caps[k].ok ? 'working' : caps[k].ok === false ? 'missing permission: ' + (caps[k].need || '') : 'not tested yet — runs on first purge', `<span class="${caps[k].ok ? '' : 'hot'} h800">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : '—'}</span>`) : '').join('') : '<div class="empty">Checking the token…</div>'}
-    ${row('Edge blacklist', 'Push the blacklist to Cloudflare', toggle(D.cf ? D.cf.edge_enabled : true, 'cfEdge'))}
-    ${row('Automatic purges', 'Purge a file’s URLs (every ?variant too) when it is replaced, renamed, deleted or newly protected', toggle(D.cf ? D.cf.autopurge : true, 'cfAuto'))}
-    ${D.cf?.queue ? row('Purge queue', D.cf.queue.pending ? `${fmt.n(D.cf.queue.pending)} waiting since ${fmt.dt(D.cf.queue.oldest)}${D.cf.queue.ok === false ? ' — ' + D.cf.queue.error : ''}` : 'empty — every purge went through',
-      `<span class="${D.cf.queue.pending && D.cf.queue.ok === false ? 'hot' : ''} h800">${fmt.n(D.cf.queue.pending)}</span> <button class="pill" data-act="cfPurgeRetry" ${D.cf.queue.pending ? '' : 'disabled'}>Retry now</button>`) : ''}
-    ${row('Purge now', 'One URL per line', '<button class="pill" data-act="cfPurgeUrls">Purge URLs…</button> <button class="pill danger" data-act="cfPurgeAll">Purge everything</button>')}
-  </section>` : ''}`;
-});
-// Smart-Sorting (uploads) and share-link lifetime / abuse guard
-SETTINGS_PANELS.push((row, toggle) => {
-  const me = D.me;
-  if (!me || !me.smartsort || !(me.capabilities || []).includes('system.settings')) return '';
-  const ss = me.smartsort, lk = me.links || {}, ab = lk.abuse || {};
-  const drives = (typeof served === 'function' ? served() : []).filter((m) => m.kind !== 'page');
-  if (!drives.length && typeof loadDrives === 'function' && !D.drives) loadDrives().then(() => { if (S.view === 'settings') render(true); });
-  const num = (id, v, w = 64) => `<input id="${id}" class="input" value="${esc(v ?? '')}" style="width:${w}px">`;
-  return `
-  <section class="panel">
-    <div class="ph"><h5>Smart-Sorting</h5><span class="small dim">where your uploads land · switch it in Files</span></div>
-    ${row('Home folder', 'Your uploads at a drive root go here, into type folders', `<select id="ss_mount" class="input">${drives.map((m) => `<option value="${m.mount}" ${ss.home && +ss.home.mount === m.mount ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select> ${num('ss_home', ss.home ? ss.home.path : '', 150)}`)}
-    ${row('Drive root → home', 'Off: uploads at the root stay at the root', toggle(ss.root_to_home, 'ssRoot'))}
-    ${row('Assets folder', 'Inside other folders, non-code files go to <folder>/this/<type>/ (css and js get their own folders, html stays)', num('ss_assets', ss.assets || 'assets', 120))}
-    <div class="form" style="grid-template-columns:repeat(3,1fr)">${Object.entries(ss.folders || {}).map(([c, f]) => `<label>${esc(c)}<input class="input ss_f" data-cat="${esc(c)}" value="${esc(f)}"></label>`).join('')}</div>
-    <div class="act-row"><button class="btn btn-primary" data-act="ssSave">Save</button></div>
-  </section>
-  <section class="panel">
-    <div class="ph"><h5>Share links</h5><span class="small dim">short /l/ links and signed links</span></div>
-    ${row('Default lifetime', 'New share links expire after this many days (0 = never)', num('lk_days', lk.default_days ?? 7) + ' days')}
-    ${row('Abuse guard', 'Expire a short link early at strong signs of abuse (you get an alert)', toggle(ab.enabled, 'lkGuard'))}
-    ${row('One address', 'Clicks from a single IP within 10 minutes', num('lk_ip', ab.per_ip_10m))}
-    ${row('Click flood', 'Clicks within 10 minutes', num('lk_flood', ab.clicks_10m))}
-    ${row('Spread', 'Different countries within an hour', num('lk_cc', ab.countries_1h))}
-    ${row('Bots', 'Share of bot / scanner clicks (link previews do not count), once there are at least N clicks in an hour',
-      num('lk_botpct', Math.round((ab.bot_share ?? 0.8) * 100), 52) + ' % of ≥ ' + num('lk_botmin', ab.bot_min, 52))}
-    <div class="act-row"><button class="btn btn-primary" data-act="lkSave">Save</button></div>
+    ${row('Password', 'Changing it signs out every session.', '<button class="pill" data-act="pwChange">Change…</button>')}
+    ${row('Sessions', (owner ? fmt.n(me.sessions) + ' active. ' : '') + 'Kept across restarts' + (me.session_hours ? `, ${esc(me.session_hours)} h at most.` : '.'), `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
   </section>`;
+});
+
+function notifyRows(row) {
+  const cfg = D.alertsCfg || {}, owner = meOwner();
+  return `${row('To', 'Comma separated.', `<input id="n_to" class="input" value="${esc((cfg.to || []).join(', '))}" style="width:260px">`)}
+    ${row('E-mail alerts from', 'Lower levels stay on the Alerts tab.', `<select id="n_sev" class="input">${['info', 'warning', 'critical'].map((s) => `<option ${cfg.min_severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}
+    ${row('Summary e-mail', 'A report of the past day or week.', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input" value="${esc(cfg.digest_hour ?? 8)}" style="width:44px">:00`)}
+    ${owner ? row('Resend API key', cfg.key_set ? 'Set. Leave empty to keep it.' : 'Not set. Alerts only show on the Alerts tab.', `<input id="n_key" class="input" type="password" placeholder="${cfg.key_set ? '•••••• (unchanged)' : 're_…'}" autocomplete="off" style="width:200px">`) : ''}
+    ${owner ? row('Sender', 'An address on a domain verified in Resend. It also sends sign-in codes, so only the owner can change it.', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:260px">`) : ''}`;
+}
+function uploadRows(row) {
+  const me = D.me;
+  return `<div class="cap" style="margin-top:6px">Uploads</div>
+    ${row('Chunk size', 'Size of each upload request. Keep it under 100 MB for Cloudflare.', numIn('u_chunk', me.upload.chunk_mb, 60) + ' MiB')}
+    ${row('Parallel requests', 'Chunks uploaded at the same time.', numIn('u_par', me.upload.parallel, 60))}
+    ${row('Versions kept', 'Earlier versions kept per file.', numIn('u_keep', me.versions_keep, 60))}`;
+}
+function smartsortRows(row, toggle) {
+  const ss = D.me.smartsort || {};
+  const drives = (typeof served === 'function' ? served() : []).filter((m) => m.kind !== 'page');
+  return `<div class="cap" style="margin-top:16px">Smart-Sorting</div>
+    ${row('Home folder', 'Uploads to a drive root go here, sorted into type folders.', `<select id="ss_mount" class="input">${drives.map((m) => `<option value="${m.mount}" ${ss.home && +ss.home.mount === m.mount ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select> ${numIn('ss_home', ss.home ? ss.home.path : '', 150)}`)}
+    ${row('Drive root to home', 'Off: uploads to a drive root stay there.', toggle(ss.root_to_home, 'ssRoot'))}
+    ${row('Assets folder', 'In other folders, non-code files go into this folder, by type. HTML stays put.', numIn('ss_assets', ss.assets || 'assets', 120))}
+    <div class="form" style="grid-template-columns:repeat(3,1fr)">${Object.entries(ss.folders || {}).map(([c, f]) => `<label>${esc(c)}<input class="input ss_f" data-cat="${esc(c)}" value="${esc(f)}"></label>`).join('')}</div>`;
+}
+function autobanRows(row, toggle) {
+  const ab = D.me.autoban || {};
+  return `${row('Auto-ban', 'Bans at the origin and, when the token allows it, at Cloudflare.', toggle(ab.enabled, 'abToggle'))}
+    ${row('Probe requests', 'Requests for .env, wp-login.php and similar from one IP.', numIn('ab_probes', ab.probes, 60))}
+    ${row('Within', 'Minutes the probes have to fall into.', numIn('ab_win', ab.window_minutes, 60) + ' min')}
+    ${row('Ban length', 'The ban expires on its own.', numIn('ab_hours', ab.ban_hours, 60) + ' h')}`;
+}
+function linkRows(row, toggle) {
+  const lk = D.me.links || {}, ab = lk.abuse || {};
+  return `${row('Default lifetime', 'New share links expire after this many days. 0 means never.', numIn('lk_days', lk.default_days ?? 7) + ' days')}
+    ${row('Abuse guard', 'Expire a short link early on strong signs of abuse. You get an alert.', toggle(ab.enabled, 'lkGuard'))}
+    ${row('One address', 'Clicks from one IP within 10 minutes.', numIn('lk_ip', ab.per_ip_10m))}
+    ${row('Click flood', 'Clicks within 10 minutes.', numIn('lk_flood', ab.clicks_10m))}
+    ${row('Spread', 'Countries within an hour.', numIn('lk_cc', ab.countries_1h))}
+    ${row('Bots', 'Share of bot clicks, once an hour has at least this many clicks. Link previews don’t count.',
+      numIn('lk_botpct', Math.round((ab.bot_share ?? 0.8) * 100), 52) + ' % of ≥ ' + numIn('lk_botmin', ab.bot_min, 52))}`;
+}
+// Network › Cache: only switches and buttons, so it can sit on the page itself
+function cloudflarePanel(row, toggle) {
+  if (!D.cf && !D.cfLoading) { D.cfLoading = true; loadCf().then(() => { D.cfLoading = false; render(true); }); }
+  const cf = D.cf, caps = cf?.caps, q = cf?.queue;
+  const capRow = (k) => caps[k] ? row({ zone: 'Zone access', lists: 'IP list (edge blocklist)', waf: 'WAF custom rules (edge blocklist)', purge: 'Cache purge' }[k],
+    caps[k].ok ? 'Working.' : caps[k].ok === false ? 'Missing permission: ' + (caps[k].need || '') : 'Not tested yet. Runs with the first purge.',
+    `<span class="${caps[k].ok ? '' : 'hot'} h800">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : '—'}</span>`) : '';
+  return netPanel('Cloudflare', 'Uses the API token in strata.json', `
+    ${caps ? ['zone', 'lists', 'waf', 'purge'].map(capRow).join('') : '<div class="empty">Checking the token…</div>'}
+    ${row('Edge blocklist', 'Push the blocklist to Cloudflare.', toggle(cf ? cf.edge_enabled : true, 'cfEdge'))}
+    ${row('Automatic purges', 'Purge a file’s URLs, with every ?variant, when it is replaced, renamed, deleted or protected.', toggle(cf ? cf.autopurge : true, 'cfAuto'))}
+    ${q ? row('Purge queue', q.pending ? `${fmt.n(q.pending)} waiting since ${fmt.dt(q.oldest)}.${q.ok === false ? ' Last error: ' + q.error : ''}` : 'Empty. Every purge went through.',
+      `<span class="${q.pending && q.ok === false ? 'hot' : ''} h800">${fmt.n(q.pending)}</span> <button class="pill" data-act="cfPurgeRetry" ${q.pending ? '' : 'disabled'}>Retry now</button>`) : ''}
+    ${row('Purge now', 'Clear URLs from Cloudflare’s cache.', '<button class="pill" data-act="cfPurgeUrls">Purge URLs…</button> <button class="pill danger" data-act="cfPurgeAll">Purge everything</button>')}`, 'cloud');
+}
+// key: [kicker, title, load, rows, save actions, extra buttons]
+const PAGE_SHEETS = {
+  delivery: ['Alerts', 'Delivery', async () => { D.alertsCfg = (await get('/api/alerts')).config; }, notifyRows, ['nSave'],
+    () => `<button class="btn btn-secondary" data-act="nTest" ${D.alertsCfg?.configured ? '' : 'disabled'}>Send test</button>${D.alertsCfg?.key_set && meOwner() ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}`],
+  autoban: ['Blocklist', 'Auto-ban', loadMe, autobanRows, ['abSave']],
+  links: ['Links', 'Link settings', loadMe, linkRows, ['lkSave']],
+  files: ['Files', 'Upload settings', async () => { await loadMe(); if (!D.drives) await loadDrives(); },
+    (row, toggle) => uploadRows(row) + (D.me.smartsort ? smartsortRows(row, toggle) : ''), ['uSave', 'ssSave']],
+};
+const sheetBtn = (k, label = 'Settings') => `<button class="pill" data-act="pageSheet" data-arg="${k}" title="${esc(PAGE_SHEETS[k][1])}">${icon('settings', 'sm')}${esc(label)}</button>`;
+Object.assign(ACT, {
+  async pageSheet(k) {
+    const [kicker, title, load, rows, , extra] = PAGE_SHEETS[k];
+    try { await load(); } catch (e) { return note('Couldn’t load the settings: ' + e.message); }
+    openSheet(kicker, title, rows(setRow, toggle), `<button class="btn btn-primary" data-act="sheetSave" data-arg="${k}">Save</button>${extra ? extra() : ''}`);
+  },
+  // the save actions return true on success; the sheet stays open on an error so nothing typed is lost
+  async sheetSave(k) {
+    let ok = true;
+    for (const a of PAGE_SHEETS[k][4]) if (!$('#sheet') || !(await ACT[a]())) { ok = false; break; }
+    if (ok) closeSheet();
+  },
 });
 Object.assign(ACT, {
   async ssSave() {
@@ -832,16 +849,16 @@ Object.assign(ACT, {
     const home = $('#ss_home').value.trim();
     try {
       D.me = await post('/api/settings/smartsort', { home: home ? { mount: +$('#ss_mount').value, path: home } : null, assets: $('#ss_assets').value.trim(), folders });
-      note('Smart-Sorting saved'); render(true);
-    } catch (e) { note(e.message); }
+      note('Smart-Sorting saved'); render(true); return true;
+    } catch (e) { note('Couldn’t save Smart-Sorting: ' + e.message); }
   },
   async ssRoot(v) { try { D.me = await post('/api/settings/smartsort', { root_to_home: v === '1' }); render(true); } catch (e) { note(e.message); } },
   async lkSave() {
     try {
       D.me = await post('/api/settings/links', { default_days: +$('#lk_days').value || 0, per_ip_10m: +$('#lk_ip').value, clicks_10m: +$('#lk_flood').value,
         countries_1h: +$('#lk_cc').value, bot_min: +$('#lk_botmin').value, bot_share: (+$('#lk_botpct').value || 80) / 100 });
-      note('Share-link settings saved'); render(true);
-    } catch (e) { note(e.message); }
+      note('Link settings saved'); render(true); return true;
+    } catch (e) { note('Couldn’t save the link settings: ' + e.message); }
   },
   async lkGuard(v) { try { D.me = await post('/api/settings/links', { abuse_enabled: v === '1' }); render(true); } catch (e) { note(e.message); } },
 });
@@ -886,13 +903,13 @@ Object.assign(ACT, {
     const body = { to: $('#n_to').value, min_severity: $('#n_sev').value, digest: $('#n_dig').value, digest_hour: +$('#n_hour').value || 8 };
     if ($('#n_from')) body.from = $('#n_from').value; // sender + key: root only (they deliver sign-in codes)
     if ($('#n_key')?.value) body.resend_api_key = $('#n_key').value.trim();
-    try { const r = await post('/api/alerts/config', body); D.alertsCfg = r.config; note('Notification settings saved'); render(true); } catch (e) { note(e.message); }
+    try { const r = await post('/api/alerts/config', body); D.alertsCfg = r.config; note('Delivery settings saved'); render(true); return true; } catch (e) { note('Couldn’t save: ' + e.message); }
   },
   async nClear() { try { const r = await post('/api/alerts/config', { clear_key: true }); D.alertsCfg = r.config; render(true); } catch (e) { note(e.message); } },
   async nTest() { try { await post('/api/alerts/test', {}); note('Test e-mail sent'); } catch (e) { note(e.message); } },
-  async uSave() { try { D.me = await post('/api/settings/upload', { chunk_mb: +$('#u_chunk').value, parallel: +$('#u_par').value, versions_keep: +$('#u_keep').value }); await loadMe(); note('Upload settings saved'); render(true); } catch (e) { note(e.message); } },
+  async uSave() { try { D.me = await post('/api/settings/upload', { chunk_mb: +$('#u_chunk').value, parallel: +$('#u_par').value, versions_keep: +$('#u_keep').value }); await loadMe(); note('Upload settings saved'); render(true); return true; } catch (e) { note('Couldn’t save the upload settings: ' + e.message); } },
   async abToggle(v) { try { await post('/api/settings/autoban', { enabled: v === '1' }); await loadMe(); render(true); } catch (e) { note(e.message); } },
-  async abSave() { try { await post('/api/settings/autoban', { probes: +$('#ab_probes').value, window_minutes: +$('#ab_win').value, ban_hours: +$('#ab_hours').value }); await loadMe(); note('Auto-ban saved'); render(true); } catch (e) { note(e.message); } },
+  async abSave() { try { await post('/api/settings/autoban', { probes: +$('#ab_probes').value, window_minutes: +$('#ab_win').value, ban_hours: +$('#ab_hours').value }); await loadMe(); note('Auto-ban saved'); render(true); return true; } catch (e) { note('Couldn’t save auto-ban: ' + e.message); } },
   async cfEdge(v) { try { D.cf = await post('/api/cloudflare/settings', { edge_enabled: v === '1' }); render(true); } catch (e) { note(e.message); } },
   async cfAuto(v) { try { D.cf = await post('/api/cloudflare/settings', { autopurge: v === '1' }); render(true); } catch (e) { note(e.message); } },
   async cfPurgeRetry() {

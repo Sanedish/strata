@@ -184,6 +184,7 @@ function vFiles() {
       <button class="pill ${S.fgrid ? '' : 'on'}" data-act="fgrid" data-arg="0" title="List">List</button><button class="pill ${S.fgrid ? 'on' : ''}" data-act="fgrid" data-arg="1" title="Thumbnails">Grid</button>
       ${S.ftab === 'files' ? `<button class="pill ${S.ftree ? 'on' : ''}" data-act="ftree" title="Toggle folder navigation">${icon('folder-open', 'sm')} Folders</button>` : ''}
       ${fullDriveZone(S.fmount) && (fcan('files.restore', '/') || fcan('files.purge', '/')) ? `<button class="pill ${S.ftab === 'trash' ? 'on' : ''}" data-act="ftab" data-arg="${S.ftab === 'trash' ? 'files' : 'trash'}">Trash</button>` : ''}
+      ${typeof sheetBtn === 'function' && meCan('system.settings') ? sheetBtn('files') : ''}
     </div></div>`;
   if (S.ftab === 'trash') return `<div class="split" style="grid-template-columns:1fr"><section class="aside fmain-aside">${topbar}${trashBody()}</section></div>`;
   const F = D.files;

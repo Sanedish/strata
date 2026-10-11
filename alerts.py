@@ -1,6 +1,6 @@
 """Alerts: security + health events, stored in SQLite, shown in the UI, e-mailed through Resend once configured.
 
-Configure in strata.json (or Settings > Notifications):
+Configure in strata.json (or Security › Alerts › Delivery):
     "alerts": {"resend_api_key": "re_...", "from": "Strata <alerts@yourdomain>", "to": ["you@..."],
                "min_severity": "warning", "max_per_hour": 12, "digest": "daily", "digest_hour": 8}
 Without a key everything still works - alerts are kept in the database and listed in the Alerts view.
