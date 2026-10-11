@@ -26,7 +26,7 @@ for DNS, cache purges and edge blocking. You get one dashboard for what is being
 what is trying to break in.
 
 It is written in plain Python with no web framework and keeps everything in SQLite. It is built and used on Windows;
-Linux support is written but not tested yet (see [Platforms](#platforms)).
+on Linux the test suite passes, but no real install has run yet (see [Platforms](#platforms)).
 
 ## What it does
 
@@ -199,7 +199,7 @@ Every default is in `DEFAULTS` at the top of [core.py](core.py). `strata.json` h
 
 | | Windows | Linux |
 |---|---|---|
-| Dashboard, analytics, files, serving, accounts | yes | written, untested |
+| Dashboard, analytics, files, serving, accounts | yes | test suite passes, no real install yet |
 | Installer | Task Scheduler | systemd, untested |
 | Restart the tunnel from the dashboard | yes | not yet |
 | Drive letters and volume labels in the drive picker | yes | n/a |

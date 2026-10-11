@@ -1,6 +1,6 @@
 # Strata roadmap
 
-Written 2026-10-11, updated the same day after Phase 1 and again after 2c, 2d and 2e.
+Written 2026-10-11, updated the same day after Phase 1, after 2c, 2d and 2e, and after the release fixes.
 
 ## Done in this round
 
@@ -25,7 +25,7 @@ Internal names (`office.py`, `/api/office/*`, the `office.*` permission keys) ar
 
 | Item | What changed |
 |---|---|
-| Git | The repository has its first commits. `strata.json`, `data/`, `generated/`, `backups/` and `vendor/` are ignored |
+| Git | The repository has its first commits. `strata.json`, `data/`, `generated/`, `backups/` and the top-level `vendor/` (Python packages) are ignored; `static/vendor/` (CodeMirror, icon licenses) is committed |
 | Personal details | Domains, the owner's handle, LAN addresses, NAS paths and machine paths replaced with `example.com`, documentation ranges and `<home>` / `<install folder>`. Tests take tool paths from the environment (`STRATA_CADDY`, `STRATA_SAMPLE_PHOTO`) |
 | Basics | `LICENSE` (MIT), `README.md` with screenshots from the demo instance, `SECURITY.md` (private reports through GitHub) |
 | Installer | `setup.py` / `setup.cmd`: packages, site, Caddy (backup, import line, validation, rollback), Cloudflare Tunnel (backup, ingress rule, DNS route, optional new tunnel), keys, owner, `strata.json` (backup), then a Task Scheduler task (Windows) or systemd unit (Linux). `--check`, `--no-service`, `--uninstall`, `--home`. Safe to re-run |
@@ -41,7 +41,7 @@ Bugs found on the way and fixed:
 
 Still open from Phase 1:
 
-- **The Linux path needs one real run** (a VM or `docker run python:3.12`) of `setup.py` and `tests/run_all.py`.
+- **The Linux install needs one real run** (a VM or `docker run python:3.12`) of `setup.py`, with its systemd units and Caddy and cloudflared from their packages. `tests/run_all.py` passes on Linux now (see "Found on the way" below).
 - **The service as SYSTEM needs one real run as administrator.** The task definition was checked by registering it under a normal account; the boot trigger and SYSTEM account were not.
 - ~~**Decide whether sign-in should work without e-mail.**~~ Done: the owner can use an authenticator app instead of the e-mailed code (see "Sign-in without e-mail" below). Other accounts still need e-mail.
 
@@ -58,13 +58,19 @@ Still open from Phase 1:
 
 Other accounts still get e-mailed codes, so inviting people still needs Resend.
 
-## Found on the way, not fixed yet
+## Found on the way: fixed
 
-- `static/vendor/` (CodeMirror and the Lucide license) is caught by `vendor/` in `.gitignore`, so a fresh clone has no code editor. Anchor the pattern (`/vendor/`) and commit the folder.
-- In the drive editor (and wherever a form row pairs a preset select with a text field, like the rule editor's Cache-Control), the select takes the full width and squeezes the text field to a sliver, so you can't read the current value. `.form .input, .form select { width: 100% }` beats the row's flex layout; it was like this before 2d.
-- The app-code page's "Trust this browser for 30 days" checkbox does nothing: `auth.trust_token()` and `trust_ok()` exist but nothing calls them. Wire them up or drop the checkbox.
-- For an account that hasn't accepted the privacy note, `guard()` answers an API call with 428 and then writes a redirect into the same response.
-- On Linux, 33 Strata Media unit tests fail and 2 error, exactly the same tests on the original commit: mostly archive scanning and text extraction (`test_scan_*`), plus the sandbox and the bridge supervisor. A few depend on the network, so the count can vary by one or two.
+| Problem | Fix | Where |
+|---|---|---|
+| No code editor on a fresh clone: `vendor/` in `.gitignore` also matched `static/vendor/`, so CodeMirror and the Lucide license never reached the repository | The pattern is anchored (`/vendor/`) and `static/vendor/` holds CodeMirror 5.65.21. `index.html` also loads `addon/fold/xml-fold`, which `matchtags` needs: without it the editor showed no lines | `.gitignore`, `static/vendor/`, `static/index.html` |
+| The preset select next to Cache-Control and Cloudflare cache (drive editor, rule editor) took the whole row and left the text field 18 px wide | The select is a compact "presets…" menu that fills the field in and resets. Text inputs in sheets also lost an 8 px margin meant for stacked dialogs, which put them out of line with the selects and buttons beside them | `static/control.js`, `static/dashboard.css` |
+| "Trust this browser for 30 days" did nothing | It sets a cookie only the sign-in pages receive, and the owner's next sign-ins from that browser skip the app code. The password is still checked. A new password or a new app ends the trust | `strata.py`, `auth.py` |
+| Before the privacy note is accepted, `guard()` sent the 428 and then a redirect in the same response, and answered POST and PUT before reading the body (as did the two local-network refusals), which Caddy reports as a 502 | One answer, after the body is read | `strata.py` |
+| On Linux, 33 Strata Media unit tests failed and 2 errored | All 438 pass (16 skipped: Windows-only features, Defender, Caddy not installed, the opt-in sample photo). Three real bugs: every member of a zip written by Python was flagged as a "device or special file" archive bomb, `safe_join()` let `a\..\..\x` through, and `config.resolve()` refused every file under a `//server/share` root. The two bridge failures came from the demo using the test ports: it moved to 1848x, and a plain kill now stops its server too | `media/extract.py`, `media/sandbox.py`, `media/config.py`, `tests/demo.py` |
+| New browsers got Sharp corners on the sign-in pages; the default is Soft | `boot.js` uses the same default as the dashboard | `static/boot.js` |
+| Serving › Site and Test stayed two columns on a phone | The narrow-screen rule wins over the column helper | `static/dashboard.css` |
+
+Still open: the same `commonpath` comparison as in `config.resolve()` is in `files.py` and `strata.py`, so on POSIX they refuse every file under a `//server/share` root. That fails closed, and on Linux a share is mounted at a normal path anyway, so it stays as is.
 
 ## Phase 2: de-sloppify (UX)
 
