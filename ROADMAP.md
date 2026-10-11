@@ -45,48 +45,36 @@ Still open from Phase 1:
 - **The service as SYSTEM needs one real run as administrator.** The task definition was checked by registering it under a normal account; the boot trigger and SYSTEM account were not.
 - **Decide whether sign-in should work without e-mail.** Today every sign-in needs a code sent through Resend, so a new user must have a Resend account and a verified sender domain before they can sign in at all. Options: TOTP as an alternative second factor for the owner, or e-mail codes only when mail is configured.
 
-## Phase 2: de-sloppify (UX)
+## Phase 2: done (de-sloppify)
 
-### 2a. Break up the Settings page (biggest win)
-Settings mixes personal preferences with server configuration. Most sections belong on the page they configure:
-
-| Settings section now | Moves to |
+| Item | What changed |
 |---|---|
-| Appearance, Interface scale, Navigation, Vitals strip, Data & refresh, Time & notifications, Preferences | **Settings** (stays: your own preferences) |
-| Security (password, 2FA, sessions), Account profile | **Settings › Account** tab |
-| Notifications (Resend key, recipients, summary e-mail) | **Alerts** › Delivery tab |
-| Uploads & versions, Smart-Sorting | **Files** › a gear button opening a settings panel |
-| Auto-ban | **Blocklist** › Auto-ban tab |
-| Cloudflare (edge blocklist, purges) | **Network** › Cache tab |
-| Share links (lifetime, abuse guard) | **Links** › Settings tab |
-| Session & system | **System** |
-| Keyboard list | Delete it; the `?` overlay already shows it |
-| "Root & staff administration" callout | Delete it; Accounts is in the sidebar |
+| 2c Scale | New browsers start at 100 %. Auto-fit is gone (browser zoom does that). A browser that already saved a scale keeps it |
+| 2b Hubs | The sidebar has 11 entries instead of 26. **Traffic** (Requests, Visitors, Content, Insights), **Security** (Blocklist, Scanners, Alerts), **Health** (Tunnel, Origins, Edge, Latency, History, System, Logs), **Files** (Files, Analyze) and **Site** (Serving, Links, Compression, Media) are one entry each, with a tab row. A hub opens the tab used last and shows the badge of a tab that needs attention. The Infrastructure toggle (`I`) is gone |
+| 2a Settings | Two tabs, **Preferences** and **Account**, plus a filter that searches both. Server settings open in a sheet from the page they configure: Security › Alerts › Delivery, Blocklist › Auto-ban, Links and Files (gear button). Cloudflare is **Network › Cache**; version read-outs are on **Health › System**. The keyboard list, the duplicate Session panel and the admin callout are gone |
+| 2d Styles | The 517-line `<style>` block moved from `index.html` to the top of `dashboard.css`, unchanged. The spacing tokens already existed (`--space-1` … `--space-8` in `styles.css`), so no new ones. The most common inline styles became classes: `.grow` spacers, `.hrow`, `.mt-1` … `.mt-4` (about 60 of 290). The rest are one-off widths on inputs |
+| 2e Copy | Settings rows, the moved sections, em-dash asides in `control.js`, `storage.js`, `app.js` and `office.js`, and every user-visible "root" on Accounts (now **Owner**) |
 
-How: each section is already a function pushed into `SETTINGS_PANELS`. Moving one means calling that function from the destination view instead. Settings gets two tabs (Preferences, Account) and a filter box at the top.
+How it is built, for whoever touches it next:
 
-### 2b. Merge pages into tabbed pages
-The sidebar still overflows on a 900 px-tall screen. Merging related pages into one page with tabs takes it to about 11 entries:
-- **Traffic**: Requests · Visitors · Content · Insights
-- **Health** (replaces Infrastructure): Tunnel · Origins · Edge · Latency · History · System · Logs
-- **Security**: Blocklist · Scanners · Alerts
+- `S.view` is always a leaf view, never a hub. `HUBS` in `app.js` only changes the sidebar and the header's tab row, so polling (`VIEW_REFRESH`, `pollInsights`), permissions (`VIEW_NEEDS`), `g` keys and saved pins work as before. `go(hub)` opens the hub's last tab.
+- Page settings use `PAGE_SHEETS` in `control.js`. Settings is the only view in `STATIC_VIEWS`; every other view redraws on each poll, so a form inline on Alerts would lose what you typed. Sheets sit outside `#main`. Their save actions return `true`, and the sheet closes only when all of them succeeded.
 
-How: a small `hub(view, tabs)` helper renders a tab row and calls the existing view function for the selected tab. The tricky part is per-view polling keyed on `S.view` (`pollInsights`, `VIEW_REFRESH`, `VIEW_NEEDS`): it has to be keyed on the active tab instead. About half a day, with a click-through of every tab afterwards.
+Bugs found on the way and fixed:
 
-### 2c. Scaling
-Interface scale defaults to **130 %**, then auto-fit shrinks it on smaller windows, so the same page looks different from one machine to the next. Proposal: default 100 %, keep the slider, and drop auto-fit (browser zoom already does this). **Needs your decision**, because it changes how your own dashboard looks.
+- **Upload bounced back to Summary.** The access check required the view to be listed in the sidebar, and Upload isn't. It now asks `canSeeView()`.
+- The password dialog asked for "10+ characters"; the server requires 12.
 
-### 2d. Spacing and styles
-Styles live in three places (`styles.css`, `dashboard.css` and ~550 lines inline in `index.html`) plus dozens of `style="..."` attributes in the JS. Plan: move the inline block into `dashboard.css`, define spacing tokens (`--s1` 4px … `--s6` 32px), and replace one-off `style="width:180px"` and `gap:6px` values with classes. Do this page by page with before/after screenshots, so nothing shifts by accident.
+Still open from Phase 2:
 
-### 2e. Copy pass, page by page
-House style for every string:
-- Say what something does in under 8 words. Leave out the how ("chunked and resumable…") unless the user has to act on it.
+- `media.js` copy (59 em dashes, mostly `—` placeholders for missing values, which are fine) and the Code page were left out of the copy pass.
+- A non-number in a settings form gets the server's raw Python error ("int() argument must be…"). The settings endpoints in `strata.py` should validate and say which field is wrong.
+
+### House style (keep using it)
+- Say what something does in under 8 words. Leave out the how unless the user has to act on it.
 - No feature lists joined with " · ". No em-dash asides.
 - Error messages say what happened and what to do next: "Couldn't save: the file changed on disk. Reload to see it."
 - One name per thing: **Owner** (never "root" in the UI), **Administrator**, **Member**, **Moderator**.
-
-Biggest offenders by count: `control.js`, `storage.js`, `media.js`, then the Settings rows in `app.js`.
 
 ## Phase 3: customisation (done)
 

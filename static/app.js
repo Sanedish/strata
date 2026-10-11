@@ -260,7 +260,7 @@ function sparkSvg(arr, { w = 240, h = 76, cls = 'spark', max, stroke = 'var(--co
 // multi-series line chart (Analyze › Growth, Network): series [{label, data: [[x, y]], color}]
 function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.date(x) } = {}) {
   const all = series.flatMap((s) => s.data);
-  if (all.length < 2) return '<div class="empty">Not enough data points yet — one is added per day.</div>';
+  if (all.length < 2) return '<div class="empty">Not enough data yet. One point is added per day.</div>';
   const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y1 = niceMax(ys, 1), W = 600;
   const px = (x) => ((x - x0) / Math.max(1, x1 - x0) * W).toFixed(1), py = (y) => (h - (y / y1) * (h - 8)).toFixed(1);
@@ -268,7 +268,7 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
     ${[0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${W}" y1="${(h * f).toFixed(1)}" y2="${(h * f).toFixed(1)}" stroke="var(--color-neutral-300)" stroke-width="0.5"/>`).join('')}
     ${series.map((s) => `<polyline points="${s.data.map((p) => px(p[0]) + ',' + py(p[1])).join(' ')}" fill="none" stroke="${s.color || 'var(--color-text)'}" stroke-width="2" vector-effect="non-scaling-stroke"${s.dash ? ' stroke-dasharray="5 4"' : ''}><title>${esc(s.label)}</title></polyline>`).join('')}
   </svg><div class="axis"><span>${esc(fmtX(x0))}</span><span>max ${esc(fmtY(y1))}</span><span>${esc(fmtX(x1))}</span></div>
-  <div class="legend" style="margin-top:6px">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
+  <div class="legend mt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
 const loading = (msg = 'Waiting for the collector…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
 const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800" style="font-size:15px;color:var(--color-text)">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
@@ -559,7 +559,7 @@ function renderFooter() {
     <span class="row">${icon('database', 'sm')}${fmt.n(db.rows)} requests stored · ${esc(fmt.bytes(db.size))} · since ${esc(fmt.dt(db.first))}</span>
     <span>Caddy ${esc(c.version || '')} ${c.up ? '· up ' + esc(fmt.dur(c.uptime)) : '<b class="hot">unreachable</b>'}</span>
     <span>cloudflared ${esc(t.version || '')} ${t.up ? '· up ' + esc(fmt.dur(t.uptime)) : '<b class="hot">unreachable</b>'}</span>
-    <div style="flex:1"></div>
+    <div class="grow"></div>
     ${(INST.siblings || []).map((s) => `<button class="link" data-act="openSibling" data-arg="${esc(s.url)}" title="Open the ${esc(s.name)} dashboard">${esc(s.name)} ↗</button>`).join('')}
     <button class="link" data-act="cycleRate" data-menu="rate" title="Click to change the polling interval · right-click to pick">${S.paused ? 'paused · click to resume' : 'every ' + (S.rate < 1000 ? S.rate + ' ms' : S.rate / 1000 + ' s')}</button>
     <span class="clock">${fmt.time(Date.now() / 1000)}</span>`);
@@ -610,7 +610,7 @@ function auxPanel(a) {
 function tblView(o) {
   const csv = o.tabs ? `<button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button>` : '';
   // no tab pills: the CSV button joins the title line instead of sitting alone in an empty bar
-  const tabs = o.tabs?.length ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div style="flex:1"></div>${csv}</div>` : '';
+  const tabs = o.tabs?.length ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div class="grow"></div>${csv}</div>` : '';
   return `<div class="split" style="grid-template-columns:1fr 300px">
     <section class="aside">
       <div class="ph" style="padding:14px 18px 8px;margin:0;gap:12px;align-items:center"><h5>${esc(o.title)}</h5><span class="small dim ell" style="margin-left:auto">${esc(o.note || '')}</span>${tabs ? '' : csv}</div>
@@ -729,7 +729,7 @@ function reqFilterBar() {
     <input id="rf_country" class="input" placeholder="CC" value="${esc(S.rf.country)}" style="width:52px" title="Country code" maxlength="2">
     <input id="rf_min_ms" class="input" placeholder="≥ ms" value="${esc(S.rf.min_ms)}" style="width:64px" title="Slower than (ms)">
     ${active ? `<button class="pill" data-act="rfClear">${icon('x', 'sm')}Clear ${active}</button>` : ''}
-    <div style="flex:1"></div>
+    <div class="grow"></div>
     ${(S.savedFilters || []).map((f, i) => `<button class="pill" data-act="rfLoad" data-arg="${i}" data-menu="savedFilter" data-arg2="${i}" title="Saved filter · right-click to delete">${icon('bookmark', 'sm')}${esc(f.name)}</button>`).join('')}
     <button class="pill" data-act="rfSave" title="Save the current filters">${icon('star', 'sm')}Save</button>
   </div>`;
@@ -758,7 +758,7 @@ function vRequests() {
         <button class="pill ${S.fields ? 'on' : ''}" data-act="fields">${icon('rows-3', 'sm')}Deep fields</button>
         ${S.ipFilter ? `<button class="pill on" data-act="clearIp" title="Clear client filter">client ${esc(S.ipFilter)} ${icon('x', 'sm')}</button>` : ''}
         ${S.q ? `<button class="pill on" data-act="clearQ" title="Clear text filter">“${esc(S.q)}” ${icon('x', 'sm')}</button>` : ''}
-        <div style="flex:1"></div>
+        <div class="grow"></div>
         <span class="small dim">${fmt.n(rows.length)} rows · ${D.req && D.req.older ? 'paged back' : S.paused ? 'paused' : 'tailing'}</span>
         <button class="pill" data-act="exportReq" data-arg="csv" title="Download the loaded rows">${icon('download', 'sm')}CSV</button>
         <button class="pill" data-act="exportReq" data-arg="json">${icon('file-braces', 'sm')}JSON</button>
@@ -789,7 +789,7 @@ function inspector(r) {
       ['Method', r.method], ['Protocol', r.proto], ['Status', r.status], ['Content type', r.ctype], ['Sent', fmt.bytes(r.bytes)],
       ['Duration', fmt.ms(r.dur)], ['Client', r.ip], ['Country', cname(r.country)], ['Edge', r.colo + ' · ' + coloName(r.colo)],
       ['Referrer', r.ref], ['Client kind', KIND[r.kind] || r.kind], ['Agent', r.agent + (r.os && r.os !== '-' ? ' · ' + r.os : '')],
-      ['User-Agent', r.ua || '(empty)'], ['Probe', r.scan ? 'yes — matches scanner patterns' : 'no'], ['Flagged', r.sus || 'no'],
+      ['User-Agent', r.ua || '(empty)'], ['Probe', r.scan ? 'yes, matches scanner patterns' : 'no'], ['Flagged', r.sus || 'no'],
       ['Modifiers', r.mods || '—'], ['Tag', r.tag || '—'], ['Blocked by', r.blocked || '—'],
     ]);
   }
@@ -872,7 +872,7 @@ function vVisitors() {
   return tblView({
     title: 'Audience', note: `${fmt.n(T.uniq)} unique clients · ${rangeLabel()}${engineNote(st)}`, key: 'vis-' + tab, labels, rows,
     tabs: [['countries', 'Countries', 'earth'], ['clients', 'Clients', 'monitor'], ['referrers', 'Referrers', 'link-2'], ['hosts', 'Hostnames', 'globe'], ['os', 'Systems', 'cpu']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'visitors:' + k, on: tab === k })),
-    empty: tab === 'referrers' ? 'No referrers yet — most CDN hits are direct links and embeds.' : undefined,
+    empty: tab === 'referrers' ? 'No referrers yet. Most CDN hits are direct links and embeds.' : undefined,
     aux: {
       kicker: 'Audience', title: 'Unique visitors · ' + rangeLabel(), series: st.series.uniq,
       gauges: ['browser', 'player', 'embed', 'bot'].map((k) => gauge(KIND[k], fmt.n(kinds[k]?.c || 0) + ' · ' + fmt.pct(share(kinds[k]?.c || 0, T.reqs)), share(kinds[k]?.c || 0, T.reqs), k === 'bot' ? 60 : 101)),
@@ -1084,7 +1084,7 @@ function vEdge() {
         <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">ink = cache hit · red = fetched from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
-        <div class="ph" style="margin-top:18px"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
+        <div class="ph mt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
         ${bars(days, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => x.dimensions.date)}
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
@@ -1124,8 +1124,8 @@ function vInsights() {
     <div><div class="cap">New</div><div class="big-num">${fmt.n(I.visitors - I.returning)}</div></div></div>
     <div class="stackbar"><i style="flex:${I.returning || 0};background:var(--color-text)"></i><i style="flex:${(I.visitors - I.returning) || 0};background:var(--color-accent)"></i></div>
     <div class="small dim">Returning = seen before this range began (data since ${esc(fmt.dt(D.live?.db?.first))}).</div>
-    <div class="cap" style="margin-top:16px">Status classes</div>${classBar}
-    <div class="cap" style="margin-top:16px">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
+    <div class="cap mt-4">Status classes</div>${classBar}
+    <div class="cap mt-4">Protocols (Cloudflare → origin)</div><div class="small">${I.protos.map((p) => esc(p.k || '—') + ' ' + fmt.n(p.c)).join(' · ') || '—'}</div>`;
   const inv = I.inventory;
   const dailyRows = I.daily.slice().reverse().map((d) => ({ cells: [cell(d.k, 'h800'), cell(fmt.n(d.c), 'r'), cell(fmt.n(d.u), 'r dim'), cell(fmt.bytes(d.b), 'r dim'), cell(fmt.n(d.e), 'r ' + (d.e ? 'hot' : 'dim'))] }));
   return `<div class="ins">
@@ -1181,7 +1181,7 @@ function vCompression() {
     title: 'Brotli precompression', note: runLine, key: 'comp-' + tab, labels, rows,
     tabs: [['files', 'Store', 'archive'], ['runs', 'Run log', 'list'], ['served', 'Served', 'send']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'compression:' + k, on: tab === k }))
       .concat([{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }]),
-    empty: tab === 'files' ? 'Nothing precompressed yet — the first scan runs shortly after start.' : undefined,
+    empty: tab === 'files' ? 'Nothing precompressed yet. The first scan runs shortly after start.' : undefined,
     aux: {
       kicker: 'Precompression', title: 'Bytes saved · ' + rangeLabel(), series: C.series.saved,
       gauges: [
@@ -1256,7 +1256,7 @@ function vSettings() {
       <div class="ph"><h5>${icon('panel-left')}Navigation</h5><span class="small dim">pin and hide entries</span></div>
       ${row('Start in', 'View opened when the dashboard loads.', `<select class="input" data-change="setLanding"><option value="">last used</option>${allViews.map(([, v]) => `<option value="${v}" ${S.landing === v ? 'selected' : ''}>${esc(VIEWS[v][0])}</option>`).join('')}</select>`)}
       ${row('Collapsed sidebar', 'Icons only. Shortcut: [', toggle(S.navCollapsed, 'setNavCollapsed'))}
-      <div class="navcfg" style="margin-top:8px">${navRows}</div>
+      <div class="navcfg mt-2">${navRows}</div>
     </section>
     <section class="panel">
       <div class="ph"><h5>${icon('gauge')}Vitals strip</h5><span class="small dim">tiles above the traffic pages</span></div>
@@ -1602,13 +1602,13 @@ function renderOverlay() {
         ${d.check ? `<label class="dlg-check"><input type="checkbox" id="dlgchk" ${d.checkDefault ? 'checked' : ''}> ${esc(d.check)}</label>` : ''}</div>
       <div class="acts"><button class="btn ${d.danger ? 'btn-primary' : 'btn-primary'}" data-act="dlgOk">${esc(d.ok || 'OK')}</button>
         ${d.alt ? `<button class="btn btn-secondary" data-act="dlgAlt">${esc(d.alt)}</button>` : ''}
-        <div style="flex:1"></div><button class="btn btn-secondary" data-act="dlgCancel">Cancel</button></div></div></div>`;
+        <div class="grow"></div><button class="btn btn-secondary" data-act="dlgCancel">Cancel</button></div></div></div>`;
   }
   if (S.help) {
     html += `<div class="palbg" data-act="helpClose"><div class="dlg" style="width:560px" data-act="noop"><div class="body"><div class="cap">Keyboard</div><h4>Shortcuts</h4>
       <div class="kbd" style="grid-template-columns:150px 1fr">${[['Ctrl K', 'Command palette'], ['/', 'Filter requests'], ['g + letter', 'Go to view: s summary · r requests · c content · v visitors · i insights · f files · u upload · a analyze · e serving · b blacklist · l links · n network · t tunnel · y system · x settings'],
         ['1 – 9', 'Views in sidebar order'], ['[', 'Sidebar'], ['T', 'Theme'], ['Space', 'Pause · Files: preview'], ['Esc', 'Close'], ['Del · F2 · Backspace', 'Files: trash · rename · up'], ['Ctrl V', 'Paste images to upload']].map(([k, v]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(v)}</span>`).join('')}</div></div>
-      <div class="acts"><div style="flex:1"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
+      <div class="acts"><div class="grow"></div><button class="btn btn-secondary" data-act="helpClose">Close</button></div></div></div>`;
   }
   for (const f of OVERLAYS) { try { html += f() || ''; } catch (e) { console.error(e); } }
   if (S.dragOver) html += `<div class="drop"><div>${icon('upload', 'lg')}Drop to upload into ${esc(typeof dropLabel === 'function' ? dropLabel() : S.fpath)}</div></div>`;
