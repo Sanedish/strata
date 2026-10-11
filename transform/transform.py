@@ -287,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
             if audio:
                 data, info = audiocard.card(path, st, cache_dir)
             else:
-                where = urllib.parse.unquote(url_path.rstrip("/").rsplit("/", 1)[0] + "/") if st is None else ""
+                where = urllib.parse.unquote(url_path.rstrip("/").rsplit("/", 1)[0] + "/")  # the folder it sits in
                 data, info = cards.card(path, st, cache_dir, st is None, where)
         except Exception as e:
             return self.plain(422, "could not draw the preview (%s)" % e.__class__.__name__)
