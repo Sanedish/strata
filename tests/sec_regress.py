@@ -204,7 +204,8 @@ call("POST", "/api/serving/site", root, {"error_page_502": ""})
 # file never gets one; the page goes to crawlers only and must not be stored at the edge
 pv, drives = cdn.find("# link previews"), cdn.find("# drives")
 check("link previews come after the access rules and before the drives", 0 < pv < drives and cdn.find("# access rules") < pv
-      and "header_up X-Strata-Embed 1" in cdn[pv:drives] and "header_regexp" in cdn[pv:drives], (pv, drives))
+      and "header_up X-Strata-Embed 1" in cdn[pv:drives] and "header_regexp" in cdn[pv:drives]
+      and "not path_regexp" in cdn[pv:drives] and "X-Strata-Gallery 1" not in cdn[pv:drives], (pv, drives))
 
 # config preview: a diff, and nothing saved or applied
 st, r, _ = call("POST", "/api/serving/site", root, {"error_page_502": "/404/502.html", "preview": True})

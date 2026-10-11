@@ -28,9 +28,9 @@ import struct
 import threading
 import zlib
 
-VERSION = 4                     # bump to redraw every cached card
+VERSION = 5                     # bump to redraw every cached card
 AUDIO_EXT = {".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wav", ".aif", ".aiff", ".weba", ".alac", ".wma", ".amr", ".wv", ".ape"}
-W, H, SS = 1200, 630, 2         # output size (the Open Graph standard), supersampling factor
+W, H, SS = 1500, 630, 2         # output size (wide, at the Open Graph height), supersampling factor
 MAX_TAG = 24 << 20
 RED = (215, 25, 33)
 DEMUXERS = "mp3,flac,ogg,mov,wav,w64,aiff,aac,matroska,asf"
@@ -625,6 +625,9 @@ GLYPHS = {
     ".": [" ", " ", " ", " ", " ", " ", "#"],
     "-": ["   ", "   ", "   ", "###", "   ", "   ", "   "],
     "·": [" ", " ", " ", "#", " ", " ", " "],
+    "/": ["    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    "],
+    "!": ["#", "#", "#", "#", "#", " ", "#"],
+    "+": ["     ", "  #  ", "  #  ", "#####", "  #  ", "  #  ", "     "],
     " ": ["  ", "  ", "  ", "  ", "  ", "  ", "  "],
 }
 
@@ -782,12 +785,139 @@ def _rounded_mask(size, radius):
     return m
 
 
-def render(info, art, wave):
-    """info: title, artist, duration, ext, key. art: PIL image or None. wave: list 0..1 or None. -> JPEG bytes."""
+def S(v):
+    """Card units (designed at 1x) -> supersampled pixels."""
+    return int(round(v * SS))
+
+
+def geometry():
+    """(pad, side, tile x, tile y, radius) of the square tile on the right, in supersampled pixels."""
+    pad = S(48)
+    side = H * SS - 2 * pad
+    return pad, side, W * SS - pad - side, pad, S(34)
+
+
+def canvas(cols, blur=None):
+    """The backdrop every card shares: a 3x2 colour mesh blown up (smooth by construction), an optional image blurred
+    into it, film grain, a scrim behind the text column and a faint dot grid. -> (img, draw, ink, soft, dark_text)"""
     from PIL import Image, ImageDraw, ImageFilter, ImageOps
     w, h = W * SS, H * SS
-    s = lambda v: int(round(v * SS))  # noqa: E731
+    mix = lambda a, b, t: tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))  # noqa: E731
+    c1, c2, c3 = cols
+    mesh = Image.new("RGB", (3, 2))
+    mesh.putdata([c1, mix(c1, c2, 0.5), c2, mix(c3, c1, 0.3), c3, mix(c2, c3, 0.5)])
+    bg = mesh.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(S(60)))
+    if blur is not None:
+        soft_img = ImageOps.fit(blur.convert("RGB"), (120, 50)).filter(ImageFilter.GaussianBlur(3)).resize((w, h), Image.BICUBIC)
+        bg = Image.blend(bg, soft_img, 0.42)
+    noise = Image.effect_noise((w // 2, h // 2), 40).resize((w, h)).convert("RGB")
+    bg = Image.blend(bg, noise, 0.035)
+    # text colour from what actually sits behind the text column, then a soft scrim for contrast
+    _, _, ax, _, _ = geometry()
+    left = bg.crop((0, 0, ax, h)).resize((1, 1), Image.BOX).getpixel((0, 0))
+    dark_text = luminance(left) > 0.42
+    ink = (14, 14, 16) if dark_text else (255, 255, 255)
+    grad = Image.linear_gradient("L").rotate(-90).resize((w, h))     # 255 left -> 0 right
+    grad = grad.point(lambda v: int(v * (0.22 if dark_text else 0.38)))
+    img = Image.composite(Image.new("RGB", (w, h), (255, 255, 255) if dark_text else (0, 0, 0)), bg, grad)
+    d = ImageDraw.Draw(img, "RGBA")       # RGBA mode: translucent fills blend into the card
+    gp, gr = S(16), S(1.1)
+    for yy in range(gp // 2, h, gp):
+        for xx in range(gp // 2, w, gp):
+            d.ellipse((xx - gr, yy - gr, xx + gr, yy + gr), fill=ink + (16,))
+    return img, d, ink, ink + (205,), dark_text
 
+
+def dotted_tile(label, base=(11, 11, 11), label_fill=(255, 255, 255, 255), max_pitch=22):
+    """A dark tile with a dot grid and a centred dot-matrix label (files without a picture)."""
+    from PIL import Image, ImageDraw
+    _, side, _, _, _ = geometry()
+    tile = Image.new("RGB", (side, side), base)
+    td = ImageDraw.Draw(tile, "RGBA")
+    tp, tr = S(14), S(1.6)
+    for yy in range(tp // 2, side, tp):
+        for xx in range(tp // 2, side, tp):
+            td.ellipse((xx - tr, yy - tr, xx + tr, yy + tr), fill=(255, 255, 255, 40))
+    label = label[:5]
+    lp = S(max_pitch)
+    while (dot_width(label, lp) > side * 0.8 or 7 * lp > side * 0.8) and lp > S(8):
+        lp -= S(2)
+    dot_text(td, (side - dot_width(label, lp)) / 2, (side - 7 * lp) / 2, label, lp, lp * 0.36, label_fill)
+    return tile
+
+
+def place_tile(img, d, tile, ring):
+    """The rounded square on the right: soft shadow, the tile, a black / white outline."""
+    from PIL import Image, ImageDraw, ImageFilter
+    w, h = img.size
+    pad, side, ax, ay, radius = geometry()
+    shadow = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((ax, ay + S(14), ax + side, ay + side + S(14)), radius, fill=120)
+    img.paste((0, 0, 0), (0, 0), shadow.filter(ImageFilter.GaussianBlur(S(26))))
+    img.paste(tile, (ax, ay), _rounded_mask((side, side), radius))
+    rw = S(8)
+    d.rounded_rectangle((ax - rw // 2, ay - rw // 2, ax + side + rw // 2, ay + side + rw // 2), radius + rw // 2,
+                        outline=ring, width=rw)
+
+
+def column():
+    """(x0, x1) of the text column, in supersampled pixels."""
+    _, _, ax, _, _ = geometry()
+    return S(56), ax - S(56)
+
+
+def heading(d, kicker, title, subtitle, ink, soft, kicker_fill=None):
+    """Kicker in dot type, the title (up to two lines, shrinking to fit) and an upper-case subtitle. -> y below it"""
+    x0, x1 = column()
+    colw = x1 - x0
+    pitch = S(9)
+    dot_text(d, x0, S(52), kicker, pitch, pitch * 0.36, kicker_fill or ink)
+    y = S(52) + 7 * pitch + S(30)
+    size = S(76)
+    while True:
+        lines, fits = wrap(title or "Untitled", size, "Bold", colw, 2)
+        if fits or size <= S(46):
+            break
+        size -= S(4)
+    lh = int(size * 1.06)
+    for i, line in enumerate(lines):
+        draw_text(d, x0, y + int(size * 0.92) + i * lh, line, size, "Bold", ink)
+    y += int(size * 0.92) + (len(lines) - 1) * lh + S(22)
+    sub = (subtitle or "").upper()
+    asz, track = S(26), S(3)
+    while sub and text_width(sub, asz, "SemiBold", track) > colw and len(sub) > 1:
+        sub = sub[:-2].rstrip() + "…"
+    if sub:
+        draw_text(d, x0, y + int(asz * 0.9), sub, asz, "SemiBold", soft, track)
+    return y + int(asz * 0.9)
+
+
+def footer(d, left, right, ink, soft):
+    """One line of dot type at the bottom of the column: left-aligned, and right-aligned when it fits."""
+    x0, x1 = column()
+    fp = S(4.2)
+    y = H * SS - S(48) - S(44) + S(22) - 3.5 * fp
+    if left:
+        dot_text(d, x0, y, left, fp, fp * 0.38, ink)
+    room = (x1 - x0) - (dot_width(left, fp) if left else 0) - S(40)
+    right = (right or "").upper()
+    while right and dot_width(right, fp) > room:
+        right = right[:-2].rstrip()
+    if right and len(right) > 2:
+        dot_text(d, x1 - dot_width(right, fp), y, right, fp, fp * 0.38, soft)
+
+
+def finish(img):
+    from PIL import Image
+    out = img.resize((W, H), Image.LANCZOS)
+    buf = io.BytesIO()
+    out.save(buf, "JPEG", quality=90, optimize=True, progressive=True)
+    return buf.getvalue()
+
+
+def render(info, art, wave):
+    """info: title, artist, duration, ext, key. art: PIL image or None. wave: list 0..1 or None. -> JPEG bytes."""
+    from PIL import ImageOps
     if art is not None:
         art = ImageOps.exif_transpose(art).convert("RGB")
         dominant, cols = palette(art)
@@ -795,99 +925,20 @@ def render(info, art, wave):
     else:
         cols = hash_palette(info["key"])
         ring = (255, 255, 255)
-
-    # background: 3x2 colour mesh blown up (smooth by construction), the cover blurred into it, film grain
-    mix = lambda a, b, t: tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))  # noqa: E731
-    c1, c2, c3 = cols
-    mesh = Image.new("RGB", (3, 2))
-    mesh.putdata([c1, mix(c1, c2, 0.5), c2, mix(c3, c1, 0.3), c3, mix(c2, c3, 0.5)])
-    bg = mesh.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(s(60)))
-    if art is not None:
-        blur = ImageOps.fit(art, (96, 48)).filter(ImageFilter.GaussianBlur(3)).resize((w, h), Image.BICUBIC)
-        bg = Image.blend(bg, blur, 0.42)
-    noise = Image.effect_noise((w // 2, h // 2), 40).resize((w, h)).convert("RGB")
-    bg = Image.blend(bg, noise, 0.035)
-
-    # text colour from what actually sits behind the text column, then a soft scrim for contrast
-    left = bg.crop((0, 0, s(640), h)).resize((1, 1), Image.BOX).getpixel((0, 0))
-    dark_text = luminance(left) > 0.42
-    ink = (14, 14, 16) if dark_text else (255, 255, 255)
-    scrim_rgb = (255, 255, 255) if dark_text else (0, 0, 0)
-    grad = Image.linear_gradient("L").rotate(-90).resize((w, h))     # 255 left -> 0 right
-    grad = grad.point(lambda v: int(v * (0.22 if dark_text else 0.38)))
-    img = Image.composite(Image.new("RGB", (w, h), scrim_rgb), bg, grad)
-    d = ImageDraw.Draw(img, "RGBA")       # RGBA mode: translucent fills blend into the card
-
-    # faint dot grid over the whole card (Nothing-ish texture)
-    gp, gr = s(16), s(1.1)
-    for yy in range(gp // 2, h, gp):
-        for xx in range(gp // 2, w, gp):
-            d.ellipse((xx - gr, yy - gr, xx + gr, yy + gr), fill=ink + (16,))
-
-    # cover: rounded square on the right, soft shadow, black / white outline
-    pad = s(48)
-    side = h - 2 * pad
-    ax, ay = w - pad - side, pad
-    radius = s(34)
-    shadow = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(shadow).rounded_rectangle((ax, ay + s(14), ax + side, ay + side + s(14)), radius, fill=120)
-    img.paste((0, 0, 0), (0, 0), shadow.filter(ImageFilter.GaussianBlur(s(26))))
-    if art is not None:
-        tile = ImageOps.fit(art, (side, side), Image.LANCZOS)
-    else:
-        tile = Image.new("RGB", (side, side), (11, 11, 11))
-        td = ImageDraw.Draw(tile, "RGBA")
-        tp, tr = s(14), s(1.6)
-        for yy in range(tp // 2, side, tp):
-            for xx in range(tp // 2, side, tp):
-                td.ellipse((xx - tr, yy - tr, xx + tr, yy + tr), fill=(255, 255, 255, 40))
-        label = (info.get("ext") or "AUDIO")[:5]
-        lp = s(22)
-        lw = dot_width(label, lp)
-        while lw > side * 0.8 and lp > s(8):
-            lp -= s(2)
-            lw = dot_width(label, lp)
-        dot_text(td, (side - lw) / 2, (side - 7 * lp) / 2, label, lp, lp * 0.36, (255, 255, 255, 255))
-    img.paste(tile, (ax, ay), _rounded_mask((side, side), radius))
-    rw = s(8)
-    d.rounded_rectangle((ax - rw // 2, ay - rw // 2, ax + side + rw // 2, ay + side + rw // 2), radius + rw // 2,
-                        outline=ring, width=rw)
-
-    # left column
-    x0, x1 = s(56), ax - s(56)
-    colw = x1 - x0
-    pitch = s(9)
-    dot_text(d, x0, s(52), "LISTEN TO", pitch, pitch * 0.36, ink)
-    y = s(52) + 7 * pitch + s(30)
-
-    title = info["title"] or "Untitled"
-    size = s(76)
-    while True:
-        lines, fits = wrap(title, size, "Bold", colw, 2)
-        if fits or size <= s(46):
-            break
-        size -= s(4)
-    lh = int(size * 1.06)
-    for i, line in enumerate(lines):
-        draw_text(d, x0, y + int(size * 0.92) + i * lh, line, size, "Bold", ink)
-    y += int(size * 0.92) + (len(lines) - 1) * lh + s(22)
-
-    artist = (info["artist"] or "Unknown artist").upper()
-    asz, track = s(26), s(3)
-    while text_width(artist, asz, "SemiBold", track) > colw and len(artist) > 1:
-        artist = artist[:-2].rstrip() + "…"
-    soft = ink + (205,)
-    draw_text(d, x0, y + int(asz * 0.9), artist, asz, "SemiBold", soft, track)
+    img, d, ink, soft, _ = canvas(cols, art)
+    _, side, _, _, _ = geometry()
+    tile = ImageOps.fit(art, (side, side)) if art is not None else dotted_tile(info.get("ext") or "AUDIO")
+    place_tile(img, d, tile, ring)
+    heading(d, "LISTEN TO", info["title"], info["artist"] or "Unknown artist", ink, soft)
 
     # waveform: the track's loudness as a dot matrix, mirrored around its middle row; first column red
-    wp, wr = s(10), s(3.1)
+    x0, x1 = column()
+    wp, wr = S(10), S(3.1)
     rows = 7
-    cols_n = int(colw // wp)
-    wy = h - s(48) - s(44) - s(34) - rows * wp
+    cols_n = int((x1 - x0) // wp)
+    wy = H * SS - S(48) - S(44) - S(34) - rows * wp
     half = rows // 2
-    vals = None
-    if wave:
-        vals = [wave[min(len(wave) - 1, int(i * len(wave) / cols_n))] for i in range(cols_n)]
+    vals = [wave[min(len(wave) - 1, int(i * len(wave) / cols_n))] for i in range(cols_n)] if wave else None
     for c in range(cols_n):
         cx = x0 + c * wp + wp / 2
         k = round(vals[c] * half) if vals else 0
@@ -900,24 +951,9 @@ def render(info, art, wave):
                 fill = (ink + (232,)) if lit else (ink + (34,))
             d.ellipse((cx - wr, cy - wr, cx + wr, cy + wr), fill=fill)
 
-    # footer: duration and format under the waveform, album on the right when it fits
-    by = h - s(48) - s(44)
-    pr = s(22)
-    fp = s(4.2)
-    left_txt = " · ".join(x for x in (clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if x)
-    if left_txt:
-        dot_text(d, x0, by + pr - 3.5 * fp, left_txt, fp, fp * 0.38, ink)
-    album = (info.get("album") or "").upper()
-    room = colw - (dot_width(left_txt, fp) if left_txt else 0) - s(40)
-    while album and dot_width(album, fp) > room:
-        album = album[:-2].rstrip()
-    if album and len(album) > 2:
-        dot_text(d, x1 - dot_width(album, fp), by + pr - 3.5 * fp, album, fp, fp * 0.38, soft)
-
-    out = img.resize((W, H), Image.LANCZOS)
-    buf = io.BytesIO()
-    out.save(buf, "JPEG", quality=90, optimize=True, progressive=True)
-    return buf.getvalue(), "#%02x%02x%02x" % c1
+    footer(d, " · ".join(x for x in (clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if x),
+           info.get("album"), ink, soft)
+    return finish(img), "#%02x%02x%02x" % cols[0]
 
 
 # ---------------------------------------------------------------- cached entry points

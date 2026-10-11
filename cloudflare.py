@@ -250,13 +250,14 @@ def sync():
 def sync_previews():
     """One cache rule: link-preview crawlers skip the edge cache on file types that get a Strata card, so they reach
     Caddy (which answers them with a preview page) instead of a copy of the file Cloudflare cached for people.
-    The card image itself (?card=1) stays cached. Files for people are unaffected."""
+    Pictures, videos and web pages are left alone (the platforms embed those themselves), and the card image
+    (?card=1) stays cached. Files for people are unaffected."""
     zone = zone_id()
     bots = " or ".join('lower(http.user_agent) contains %s' % cf_str(b) for b in core.EMBED_RE.pattern.split("|"))
-    exts = " ".join(cf_str(e) for e in rules.PREVIEW_EXTS)
+    native = " ".join(cf_str(e) for e in rules.PREVIEW_NATIVE)
     want = {"ref": REF_PREVIEWS, "description": "Strata link previews - crawlers bypass the cache (managed by Strata)",
-            "expression": '(%s) and lower(http.request.uri.path.extension) in {%s} and not http.request.uri.query contains "card="'
-                          % (bots, exts),
+            "expression": '(%s) and http.request.uri.path.extension ne "" and not lower(http.request.uri.path.extension) in {%s}'
+                          ' and not http.request.uri.query contains "card="' % (bots, native),
             "action": "set_cache_settings", "action_parameters": {"cache": False}, "enabled": True}
     try:
         rs = call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE))["result"]

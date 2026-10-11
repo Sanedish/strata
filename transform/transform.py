@@ -7,7 +7,8 @@
     ?fm=webp|avif|jpeg|png  convert                           ?q=1-100 quality
     ?ver=3                  serve stored version 3 of a file (works for any file type, with Range support)
     X-Strata-Embed: 1       a link-preview crawler on a bare URL: Open Graph tags for Discord, Slack, Telegram...
-    ?card=1                 the preview image those tags point at (1200 x 630 JPEG, drawn once per file version)
+    ?card=1                 the preview image those tags point at (1500 x 630 JPEG, drawn once per file version)
+    X-Strata-Gallery: 1     the URL is a gallery folder: previews may describe the folder (never sent otherwise)
     /_gate                  forward_auth target: checks ?exp=&sig= on signed links (HMAC-SHA256)
 
 Least privilege: reads drive folders (read-only use) and its own cache dir; knows no database, no users, no
@@ -230,6 +231,9 @@ class Handler(BaseHTTPRequestHandler):
         full, rel = resolve(mount, u.path)
         if not full:
             return self.plain(404, "not found")
+        if os.path.isdir(full) and self.headers.get("X-Strata-Gallery") == "1" and not q.get("ver") \
+                and (self.headers.get("X-Strata-Embed") == "1" or q.get("card")):
+            return self.preview(full, None, q, c, u.path)
         src = full
         if q.get("ver"):
             if not re.fullmatch(r"\d{1,6}", q["ver"]):
@@ -276,10 +280,15 @@ class Handler(BaseHTTPRequestHandler):
         """Link previews. The page answers one client class (crawlers) on a URL that serves the file to everyone
         else, so it must never be stored at the edge; the card URL carries the file version and is cached for good."""
         import audiocard
-        if os.path.splitext(path)[1].lower() not in audiocard.AUDIO_EXT:
-            return self.plain(415, "no link preview for this file type")
+        import cards
+        cache_dir = c.get("cache_dir") or instance.home("data", "tcache")
+        audio = st is not None and os.path.splitext(path)[1].lower() in audiocard.AUDIO_EXT
         try:
-            data, info = audiocard.card(path, st, c.get("cache_dir") or instance.home("data", "tcache"))
+            if audio:
+                data, info = audiocard.card(path, st, cache_dir)
+            else:
+                where = urllib.parse.unquote(url_path.rstrip("/").rsplit("/", 1)[0] + "/") if st is None else ""
+                data, info = cards.card(path, st, cache_dir, st is None, where)
         except Exception as e:
             return self.plain(422, "could not draw the preview (%s)" % e.__class__.__name__)
         v = info["key"][:12]
@@ -290,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
             local = re.match(r"(localhost|127\.|10\.|192\.168\.|\[)", host)
             page = "%s://%s%s" % ("http" if local else "https", host, url_path)
-            body = audiocard.embed_html(info, page, page + "?card=1&v=" + v, host)
+            body = (audiocard if audio else cards).embed_html(info, page, page + "?card=1&v=" + v, host)
             ctype, cache = "text/html; charset=utf-8", "private, no-store"
         self.send_response(200)
         self.send_header("Content-Type", ctype)

@@ -94,10 +94,10 @@ NAV_EXPR = ('{http.request.header.Sec-Fetch-Dest} in ["document", "iframe"] || (
             ' && {http.request.header.Accept}.contains("text/html"))')
 PLAYER_HEADERS = ("X-Strata-Player-Dir", "X-Strata-Player-Bg", "X-Strata-Player-Bg-Url")
 PREVIEW_UA = "(?i)" + core.EMBED_RE.pattern  # link-preview crawlers (Discord, Slack, Telegram, X, WhatsApp...)
-# file types that get a Strata card; images and videos keep the platforms' own embeds
-PREVIEW_EXTS = ("mp3", "m4a", "aac", "flac", "ogg", "oga", "opus", "wav", "aif", "aiff", "weba", "alac", "wma", "amr",
-                "wv", "ape")
-PREVIEW_EXT = "|".join(PREVIEW_EXTS)
+# file types the platforms embed themselves (pictures, videos, web pages): every other file gets a Strata card
+PREVIEW_NATIVE = ("jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "avif", "svg", "ico", "heic", "mp4",
+                  "webm", "mov", "m4v", "mkv", "avi", "ogv", "html", "htm", "xhtml")
+PREVIEW_NATIVE_RX = r"(?i)\.(%s)$" % "|".join(PREVIEW_NATIVE)
 
 HOST_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$|^localhost$")
 PATH_PAT_RE = re.compile(r"^/[^\x00-\x1f{}`\\]*$")
@@ -947,31 +947,49 @@ def render_players(o, rules, mounts):
             o.add(2, "}")
 
 
-def render_previews(o, mounts):
+def render_previews(o, mounts, rules):
     """Step 4b: link previews. A crawler on the bare URL of a file gets Open Graph tags from Transform; ?card=1 is
     the image they point at. After the access rules and the scan gate, so hidden, protected and held files never
-    get one. Transform answers 404 for a file that isn't there, which becomes the normal 404 page."""
-    if mounts:
-        o.add(2, "# link previews: Open Graph page for crawlers on the bare URL, ?card=1 is its image")
+    get one. Pictures, videos and web pages keep the platforms' own embeds. Folders get a preview only inside a
+    gallery rule (anywhere else a folder URL is a 404, and a preview would list what people can't open).
+    Transform answers 404 for a file that isn't there, which becomes the normal 404 page."""
+    if not mounts:
+        return
+    o.add(2, "# link previews: Open Graph page for crawlers on the bare URL, ?card=1 is its image")
+
+    def proxy(n, mid, page, gallery):
+        o.add(2, "reverse_proxy @%s %s {" % (n, CFG["transform_listen"]))
+        o.add(3, "header_up X-Strata-Mount %d" % mid)
+        o.add(3, "header_up X-Strata-Embed 1" if page else "header_up -X-Strata-Embed")
+        o.add(3, "header_up X-Strata-Gallery 1" if gallery else "header_up -X-Strata-Gallery")
+        o.add(3, "@%s_missing status 404" % n)
+        o.add(3, "handle_response @%s_missing {" % n)
+        o.add(4, "error 404")
+        o.add(3, "}")
+        o.add(2, "}")
+
+    ua = "header_regexp %s User-Agent %s" % (o.name("pvua"), bq(PREVIEW_UA))
+    crawler = [ua, 'expression `{http.request.uri.query} == ""`']
+    folder = '{http.request.uri.path}.matches("(/|/[^./]+)$")'  # a folder URL (with or without the slash)
+    for r in [r for r in rules if r["action"] == "gallery"]:
+        for m in mounts:
+            if r["mount"] and r["mount"] != m["id"]:
+                continue
+            for page in (True, False):
+                n = o.name("pvg%d" % r["id"])
+                # one expression per matcher: the folder test joins the query test instead of being a second line
+                extra = ([ua, 'expression `{http.request.uri.query} == "" && %s`' % folder] if page
+                         else ["query card=1", "expression `%s`" % folder])
+                o.matcher(2, n, [host_cond(m["hosts"])] + path_conds(gallery_patterns(r["patterns"]), o, "pvg") + extra)
+                proxy(n, m["id"], page, True)
     for m in mounts:
         pc = [] if m["prefix"] == "/" else ["path " + bq(m["prefix"] + "/*")]
-        for kind in ("page", "card"):
-            n = o.name("pv%s%d" % (kind[0], m["id"]))
-            conds = [host_cond(m["hosts"])] + pc + ["path_regexp %s %s" % (n, bq(r"(?i)\.(%s)$" % PREVIEW_EXT))]
-            if kind == "page":
-                conds += ["header_regexp %s User-Agent %s" % (o.name("pvua"), bq(PREVIEW_UA)),
-                          'expression `{http.request.uri.query} == ""`']
-            else:
-                conds += ["query card=1"]
-            o.matcher(2, n, conds)
-            o.add(2, "reverse_proxy @%s %s {" % (n, CFG["transform_listen"]))
-            o.add(3, "header_up X-Strata-Mount %d" % m["id"])
-            o.add(3, "header_up X-Strata-Embed 1" if kind == "page" else "header_up -X-Strata-Embed")
-            o.add(3, "@%s_missing status 404" % n)
-            o.add(3, "handle_response @%s_missing {" % n)
-            o.add(4, "error 404")
-            o.add(3, "}")
-            o.add(2, "}")
+        for page in (True, False):
+            n = o.name("pv%s%d" % ("p" if page else "c", m["id"]))
+            conds = [host_cond(m["hosts"])] + pc + ["path_regexp %s %s" % (n, bq(r"\.[A-Za-z0-9]{1,10}$")),
+                                                    "not path_regexp %s %s" % (o.name("pvn"), bq(PREVIEW_NATIVE_RX))]
+            o.matcher(2, n, conds + (crawler if page else ["query card=1"]))
+            proxy(n, m["id"], page, False)
 
 
 def render(db):
@@ -1165,7 +1183,7 @@ def render(db):
         o.matcher(2, n, [host_cond(m["hosts"])] + pc + ["expression `{query.ver} != \"\"`"])
         transform_proxy(n)
     media("gate", o, fmounts)  # Strata Media: scan gate (forward_auth) + large-file lane
-    render_previews(o, fmounts)
+    render_previews(o, fmounts, rules)
 
     # 5 drives
     o.add(2, "# drives")
