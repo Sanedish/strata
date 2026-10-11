@@ -83,12 +83,13 @@
     return [['runtime', 'Runtime', 'logs.runtime'], ['access', 'Website requests', 'logs.access'], ['activity', 'Account activity', 'audit.read']]
       .filter(([, , cap]) => has(cap));
   }
-  function logToolbar() {
-    const tabs = logTabs();
-    return `<div class="admin-tabs">${tabs.map(([id, label]) => `<button class="${A.logSource === id ? 'on' : ''}" data-act="logSource" data-arg="${id}">${esc(label)}</button>`).join('')}</div>
-      <div class="admin-toolbar"><input id="log-search" class="input" value="${esc(A.logSearch)}" placeholder="${A.logSource === 'runtime' ? 'Search process log' : A.logSource === 'access' ? 'Search paths, IPs, hosts, user agents' : 'Search events, IPs, targets'}" autocomplete="off">
+  function logToolbar(meta) {
+    const ph = { runtime: 'Search process log', access: 'Search paths, IPs, hosts, user agents', activity: 'Search events, IPs, targets' }[A.logSource];
+    return `<div class="tbar">${logTabs().map(([id, label]) => `<button class="pill ${A.logSource === id ? 'on' : ''}" data-act="logSource" data-arg="${id}">${esc(label)}</button>`).join('')}
+      <input id="log-search" class="input" value="${esc(A.logSearch)}" placeholder="${ph}" autocomplete="off">
       ${A.logSource === 'activity' ? `<input id="log-user" class="input" value="${esc(A.logUser)}" placeholder="Account"><input id="log-action" class="input" value="${esc(A.logAction)}" placeholder="Action">` : ''}
-      <button class="btn btn-secondary" data-act="logSearch">${icon('search', 'sm')} Search</button><button class="btn btn-secondary" data-act="logRefresh">${icon('refresh-cw', 'sm')} Refresh</button></div>`;
+      <button class="pill" data-act="logSearch">${icon('search', 'sm')}Search</button>
+      <span class="small dim ell log-meta">${esc(meta)}</span><button class="pill" data-act="logRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>`;
   }
   function vLogs() {
     const tabs = logTabs();
@@ -96,14 +97,22 @@
     if (!tabs.some(([id]) => id === A.logSource)) A.logSource = tabs[0][0];
     if (!A.logs && !A.logError) loadLogs();
     const source = A.logs;
-    let body = '';
+    let body = '', meta = '';
     if (A.logError) body = `<div class="empty">${esc(A.logError)}</div>`;
     else if (!source) body = loading('Loading ' + A.logSource + ' log…');
-    else if (A.logSource === 'runtime') body = `<div class="admin-log-meta">${esc(source.path || 'Strata process log')} · newest ${fmt.n(source.lines?.length)} lines${source.truncated ? ' · older rotated lines omitted' : ''}</div><pre class="runtime-log">${(source.lines || []).map(esc).join('\n') || 'No process log lines match this filter.'}</pre>`;
-    else if (A.logSource === 'activity') body = `<div class="admin-log-meta">Append-only account activity · ${fmt.n(source.rows?.length)} shown${source.append_only ? ' · dashboard deletion is disabled' : ''}</div><div class="admin-table-wrap"><table class="admin-table log-table"><thead><tr><th>When</th><th>Account</th><th>Action</th><th>Source IP</th><th>Target / detail</th><th>Result</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td>${esc(r.user || 'anonymous')}</td><td class="mono">${esc(r.action)}</td><td class="mono">${esc(r.ip)}</td><td class="log-target" title="${esc([r.target, r.note].filter(Boolean).join(' · '))}">${esc([r.target, r.note].filter(Boolean).join(' · '))}</td><td>${status(!!r.ok, 'OK', 'Denied')}</td></tr>`).join('') || '<tr><td colspan="6">No account events match this filter.</td></tr>'}</tbody></table></div>`;
-    else body = `<div class="admin-log-meta">Caddy requests · last 7 days · ${fmt.n(source.rows?.length)} shown</div><div class="admin-table-wrap"><table class="admin-table log-table"><thead><tr><th>When</th><th>Request</th><th>Path</th><th>Status</th><th>Bytes</th><th>Duration</th><th>IP / region</th><th>Client</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td class="mono">${esc(r.method)} ${esc(r.host)}</td><td class="log-target" title="${esc(r.path)}">${esc(r.path)}</td><td class="${r.status >= 400 ? 'hot' : ''}">${esc(r.status)}</td><td>${fmt.bytes(r.bytes)}</td><td>${fmt.ms(r.dur)}</td><td class="mono">${esc(r.ip)} · ${esc(r.country || '—')}</td><td title="${esc(r.ua)}">${esc(r.agent || r.ua || '—')}</td></tr>`).join('') || '<tr><td colspan="8">No website requests match this filter.</td></tr>'}</tbody></table></div>`;
+    else if (A.logSource === 'runtime') {
+      meta = `${source.path || 'Strata process log'} · newest ${fmt.n(source.lines?.length)} lines${source.truncated ? ' · older rotated lines omitted' : ''}`;
+      body = `<pre class="runtime-log">${(source.lines || []).map(esc).join('\n') || 'No process log lines match this filter.'}</pre>`;
+    } else if (A.logSource === 'activity') {
+      meta = `Append-only · ${fmt.n(source.rows?.length)} shown${source.append_only ? ' · deletion disabled' : ''}`;
+      body = `<table class="admin-table log-table"><thead><tr><th>When</th><th>Account</th><th>Action</th><th>Source IP</th><th>Target / detail</th><th>Result</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td>${esc(r.user || 'anonymous')}</td><td class="mono">${esc(r.action)}</td><td class="mono">${esc(r.ip)}</td><td class="log-target" title="${esc([r.target, r.note].filter(Boolean).join(' · '))}">${esc([r.target, r.note].filter(Boolean).join(' · '))}</td><td>${status(!!r.ok, 'OK', 'Denied')}</td></tr>`).join('') || '<tr><td colspan="6">No account events match this filter.</td></tr>'}</tbody></table>`;
+    } else {
+      meta = `Caddy requests · last 7 days · ${fmt.n(source.rows?.length)} shown`;
+      body = `<table class="admin-table log-table"><thead><tr><th>When</th><th>Request</th><th>Path</th><th>Status</th><th>Bytes</th><th>Duration</th><th>IP / region</th><th>Client</th></tr></thead><tbody>${(source.rows || []).map((r) => `<tr><td>${esc(stamp(r.ts))}</td><td class="mono">${esc(r.method)} ${esc(r.host)}</td><td class="log-target" title="${esc(r.path)}">${esc(r.path)}</td><td class="${r.status >= 400 ? 'hot' : ''}">${esc(r.status)}</td><td>${fmt.bytes(r.bytes)}</td><td>${fmt.ms(r.dur)}</td><td class="mono">${esc(r.ip)} · ${esc(r.country || '—')}</td><td title="${esc(r.ua)}">${esc(r.agent || r.ua || '—')}</td></tr>`).join('') || '<tr><td colspan="8">No website requests match this filter.</td></tr>'}</tbody></table>`;
+    }
     const more = A.logSource === 'activity' ? source?.next : source?.more ? source?.cursor : null;
-    return `<div class="admin-page logs-page"><div class="admin-page-head"><div><div class="cap">Operations · logs</div><h3>Log explorer</h3><p>Process output, requests and account activity.</p></div></div>${logToolbar()}<section class="panel log-panel">${body}${more ? `<div class="admin-more"><button class="btn btn-secondary" data-act="logMore">Load older entries</button></div>` : ''}</section></div>`;
+    return `<div class="split" style="grid-template-columns:1fr"><section class="aside">${logToolbar(meta)}
+      <div class="log-body">${body}${more ? `<div class="admin-more"><button class="pill" data-act="logMore">Load older entries</button></div>` : ''}</div></section></div>`;
   }
 
   /* ---------------------------------------------------------------- accounts (root only; the server enforces it) */

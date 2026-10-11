@@ -1123,9 +1123,9 @@ function vInsights() {
   const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
   I.heat.forEach((h) => { grid[(h.d + 6) % 7][h.h] += h.c; });
   const hmax = Math.max(1, ...grid.flat());
-  const heat = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl jc-center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
+  const heat = `<div class="heat"><span class="lbl"></span>${Array.from({ length: 24 }, (_, h) => `<span class="lbl jc-center">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('')}` +
     grid.map((row, d) => `<span class="lbl">${days[d]}</span>` + row.map((v, h) =>
-      `<span title="${days[d]} ${String(h).padStart(2, '0')}:00 · ${fmt.n(v)} requests" style="background:${v ? `color-mix(in srgb,var(--color-accent) ${(8 + v / hmax * 82).toFixed(0)}%,var(--color-neutral-200))` : 'var(--color-neutral-200)'}"></span>`).join('')).join('') + '</div>';
+      `<span title="${days[d]} ${String(h).padStart(2, '0')}:00 · ${fmt.n(v)} requests" style="${v ? `background:color-mix(in srgb,var(--color-accent) ${(25 + v / hmax * 75).toFixed(0)}%,var(--heat0))` : ''}"></span>`).join('')).join('') + '</div>';
   const cls = Object.fromEntries(I.classes.map((c) => [c.k, c.c]));
   const ctot = Math.max(1, I.classes.reduce((a, c) => a + c.c, 0));
   const classBar = `<div class="stackbar">${[[2, 'var(--color-text)'], [3, 'var(--color-neutral-500)'], [4, 'var(--color-accent)'], [5, 'var(--color-accent-800)']]

@@ -333,7 +333,10 @@ html.pane-dragging, html.pane-dragging * { cursor: col-resize !important; user-s
 .ins .span2 { grid-column: span 2; }
 .ins .span3 { grid-column: 1 / -1; }
 .heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; font-size: 9.5px; flex: 1; align-content: start; }
-.heat span { min-height: 20px; border-radius: 2px; }
+/* empty cells: a faint tint of the text colour, visible on light and dark panels; filled cells mix the accent into it */
+.heat { --heat0: color-mix(in srgb, var(--color-text) 9%, transparent); }
+.heat span { min-height: 20px; border-radius: 2px; background: var(--heat0); }
+.heat span.lbl { background: none; }
 .heat .lbl { color: color-mix(in srgb, var(--color-text) 55%, transparent); display: flex; align-items: center; min-height: 0; }
 .bl { display: grid; grid-template-columns: minmax(0, 1fr) 90px 96px; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); }
 .bl .blbar { height: 7px; background: var(--color-neutral-200); border-radius: 99px; overflow: hidden; }
@@ -1010,15 +1013,15 @@ main { background: var(--color-bg); }
 .admin-table th { position: sticky; top: 0; z-index: 1; color: var(--color-neutral-600); background: var(--color-neutral-100); font-size: 11.5px; font-weight: 700; }
 .admin-table tr:last-child td { border-bottom: 0; }
 .admin-table .r { text-align: right; }
-.admin-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; width: max-content; max-width: 100%; border: 1px solid var(--color-divider); border-radius: var(--radius-sm); background: var(--color-neutral-100); }
-.admin-tabs button { min-height: 29px; padding: 5px 10px; border: 0; border-radius: 5px; color: var(--color-neutral-600); background: transparent; font-size: 12px; cursor: pointer; }
-.admin-tabs button.on { color: var(--color-text); background: var(--color-raised); box-shadow: var(--shadow-sm); }
-.admin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-.admin-toolbar .input { width: min(360px, 100%); min-width: 160px; min-height: 33px; font-size: 12.5px; }
-.admin-toolbar #log-user, .admin-toolbar #log-action { width: 150px; }
-.log-panel { display: grid; align-content: start; gap: 9px; }
-.admin-log-meta { color: var(--color-neutral-600); font: 11.5px var(--font-mono); overflow-wrap: anywhere; }
-.runtime-log { max-height: min(68vh, 900px); overflow: auto; margin: 0; padding: 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-sm); color: var(--color-text); background: var(--color-neutral-100); font: 12px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Logs: toolbar like every other view, the log fills the rest and scrolls on its own */
+.tbar #log-search { flex: 1 1 200px; max-width: 360px; }
+.tbar #log-user, .tbar #log-action { width: 130px; }
+.tbar .log-meta { flex: 1 1 200px; min-width: 0; text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+.log-body { flex: 1; min-height: 0; overflow: auto; }
+.log-body .admin-table { width: 100%; border-collapse: collapse; }
+.log-body .admin-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg); }
+.log-body .admin-more { padding: 12px 0 16px; }
+.runtime-log { margin: 0; padding: 12px 18px; min-height: 100%; box-sizing: border-box; color: var(--color-text); background: transparent; font: 12px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-table { min-width: 850px; }
 .log-table td { max-width: 360px; }
 .log-table .mono, .log-target { font-family: var(--font-mono); }
