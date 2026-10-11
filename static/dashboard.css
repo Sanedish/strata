@@ -1018,14 +1018,15 @@ main { background: var(--color-bg); }
 .tbar #log-user, .tbar #log-action { width: 130px; }
 .tbar .log-meta { flex: 1 1 200px; min-width: 0; text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
 .log-body { flex: 1; min-height: 0; overflow: auto; }
-/* link preview in the Files inspector: a Discord-style embed (dark like Discord's, in either theme) and its settings */
-.lp-mock { margin: 12px 16px 4px; padding: 10px 14px 14px; border-left: 4px solid var(--lp); border-radius: 4px; background: #2b2d31; color: #dbdee1; font: 14px/1.375 var(--font-body); }
-.lp-site { font-size: 12px; color: #b5bac1; }
-.lp-title { margin-top: 4px; color: #00a8fc; font-weight: 600; overflow-wrap: anywhere; }
-.lp-desc { margin-top: 6px; font-size: 13.5px; overflow-wrap: anywhere; }
-.lp-img { display: block; width: 100%; margin-top: 12px; border-radius: 4px; }
-.lp-imgnote { margin-top: 10px; color: #b5bac1; overflow-wrap: anywhere; }
-.lp-off { margin: 12px 16px 4px; padding: 12px 14px; border: 1px dashed var(--color-divider); color: color-mix(in srgb, var(--color-text) 60%, transparent); font-size: 13px; }
+/* link preview in the Files inspector: the embed as a flat panel in the dashboard's own style, with the card's
+   colour as a strip on the left (where chat apps put it) */
+.lp-mock { margin: 12px 16px 4px; padding: 10px 12px 12px; border: 1px solid var(--color-divider); border-left: 3px solid var(--lp); background: var(--color-surface); }
+.lp-site { display: block; }
+.lp-title { margin-top: 5px; font-size: 14px; color: var(--color-text); overflow-wrap: anywhere; }
+.lp-desc { margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: color-mix(in srgb, var(--color-text) 65%, transparent); overflow-wrap: anywhere; }
+.lp-img { display: block; width: 100%; margin-top: 10px; border: 1px solid var(--color-divider); }
+.lp-imgnote { margin-top: 8px; color: color-mix(in srgb, var(--color-text) 60%, transparent); overflow-wrap: anywhere; }
+.lp-off { margin: 12px 16px 4px; padding: 10px 12px; border: 1px solid var(--color-divider); background: var(--color-surface); color: color-mix(in srgb, var(--color-text) 60%, transparent); font-size: 13px; }
 .lp-form { padding: 10px 16px 0; }
 .lp-acts { padding: 10px 16px 6px; }
 .lp-note { padding: 4px 16px 14px; }

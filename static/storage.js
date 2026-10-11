@@ -837,7 +837,7 @@ function linkPreviewPanel(path, isDir) {
   const title = dr.title || M.title, desc = dr.description || M.description;
   const mock = off ? '<div class="lp-off">No preview: the link shows as plain text.</div>'
     : `<div class="lp-mock" style="--lp:${esc(/^#[0-9a-f]{6}$/i.test(dr.color || '') ? dr.color : M.color || '#5865f2')}">
-      <div class="lp-site">${esc(M.host)}</div><div class="lp-title">${esc(title)}</div>${desc ? `<div class="lp-desc">${esc(desc)}</div>` : ''}
+      <div class="cap lp-site">${esc(M.host)}</div><div class="h800 lp-title">${esc(title)}</div>${desc ? `<div class="lp-desc">${esc(desc)}</div>` : ''}
       ${dr.image ? `<div class="lp-imgnote small">Image: ${esc(dr.image)}</div>` : `<img class="lp-img" alt="Preview card" src="${esc(lpImageUrl(L))}">`}</div>`;
   if (!meCan('serving.rules')) return mock;
   return `${mock}
