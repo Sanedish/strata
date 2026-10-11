@@ -62,7 +62,10 @@ ACTIONS = {
     "redirect": "Redirect elsewhere",
     "gallery": "Gallery view (folders as a thumbnail grid)",
     "player": "Audio player (visualizer page for audio files)",
+    "preview": "Link preview (title, colour, image, card type, or off)",
 }
+PREVIEW_KINDS = ("", "audio", "text", "archive", "pdf", "folder", "warning", "file")
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 PRIVATE_ACTIONS = {"password", "signed", "ip_allow", "geo_allow", "geo_deny", "hotlink"}
 BL_KINDS = {
     "ip": "IP address", "cidr": "IP range (CIDR)", "country": "Country", "asn": "Network / ASN (edge only)",
@@ -413,6 +416,21 @@ def clean_rule(d, old=None):
         if bg and (not bg.startswith("/") or "*" in bg or not PATH_PAT_RE.match(bg) or "/../" in bg + "/"):
             raise ServeError("placeholder folder must be a URL path like /share/placeholders")
         params = {"placeholders": bg}
+    elif action == "preview":
+        color = str(p.get("color") or "").strip()
+        if color and not COLOR_RE.match(color):
+            raise ServeError("colour must look like #3572a5")
+        image = str(p.get("image") or "").strip()
+        if image and not re.match(r"^(https://[^\s\x00-\x1f\"'<>`]+|/[^\s\x00-\x1f\"'<>`]*)$", image):
+            raise ServeError("image must be an https:// address or a path on this site like /share/cover.png")
+        kind = str(p.get("kind") or "")
+        if kind not in PREVIEW_KINDS:
+            raise ServeError("unknown card type")
+        params = {k: v for k, v in (("title", str(p.get("title") or "").strip()[:120]),
+                                    ("description", str(p.get("description") or "").strip()[:300]),
+                                    ("color", color.lower()), ("image", image[:500]), ("kind", kind)) if v}
+        if p.get("off") in (True, False):
+            params["off"] = bool(p["off"])
     exp = d.get("expires")
     return {"name": str(d.get("name") or ACTIONS[action]).strip()[:80], "mount": mount,
             "patterns": clean_patterns(d.get("patterns")), "action": action, "params": params,
@@ -1068,7 +1086,7 @@ def render(db):
     if rules:
         o.add(2, "# access rules")
     for r in rules:
-        if r["action"] in ("allow", "gallery", "player"):
+        if r["action"] in ("allow", "gallery", "player", "preview"):
             continue
         scope = None
         if r["mount"]:
@@ -1319,12 +1337,66 @@ def validate(text):
         raise ServeError("Caddy rejected the configuration: " + msg.replace(cand.replace("\\", "/"), "cdn.caddy")[:600])
 
 
-def write_transform_config(mounts):
+def preview_rules(db):
+    """Active link-preview rules for Transform: each pattern as the regex rule_matches() would use."""
+    out = []
+    for r in load(db)["rules"]:
+        if r["action"] != "preview" or not active(r):
+            continue
+        out.append({"id": r["id"], "mount": r["mount"], "params": r["params"] or {},
+                    "patterns": [{"rx": glob_rx(p).pattern, "re": p.startswith("re:"), "wild": p.startswith("re:") or "*" in p,
+                                  "weight": len(p.replace("*", "")) + (0 if p.startswith("re:") or "*" in p else 10000)}
+                                 for p in r["patterns"]]})
+    return out
+
+
+def preview_settings(mount_id, url_path, is_dir=False, skip=None, rules=None):
+    """The link-preview settings that apply to a URL, merged exactly as Transform merges them (transform.overrides):
+    most specific pattern last; title, description and image only from patterns naming this exact path.
+    -> (settings, the rule naming this exact path or None). skip: a rule id to leave out (the one being edited)."""
+    if rules is None:
+        db = connect()
+        try:
+            rules = preview_rules(db)
+        finally:
+            db.close()
+    hits, exact = [], None
+    for r in rules:
+        if r["id"] == skip or (r["mount"] and r["mount"] != mount_id):
+            continue
+        best = None
+        for p in r["patterns"]:
+            rx = re.compile(p["rx"])
+            subject = url_path if p["re"] else url_path.lower()
+            ok = rx.search(subject) if p["re"] else (rx.match(subject) or (is_dir and rx.match(subject.rstrip("/"))))
+            if ok and (best is None or p["weight"] > best["weight"]):
+                best = p
+        if best:
+            hits.append((best["weight"], best["wild"], r))
+            if not best["wild"]:
+                exact = r
+    ov = {}
+    for _, wild, r in sorted(hits, key=lambda h: h[0]):
+        for k, v in r["params"].items():
+            if not (wild and k in ("title", "description", "image")):
+                ov[k] = v
+    return ov, exact
+
+
+def write_transform_config(mounts, db=None):
     os.makedirs(os.path.dirname(TRANSFORM_CONFIG), exist_ok=True)
+    own = db is None
+    db = db or connect()
+    try:
+        previews = preview_rules(db)
+    finally:
+        if own:
+            db.close()
     conf = {"listen": CFG["transform_listen"], "sign_secret": CFG["sign_secret"],
             "cache_dir": os.path.join(core.HOME, "data", "tcache"), "cache_max_mb": 2048, "max_dim": 4096,
             "mounts": {str(m["id"]): {"path": m["path"], "prefix": m["prefix"]} for m in mounts
-                       if m["kind"] == "files" and m["enabled"]}}
+                       if m["kind"] == "files" and m["enabled"]},
+            "previews": previews}
     tmp = TRANSFORM_CONFIG + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(conf, f, indent=2)
@@ -1337,6 +1409,7 @@ def apply(db, user="", reason="", force=False):
         text = render(db)
         cur = open(GEN_FILE, encoding="utf-8").read() if os.path.exists(GEN_FILE) else None
         if cur == text and not force:
+            write_transform_config(core.mounts(refresh=True), db)  # link-preview rules change Transform, not Caddy
             return {"changed": False}
         sha = hashlib.sha256(text.encode()).hexdigest()[:16]
         try:
@@ -1345,7 +1418,7 @@ def apply(db, user="", reason="", force=False):
             db.execute("INSERT INTO confhist(ts,user,reason,content,sha,ok,error) VALUES(?,?,?,?,?,0,?)",
                        [now(), user, reason, text, sha, str(e)])
             raise
-        write_transform_config(core.mounts(refresh=True))
+        write_transform_config(core.mounts(refresh=True), db)
         media("config", core.mounts(), db)  # Strata Media: media/media.json (no-op while media is off)
         tmp = GEN_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

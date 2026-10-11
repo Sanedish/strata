@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import threading
 import tempfile
 import time
@@ -927,6 +928,8 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if path == "/api/files/raw":
             return self.send_raw(*files.raw_info(q.get("mount"), q.get("path", ""), q.get("ver")), q.get("download") == "1")
+        if path == "/api/files/preview":
+            return self.file_preview(q)
         if path == "/api/files/thumb":
             p = files.thumbnail(q.get("mount"), q.get("path", ""), q.get("w"))
             with open(p, "rb") as f:
@@ -1290,6 +1293,70 @@ class Handler(BaseHTTPRequestHandler):
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         core.audit(ip, user, "ide-save", rel, note="%d bytes · sha256 %s" % (len(source.encode("utf-8")), digest[:16]))
         return {"saved": True, "path": rel, "sha256": digest, "backup": bool(backup), "restart_required": True}
+
+    def file_preview(self, q):
+        """The link preview of a file or folder as crawlers would get it, for the Files inspector: the card (JPEG) or,
+        with ?meta=1, its title / description / colour and the rule that names this path. ?draft= (JSON) previews
+        unsaved settings on top of the other rules; ?skip= leaves out the rule being edited."""
+        m = files.get_mount(q.get("mount"))
+        full, parts = files.resolve(m, q.get("path", ""))
+        if not os.path.exists(full):
+            raise files.FileError(404, "not found")
+        is_dir = os.path.isdir(full)
+        rel = "/" + "/".join(parts)
+        url_path = ("" if m["prefix"] == "/" else m["prefix"]) + rel + ("/" if is_dir and parts else "")
+        skip = int(q["skip"]) if str(q.get("skip") or "").isdigit() else None
+        ov, exact = rules.preview_settings(m["id"], url_path, is_dir, skip)
+        if q.get("draft"):
+            try:
+                draft = json.loads(q["draft"])
+            except ValueError:
+                raise files.FileError(400, "draft is not JSON")
+            draft = rules.clean_rule({"action": "preview", "patterns": ["/x"], "params": draft})["params"]
+            ov = {k: v for k, v in ov.items() if k in ("color", "kind", "off")}  # the draft is this path's own rule
+            ov.update(draft)
+        tdir = os.path.join(core.ROOT, "transform")
+        if tdir not in sys.path:
+            sys.path.insert(0, tdir)
+        import audiocard
+        import cards
+        cache_dir = os.path.join(core.HOME, "data", "tcache")
+        kind = ov.get("kind", "")
+        st = None if is_dir else os.stat(full)
+        audio = not is_dir and (kind == "audio" or (not kind and os.path.splitext(full)[1].lower() in audiocard.AUDIO_EXT))
+        native = not is_dir and re.search(rules.PREVIEW_NATIVE_RX, full) is not None
+        gallery = False
+        if is_dir:
+            db = core.connect()
+            try:
+                galleries = [r for r in rules.load(db)["rules"] if r["action"] == "gallery" and rules.active(r)
+                             and (not r["mount"] or r["mount"] == m["id"])]
+            finally:
+                db.close()
+            gallery = any(rules.rule_matches(dict(r, patterns=rules.gallery_patterns(r["patterns"])), url_path.rstrip("/"))
+                          for r in galleries)
+        if native or (is_dir and not gallery):  # crawlers never get a Strata card here
+            if q.get("meta"):
+                return self.json({"native": native, "folder_without_gallery": is_dir and not gallery, "url_path": url_path})
+            raise files.FileError(404, "no link preview here")
+        where = url_path.rstrip("/").rsplit("/", 1)[0] + "/"
+        if audio:
+            data, info = audiocard.card(full, st, cache_dir, ov)
+        else:
+            data, info = cards.card(full, st, cache_dir, is_dir, where, ov)
+        if q.get("meta"):
+            return self.json({"title": info.get("title"), "description": info.get("description") or "", "color": info.get("color"),
+                    "kind": info.get("kind") or ("audio" if audio else ""), "url_path": url_path, "host": (m["hosts"] or [""])[0],
+                    "settings": ov, "rule": {"id": exact["id"], "params": exact["params"]} if exact else None,
+                    "native": native, "folder_without_gallery": False})
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.common_headers()
+        self.end_headers()
+        self.wfile.write(data)
+        return None
 
     def send_raw(self, full, size, ctype, name, download):
         start, end, code = 0, max(0, size - 1), 200

@@ -72,6 +72,35 @@ def conf():
     return _conf["v"]
 
 
+_RX = {}
+
+
+def overrides(c, mount_id, url_path, is_dir):
+    """Link-preview rule settings for a URL (transform.json "previews", written by Strata): the matching rules merged
+    field by field, the most specific pattern last. Title, description and image only come from a pattern naming
+    this exact file or folder; colour, card type and on / off also from wildcards (a folder's contents, a drive)."""
+    path = urllib.parse.unquote(url_path)
+    hits = []
+    for r in c.get("previews") or []:
+        if r.get("mount") and str(r["mount"]) != str(mount_id):
+            continue
+        best = None
+        for p in r["patterns"]:
+            rx = _RX.get(p["rx"]) or _RX.setdefault(p["rx"], re.compile(p["rx"]))
+            subject = path if p["re"] else path.lower()
+            ok = rx.search(subject) if p["re"] else (rx.match(subject) or (is_dir and rx.match(subject.rstrip("/"))))
+            if ok and (best is None or p["weight"] > best["weight"]):
+                best = p
+        if best:
+            hits.append((best["weight"], best["wild"], r["params"]))
+    ov = {}
+    for _, wild, params in sorted(hits, key=lambda h: h[0]):
+        for k, v in params.items():
+            if not (wild and k in ("title", "description", "image")):
+                ov[k] = v
+    return ov
+
+
 def sign(secret, path, exp):
     msg = "%s\n%d" % (urllib.parse.unquote(path), int(exp))
     mac = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).digest()
@@ -281,14 +310,20 @@ class Handler(BaseHTTPRequestHandler):
         else, so it must never be stored at the edge; the card URL carries the file version and is cached for good."""
         import audiocard
         import cards
+        ov = overrides(c, self.headers.get("X-Strata-Mount", ""), url_path, st is None)
+        if ov.get("off"):  # previews switched off here: crawlers get what everyone gets
+            if q.get("card") or st is None:
+                return self.plain(404, "not found")
+            return self.stream(path, st, mimetypes.guess_type(path)[0] or "application/octet-stream", "private, no-store")
         cache_dir = c.get("cache_dir") or instance.home("data", "tcache")
-        audio = st is not None and os.path.splitext(path)[1].lower() in audiocard.AUDIO_EXT
+        kind = ov.get("kind", "")
+        audio = st is not None and (kind == "audio" or (not kind and os.path.splitext(path)[1].lower() in audiocard.AUDIO_EXT))
         try:
             if audio:
-                data, info = audiocard.card(path, st, cache_dir)
+                data, info = audiocard.card(path, st, cache_dir, ov)
             else:
                 where = urllib.parse.unquote(url_path.rstrip("/").rsplit("/", 1)[0] + "/")  # the folder it sits in
-                data, info = cards.card(path, st, cache_dir, st is None, where)
+                data, info = cards.card(path, st, cache_dir, st is None, where, ov)
         except Exception as e:
             return self.plain(422, "could not draw the preview (%s)" % e.__class__.__name__)
         v = info["key"][:12]
@@ -299,7 +334,10 @@ class Handler(BaseHTTPRequestHandler):
             host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or ""
             local = re.match(r"(localhost|127\.|10\.|192\.168\.|\[)", host)
             page = "%s://%s%s" % ("http" if local else "https", host, url_path)
-            body = (audiocard if audio else cards).embed_html(info, page, page + "?card=1&v=" + v, host)
+            image = ov.get("image") or ""
+            if image.startswith("/"):
+                image = "%s://%s%s" % ("http" if local else "https", host, urllib.parse.quote(image))
+            body = (audiocard if audio else cards).embed_html(info, page, image or page + "?card=1&v=" + v, host, bool(image))
             ctype, cache = "text/html; charset=utf-8", "private, no-store"
         self.send_response(200)
         self.send_header("Content-Type", ctype)

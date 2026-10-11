@@ -23,6 +23,7 @@ const ACTION_HELP = {
   redirect: 'Sends visitors elsewhere (301 permanent or 302 temporary).',
   gallery: 'Matching folders open as a thumbnail gallery with a viewer instead of a 404. /folder/* covers the folder and every sub-folder; files are served exactly as before. Listings are never cached by Cloudflare, thumbnails use the drive’s ?w= modifiers. Switch the rule off to hide the gallery again.',
   player: 'Desktop and tablet browsers opening a matching audio file (mp3, flac, m4a, ogg, opus, wav, alac…) get a visualizer page with the cover art, title and artist instead of the bare file. Phones, embedded players, link previews and ?dl=1 still get the file; ?raw=1 always does. Cloudflare stops caching the bare URL (it caches ?raw=1 instead). Tick “Purge” below so older cached copies stop being served.',
+  preview: 'What Discord, Slack and the others show for a shared link. The most specific matching rule wins, field by field. Title, description and image apply only to patterns naming one exact file or folder; colour, card type and “no preview” also work for folders (/folder/*) and whole drives (/*). Pictures, videos and web pages keep the platforms’ own embeds.',
 };
 
 async function loadServ() {
@@ -293,6 +294,12 @@ function ruleParams(action, p) {
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
   if (action === 'player') return `<label class="wide">Backgrounds for files without cover art (a folder on this drive)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
+  if (action === 'preview') return `<label class="dlg-check wide"><input type="checkbox" id="p_off" ${p.off ? 'checked' : ''}> No link preview (crawlers get the plain file)</label>
+    <label class="wide">Title<input id="p_title" class="input" value="${esc(p.title || '')}" placeholder="automatic"></label>
+    <label class="wide">Description<input id="p_desc" class="input" value="${esc(p.description || '')}" placeholder="automatic"></label>
+    <label>Colour<input id="p_color" class="input" value="${esc(p.color || '')}" placeholder="#3572a5"></label>
+    <label>Card type<select id="p_kind" class="input">${[['', 'Automatic'], ['text', 'Code and text'], ['archive', 'Archive'], ['pdf', 'PDF'], ['audio', 'Audio'], ['warning', 'Caution'], ['file', 'Other file']].map(([v, l]) => `<option value="${v}" ${(p.kind || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label class="wide">Image instead of the card<input id="p_image" class="input" value="${esc(p.image || '')}" placeholder="https://… or /path/on/this/site.png"></label>`;
   return '';
 }
 function openRuleEditor(r) {
@@ -326,6 +333,10 @@ function readRule(id) {
   else if (action === 'cache') params.value = $('#p_cache').value;
   else if (action === 'redirect') { params.to = $('#p_to').value; params.code = $('#p_code').value; }
   else if (action === 'player') params.placeholders = $('#p_bg').value;
+  else if (action === 'preview') {
+    if ($('#p_off').checked) params.off = true;
+    for (const [k, id] of [['title', 'p_title'], ['description', 'p_desc'], ['color', 'p_color'], ['kind', 'p_kind'], ['image', 'p_image']]) params[k] = $('#' + id).value;
+  }
   return { id: id ? +id : undefined, name: $('#r_name').value, mount: $('#r_mount').value || null, action, patterns: $('#r_pats').value,
     params, expires: readExpiry('r'), enabled: $('#r_en').checked, note: $('#r_note').value, purge: $('#r_purge').checked };
 }

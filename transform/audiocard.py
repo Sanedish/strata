@@ -977,9 +977,12 @@ def describe(path, st):
     return info, meta
 
 
-def card(path, st, cache_dir):
-    """(jpeg bytes, info) - drawn once per file version."""
+def card(path, st, cache_dir, ov=None):
+    """(jpeg bytes, info) - drawn once per file version (and per link-preview override)."""
+    ov = ov or {}
     k = _key(path, st)
+    if ov:
+        k = hashlib.sha1((k + json.dumps(ov, sort_keys=True)).encode()).hexdigest()
     cdir = os.path.join(cache_dir, "cards", k[:2])
     cp, jp = os.path.join(cdir, k + ".jpg"), os.path.join(cdir, k + ".json")
     if os.path.isfile(cp) and os.path.isfile(jp):
@@ -990,6 +993,9 @@ def card(path, st, cache_dir):
             pass
     with _LOCK:
         info, meta = describe(path, st)
+        info["key"] = k
+        if ov.get("title"):
+            info["title"] = ov["title"]
         art = None
         pics = meta.get("pics") or []
         pic = next((p for t, p in pics if t == 3), None) or (pics[0][1] if pics else None)
@@ -1008,7 +1014,9 @@ def card(path, st, cache_dir):
         except Exception:
             wave = None
         data, color = render(info, art, wave)
-        info["color"] = color
+        info["color"] = ov.get("color") or color
+        if ov.get("description"):
+            info["description"] = ov["description"]
         info["has_art"] = art is not None
         os.makedirs(cdir, exist_ok=True)
         for p, blob in ((cp, data), (jp, json.dumps(info).encode("utf-8"))):
@@ -1045,19 +1053,20 @@ def info_for(path, st, cache_dir):
     return card(path, st, cache_dir)[1]
 
 
-def embed_html(info, page_url, card_url, host):
+def embed_html(info, page_url, card_url, host, custom_image=False):
     e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
     title = info.get("title") or "Untitled"
     artist = info.get("artist") or ""
     bits = [b for b in (artist, clock(info["duration"]) if info.get("duration") else "", info.get("ext") or "") if b]
-    desc = " · ".join(bits)
+    desc = info.get("description") or " · ".join(bits)
     full = "%s — %s" % (title, artist) if artist else title
     tags = [
         ("property", "og:type", "music.song"), ("property", "og:site_name", host),
         ("property", "og:title", title), ("property", "og:description", desc),
         ("property", "og:url", page_url), ("property", "og:image", card_url),
-        ("property", "og:image:secure_url", card_url), ("property", "og:image:type", "image/jpeg"),
-        ("property", "og:image:width", W), ("property", "og:image:height", H),
+        ("property", "og:image:secure_url", card_url),
+    ] + ([] if custom_image else [("property", "og:image:type", "image/jpeg"),
+                                   ("property", "og:image:width", W), ("property", "og:image:height", H)]) + [
         ("property", "og:image:alt", full),
         ("name", "twitter:card", "summary_large_image"), ("name", "twitter:title", title),
         ("name", "twitter:description", desc), ("name", "twitter:image", card_url),

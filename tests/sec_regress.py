@@ -207,6 +207,23 @@ check("link previews come after the access rules and before the drives", 0 < pv 
       and "header_up X-Strata-Embed 1" in cdn[pv:drives] and "header_regexp" in cdn[pv:drives]
       and "not path_regexp" in cdn[pv:drives] and "X-Strata-Gallery 1" not in cdn[pv:drives], (pv, drives))
 
+# link-preview rules: need serving.rules, refuse bad values, and reach Transform's config (not Caddy's)
+st, r, _ = call("POST", "/api/serving/rule", e, {"name": "x", "action": "preview", "patterns": ["/a.txt"], "params": {"title": "x"}})
+check("employee cannot add a link-preview rule", st == 403, (st, r))
+st, r, _ = call("POST", "/api/serving/rule", root, {"name": "x", "action": "preview", "patterns": ["/a.txt"], "params": {"color": "red"}})
+check("link-preview colour must be #rrggbb", st == 400, (st, r))
+st, r, _ = call("POST", "/api/serving/rule", root, {"name": "x", "action": "preview", "patterns": ["/a.txt"],
+                                                  "params": {"image": "javascript:alert(1)"}})
+check("link-preview image must be https or a path", st == 400, (st, r))
+st, r, _ = call("POST", "/api/serving/rule", root, {"name": "Preview test", "action": "preview", "patterns": ["/a.txt"],
+                                                  "params": {"title": "Hello", "color": "#123456", "off": False}})
+tconf = json.load(open(os.path.join(os.path.dirname(os.path.dirname(DB)), "transform", "transform.json"), encoding="utf-8"))
+mine = [p for p in tconf.get("previews", []) if p["params"].get("title") == "Hello"]
+check("a link-preview rule reaches Transform", st == 200 and mine and mine[0]["params"] == {"title": "Hello", "color": "#123456", "off": False}
+      and mine[0]["patterns"][0]["wild"] is False, (st, r, mine))
+if st == 200:
+    call("POST", "/api/serving/rule/delete", root, {"id": r["result"]})
+
 # config preview: a diff, and nothing saved or applied
 st, r, _ = call("POST", "/api/serving/site", root, {"error_page_502": "/404/502.html", "preview": True})
 site = json.loads(sqlite3.connect(DB).execute("SELECT v FROM meta WHERE k='site'").fetchone()[0])

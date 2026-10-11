@@ -1018,6 +1018,17 @@ main { background: var(--color-bg); }
 .tbar #log-user, .tbar #log-action { width: 130px; }
 .tbar .log-meta { flex: 1 1 200px; min-width: 0; text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
 .log-body { flex: 1; min-height: 0; overflow: auto; }
+/* link preview in the Files inspector: a Discord-style embed (dark like Discord's, in either theme) and its settings */
+.lp-mock { margin: 12px 16px 4px; padding: 10px 14px 14px; border-left: 4px solid var(--lp); border-radius: 4px; background: #2b2d31; color: #dbdee1; font: 14px/1.375 var(--font-body); }
+.lp-site { font-size: 12px; color: #b5bac1; }
+.lp-title { margin-top: 4px; color: #00a8fc; font-weight: 600; overflow-wrap: anywhere; }
+.lp-desc { margin-top: 6px; font-size: 13.5px; overflow-wrap: anywhere; }
+.lp-img { display: block; width: 100%; margin-top: 12px; border-radius: 4px; }
+.lp-imgnote { margin-top: 10px; color: #b5bac1; overflow-wrap: anywhere; }
+.lp-off { margin: 12px 16px 4px; padding: 12px 14px; border: 1px dashed var(--color-divider); color: color-mix(in srgb, var(--color-text) 60%, transparent); font-size: 13px; }
+.lp-form { padding: 10px 16px 0; }
+.lp-acts { padding: 10px 16px 6px; }
+.lp-note { padding: 4px 16px 14px; }
 .log-body .admin-table { width: 100%; border-collapse: collapse; }
 .log-body .admin-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg); }
 .log-body .admin-more { padding: 12px 0 16px; }

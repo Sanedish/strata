@@ -325,6 +325,8 @@ function fileInspector(f) {
         <button class="btn btn-secondary" data-act="fquickrule" data-arg="signed">Signed links only</button>
         <button class="btn btn-secondary" data-act="fquickrule" data-arg="download">Force download</button>
       </div>`;
+  } else if (tab === 'preview') {
+    body = linkPreviewPanel(path, false);
   } else if (tab === 'links') {
     const ls = I ? I.links : [];
     body = `<div class="kv">${ls.map((l) => `<span>/l/${esc(l.code)}</span><span>${fmt.n(l.clicks)} clicks${l.max_clicks ? ' of ' + l.max_clicks : ''}${l.expires ? ' · until ' + esc(fmt.dt(l.expires)) : ''}</span>`).join('') || '<span class="dim">No short links yet.</span><span></span>'}</div>
@@ -361,7 +363,7 @@ function fileInspector(f) {
       <div><div class="cap">Hits · 30 d</div><div class="v">${esc(fmt.n(f.hits))}</div></div>
       <div><div class="cap">Sent · 30 d</div><div class="v">${esc(fmt.bytes(f.sent))}</div></div>
     </div>
-    <div class="tabs">${['details', 'versions', 'access', 'links'].map((t) => `<button class="${tab === t ? 'on' : ''}" data-act="finstab" data-arg="${t}">${t}</button>`).join('')}</div>
+    <div class="tabs">${['details', 'versions', 'access', 'links', 'preview'].map((t) => `<button class="${tab === t ? 'on' : ''}" data-act="finstab" data-arg="${t}">${t === 'preview' ? 'embed' : t}</button>`).join('')}</div>
     <div class="fins-body">${body}</div>
   </aside>`;
 }
@@ -417,6 +419,8 @@ function folderInspector(d) {
     </div>
     ${imgs.length ? `<div class="d-grid cols-4f gap-6 px-16 py-10 flex-none">${imgs.map((f) =>
       `<img loading="lazy" alt="${esc(f.name)}" title="${esc(f.name)}" src="${esc(thumbUrl(S.fmount, joinPath(path, f.name), 160))}" data-act="freveal" data-arg="${esc(joinPath(path, f.name))}" class="w-full square cover r-6 pointer">`).join('')}</div>` : ''}
+    <div class="sect"><span class="cap">Link preview</span></div>
+    ${linkPreviewPanel(path, true)}
     <div class="sect"><span class="cap">Contents</span><span class="small dim">${P && !P.loading && !P.error ? `${fmt.n(P.total || 0)} total · showing ${fmt.n(dirs.length + fl.length)}` : ''}</span></div>
     <div class="loglines fins-body" data-scroll="fpeek">${list}</div>
   </aside>`;
@@ -798,6 +802,83 @@ document.addEventListener('drop', async (e) => {
   try { const r = await post(e.ctrlKey ? '/api/files/copy' : '/api/files/move', { mount: d.mount, paths: d.paths, dest_mount: S.fmount, dest }); d.paths.forEach((p) => invalidateFolderTree(p, d.mount)); invalidateFolderTree(dest); S.fsel = new Set(); note((e.ctrlKey ? 'Copied ' : 'Moved ') + d.paths.length + ' item(s) to ' + dest + (r.job ? ' (in the background)' : '')); pollFiles(true); } catch (err) { note(err.message); }
 });
 
+/* ---- link preview: what Discord, Slack, Telegram... show for a shared link, and this file's or folder's own
+   settings (a "preview" rule naming exactly this path; wider rules live in Serving › Access rules) */
+const LP_KINDS = [['', 'Automatic'], ['text', 'Code and text'], ['archive', 'Archive'], ['pdf', 'PDF'], ['audio', 'Audio'],
+  ['warning', 'Caution'], ['file', 'Other file']];
+const lpKey = (path) => S.fmount + '|' + path;
+async function loadLinkPreview(path) {
+  const k = lpKey(path);
+  D.lp = { key: k, path, loading: true };
+  try {
+    const meta = await get('/api/files/preview?' + new URLSearchParams({ mount: S.fmount, path, meta: 1 }));
+    if (D.lp?.key !== k) return;
+    D.lp = { key: k, path, meta, draft: Object.assign({}, meta.rule?.params || {}), nonce: Date.now(), dirty: false };
+  } catch (e) { if (D.lp?.key === k) D.lp = { key: k, path, error: e.message }; }
+  render(true);
+}
+function lpImageUrl(L) {
+  const p = { mount: S.fmount, path: L.path, n: L.nonce };
+  if (L.dirty) {  // unsaved: the draft stands in for this path's own rule
+    p.draft = JSON.stringify(L.draft);
+    if (L.meta.rule) p.skip = L.meta.rule.id;
+  }
+  return '/api/files/preview?' + new URLSearchParams(p);
+}
+function linkPreviewPanel(path, isDir) {
+  const L = D.lp && D.lp.key === lpKey(path) ? D.lp : null;
+  if (!L) { loadLinkPreview(path); return loading('Loading link preview…'); }
+  if (L.loading) return loading('Loading link preview…');
+  if (L.error) return `<div class="empty hot">${esc(L.error)}</div>`;
+  const M = L.meta, dr = L.draft;
+  if (M.native) return '<div class="small dim lp-note">Discord, Slack and the others show pictures, videos and web pages themselves, so Strata adds no card.</div>';
+  if (M.folder_without_gallery) return '<div class="small dim lp-note">Folders get a link preview only inside a Gallery rule. Everywhere else the folder URL is a 404.</div>';
+  const off = dr.off === true || (dr.off == null && M.settings.off === true && !M.rule);
+  const title = dr.title || M.title, desc = dr.description || M.description;
+  const mock = off ? '<div class="lp-off">No preview: the link shows as plain text.</div>'
+    : `<div class="lp-mock" style="--lp:${esc(/^#[0-9a-f]{6}$/i.test(dr.color || '') ? dr.color : M.color || '#5865f2')}">
+      <div class="lp-site">${esc(M.host)}</div><div class="lp-title">${esc(title)}</div>${desc ? `<div class="lp-desc">${esc(desc)}</div>` : ''}
+      ${dr.image ? `<div class="lp-imgnote small">Image: ${esc(dr.image)}</div>` : `<img class="lp-img" alt="Preview card" src="${esc(lpImageUrl(L))}">`}</div>`;
+  if (!meCan('serving.rules')) return mock;
+  return `${mock}
+    <div class="form lp-form">
+      <label class="dlg-check wide"><input type="checkbox" id="lp_on" ${off ? '' : 'checked'}> Show a link preview</label>
+      <label class="wide">Title<input id="lp_title" class="input" value="${esc(dr.title || '')}" placeholder="${esc(M.title || '')}"></label>
+      <label class="wide">Description<textarea id="lp_desc" class="input" rows="2" placeholder="${esc(M.description || '')}">${esc(dr.description || '')}</textarea></label>
+      <label>Colour<input id="lp_color" class="input" value="${esc(dr.color || '')}" placeholder="${esc(M.color || '#5865f2')}"></label>
+      ${isDir ? '' : `<label>Card type<select id="lp_kind" class="input">${LP_KINDS.map(([v, l]) => `<option value="${v}" ${(dr.kind || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
+      <label class="wide">Image instead of the card<input id="lp_image" class="input" value="${esc(dr.image || '')}" placeholder="https://… or /path/on/this/site.png"></label>
+    </div>
+    <div class="act-row lp-acts"><button class="btn btn-secondary" data-act="lpUpdate">Update preview</button><button class="btn btn-primary" data-act="lpSave" data-arg="${isDir ? 1 : 0}">Save</button>${M.rule ? '<button class="btn btn-secondary" data-act="lpReset">Back to automatic</button>' : ''}</div>
+    <div class="small dim lp-note">Saved as a Link preview rule for this ${isDir ? 'folder' : 'file'}. Title, description and image apply here only; rules under Serving › Access rules can set colour, card type or switch previews off for whole folders and drives.</div>`;
+}
+Object.assign(ACT, {
+  lpUpdate() { if (!D.lp?.draft) return; D.lp.dirty = true; D.lp.nonce = Date.now(); render(true); },
+  async lpSave(isDir) {
+    const L = D.lp; if (!L?.meta) return;
+    const dr = L.draft, params = {};
+    for (const k of ['title', 'description', 'color', 'image', 'kind']) if ((dr[k] || '').trim()) params[k] = dr[k].trim();
+    if (dr.off === true) params.off = true;
+    else if (L.meta.settings.off === true && !L.meta.rule) params.off = false;  // switch it back on under a folder that has it off
+    const name = L.path.split('/').filter(Boolean).pop() || L.path;
+    try {
+      if (!Object.keys(params).length) { if (L.meta.rule) await post('/api/serving/rule/delete', { id: L.meta.rule.id }); }
+      else await post('/api/serving/rule', { id: L.meta.rule?.id, name: 'Link preview: ' + name, mount: S.fmount, action: 'preview',
+        patterns: [+isDir ? L.meta.url_path.replace(/\/$/, '') : L.meta.url_path], params });
+      note('Link preview saved. Discord and the others refresh their copy within a few hours.');
+      loadLinkPreview(L.path);
+    } catch (e) { note(e.message); }
+  },
+  async lpReset() {
+    const L = D.lp; if (!L?.meta?.rule) return;
+    try { await post('/api/serving/rule/delete', { id: L.meta.rule.id }); note('Back to the automatic link preview'); loadLinkPreview(L.path); } catch (e) { note(e.message); }
+  },
+});
+document.addEventListener('change', (e) => {
+  if (!D.lp?.draft) return;
+  if (e.target.id === 'lp_on') { D.lp.draft.off = e.target.checked ? undefined : true; render(true); }
+  if (e.target.id === 'lp_kind') { D.lp.draft.kind = e.target.value; D.lp.dirty = true; D.lp.nonce = Date.now(); render(true); }
+});
 let searchT;
 document.addEventListener('input', (e) => {
   if (e.target.id === 'fsearch') {
@@ -809,6 +890,8 @@ document.addEventListener('input', (e) => {
     }, 280);
   } else if (e.target.id === 'updest') {
     S.upPath = '/' + e.target.value.replace(/^\/+/, ''); save();
+  } else if (/^lp_(title|desc|color|image)$/.test(e.target.id) && D.lp?.draft) {
+    D.lp.draft[{ lp_title: 'title', lp_desc: 'description', lp_color: 'color', lp_image: 'image' }[e.target.id]] = e.target.value;
   } else if (e.target.id === 'edtext' && S.editor) {
     S.editor.text = e.target.value;
     const d = $('#eddirty'); if (d) d.textContent = S.editor.text !== S.editor.orig ? '● unsaved' : 'saved';

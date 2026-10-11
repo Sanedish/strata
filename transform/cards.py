@@ -404,14 +404,17 @@ def card_text(path, st, where, info):
     ti = text_info(path, st.st_size)
     if ti["binary"]:
         return card_file(path, st, where, info)
-    desc = summary(ti["sample"], ext)
+    ov = info["ov"]
+    desc = ov.get("description") or summary(ti["sample"], ext)
     if ext == ".md":
         h1 = next((l.lstrip("# ").strip() for l in ti["sample"] if l.startswith("# ")), "")
         if h1 and not desc:
             desc = h1
-    col = LANG_COLOR.get(ext, "#8b949e")
+    col = ov.get("color") or LANG_COLOR.get(ext, "#8b949e")
     ink, dim = (31, 35, 40), (87, 96, 106)
     img, d = new((255, 255, 255))
+    if ov.get("title"):
+        name, where = ov["title"], ""
     side = S(200)
     lg = logo(side)
     right = A.W * A.SS - S(80)
@@ -450,6 +453,8 @@ def card_archive(path, st, where, info):
         ai = None
     green, fg, blue, dim = (63, 185, 80), (201, 209, 217), (88, 166, 255), (139, 148, 158)
     img, d = new((13, 17, 23))
+    ov = info["ov"]
+    shown_name = ov.get("title") or name
     x0, y = S(70), S(100)
     ms = S(29)
     cmd = {"ZIP": "unzip -l", "7-ZIP": "7z l", "RAR": "unrar l"}.get(fmt, "tar -tvf")
@@ -481,7 +486,7 @@ def card_archive(path, st, where, info):
     # the right column: what it is and how big
     rx, rw = S(980), A.W * A.SS - S(980) - S(70)
     size = S(58)
-    lines = wrapn(name, size, SANS_B, rw, 2)
+    lines = wrapn(shown_name, size, SANS_B, rw, 2)
     ty = S(150)
     for line in lines:
         put(d, rx, ty, line, size, SANS_B, (240, 246, 252))
@@ -496,7 +501,7 @@ def card_archive(path, st, where, info):
         put(d, cx, sy, value, S(44), SANS_B, (240, 246, 252))
         put(d, cx, sy + S(40), label, S(26), MONO, dim)
         cx += max(tw(value, S(44), SANS_B), tw(label, S(26), MONO)) + S(44)
-    bar(d, ext_segments(ai["exts"]) if ai else [((139, 148, 158), 1)], S(18))
+    bar(d, [(rgb(ov["color"]), 1)] if ov.get("color") else ext_segments(ai["exts"]) if ai else [((139, 148, 158), 1)], S(18))
     info.update(title=name, color="#0d1117", description=(
         "%s archive · %s files · %s unpacked · %s download" % (fmt, "{:,}".format(ai["files"]), human(ai["unpacked"]), human(st.st_size))
         if ai else "%s archive · %s" % (fmt, human(st.st_size))))
@@ -510,8 +515,9 @@ def card_pdf(path, st, where, info):
         pi = pdf_info(path, st.st_size)
     except Exception:
         pi = {"pages": 0, "title": "", "author": ""}
-    title = pi["title"] if len(pi["title"]) > 3 else os.path.splitext(name)[0].replace("_", " ").replace("-", " ")
-    paper, ink, dim, red = (243, 239, 230), (27, 27, 27), (98, 91, 84), (179, 38, 30)
+    ov = info["ov"]
+    title = ov.get("title") or (pi["title"] if len(pi["title"]) > 3 else os.path.splitext(name)[0].replace("_", " ").replace("-", " "))
+    paper, ink, dim, red = (243, 239, 230), (27, 27, 27), (98, 91, 84), rgb(ov["color"]) if ov.get("color") else (179, 38, 30)
     img, d = new(paper)
     x0, tx1 = S(90), S(900)
     put(d, x0, S(120), "PDF DOCUMENT", S(24), SANS_B, red, S(5))
@@ -525,8 +531,8 @@ def card_pdf(path, st, where, info):
     for line in lines:
         put(d, x0, y, line, size, SERIF_B, ink)
         y += int(size * 1.18)
-    if pi["author"]:
-        put(d, x0, y + S(14), fit(pi["author"], S(36), SERIF_I, tx1 - x0), S(36), SERIF_I, dim)
+    if ov.get("description") or pi["author"]:
+        put(d, x0, y + S(14), fit(ov.get("description") or pi["author"], S(36), SERIF_I, tx1 - x0), S(36), SERIF_I, dim)
     meta = " · ".join(x for x in ("%d pages" % pi["pages"] if pi["pages"] else "", human(st.st_size),
                                   "updated " + day(st.st_mtime)) if x)
     d.line((x0, S(500), x0 + S(80), S(500)), fill=red, width=S(4))
@@ -610,9 +616,11 @@ def card_folder(path, st, where, info, files, dirs):
         from PIL import ImageDraw
         d = ImageDraw.Draw(img, "RGBA")
     x0 = S(70)
-    put(d, x0, h - S(200), "GALLERY", S(26), SANS_B, (255, 255, 255, 190), S(6))
-    put(d, x0, h - S(108), fit(name, S(84), SANS_B, w - 2 * x0), S(84), SANS_B, (255, 255, 255))
-    meta = " · ".join(x for x in ("%d files" % len(files), "%d folders" % len(dirs) if dirs else "", human(total), where) if x)
+    ov = info["ov"]
+    put(d, x0, h - S(200), "GALLERY", S(26), SANS_B, rgb(ov["color"]) if ov.get("color") else (255, 255, 255, 190), S(6))
+    put(d, x0, h - S(108), fit(ov.get("title") or name, S(84), SANS_B, w - 2 * x0), S(84), SANS_B, (255, 255, 255))
+    meta = ov.get("description") or " · ".join(
+        x for x in ("%d files" % len(files), "%d folders" % len(dirs) if dirs else "", human(total), where) if x)
     put(d, x0, h - S(52), fit(meta, S(30), SANS, w - 2 * x0), S(30), SANS, (255, 255, 255, 200))
     col = "#%02x%02x%02x" % A.palette(photo)[0] if photo is not None else "#16181c"
     info.update(title=name, color=col, description=" · ".join(
@@ -634,6 +642,7 @@ def card_warning(path, st, where, info):
         for x in range(-band * 2, w + band * 2, S(56)):
             d.polygon([(x, top + band), (x + S(28), top + band), (x + S(28) + band, top), (x + band, top)], fill=black)
     x0, tx1 = S(80), S(1040)
+    name = info["ov"].get("title") or name  # the warning itself can't be overridden
     put(d, x0, S(150), fit("CAUTION · " + what.upper(), S(28), SANS_B, tx1 - x0, S(4)), S(28), SANS_B, yellow, S(4))
     size = S(76)
     while size > S(48) and tw(name, size, SANS_B) > tx1 - x0:
@@ -665,7 +674,9 @@ def card_file(path, st, where, info):
     from PIL import Image, ImageDraw, ImageFilter
     name = info["name"]
     ext = os.path.splitext(name)[1].lstrip(".").upper() or "FILE"
-    c1 = A.hash_palette(ext)[2]
+    ov = info["ov"]
+    c1 = rgb(ov["color"]) if ov.get("color") else A.hash_palette(ext)[2]
+    name = ov.get("title") or name
     ink, dim = (31, 35, 40), (87, 96, 106)
     img, d = new((246, 247, 249))
     # the file: a sheet with a folded corner, the extension on a coloured band
@@ -690,7 +701,8 @@ def card_file(path, st, where, info):
     for line in lines:
         put(d, x0, y, line, size, SANS_B, ink)
         y += int(size * 1.15)
-    put(d, x0, y + S(6), "%s file" % ext if ext != "FILE" else "File", S(36), SANS, dim)
+    put(d, x0, y + S(6), fit(ov.get("description") or ("%s file" % ext if ext != "FILE" else "File"), S(36), SANS, x1 - x0),
+        S(36), SANS, dim)
     stat_row(d, x0, S(500), [(icon_disk, human(st.st_size), "Size"), (icon_clock, day(st.st_mtime), "Updated")], ink, dim, S(80))
     bar(d, [(c1, 1)], S(16))
     info.update(title=name, color="#%02x%02x%02x" % c1,
@@ -698,29 +710,39 @@ def card_file(path, st, where, info):
     return img
 
 
-def draw(kind, path, st, files=None, dirs=None, where=""):
+def draw(kind, path, st, files=None, dirs=None, where="", ov=None):
     """-> (jpeg bytes, info) for one card."""
     name = os.path.basename(path.rstrip("/\\")) or "/"
-    info = {"kind": kind, "title": name, "name": name}
+    info = {"kind": kind, "title": name, "name": name, "ov": ov or {}}
     if kind == "folder":
         img = card_folder(path, st, where, info, files, dirs)
     else:
         img = {"archive": card_archive, "pdf": card_pdf, "text": card_text, "warning": card_warning}.get(kind, card_file)(
             path, st, where, info)
+    o = info.pop("ov")
+    for k in ("title", "description"):
+        if o.get(k):
+            info[k] = o[k]
+    if o.get("color") and kind != "warning":
+        info["color"] = o["color"]
     return A.finish(img), info
 
 
-def card(path, st, cache_dir, is_dir=False, where=""):
+def card(path, st, cache_dir, is_dir=False, where="", ov=None):
     """(jpeg bytes, info), drawn once per file version - for a folder, once per listing. where: the URL path of the
-    folder the file (or folder) sits in, shown on some cards."""
+    folder the file (or folder) sits in, shown on some cards. ov: link-preview rule settings (title, description,
+    color, kind)."""
+    ov = {k: v for k, v in (ov or {}).items() if k in ("title", "description", "color", "kind")}
     kind = kind_of(path, is_dir)
+    if ov.get("kind") and (ov["kind"] == "folder") == is_dir and ov["kind"] != "audio":
+        kind = ov["kind"]
     files = dirs = None
     if is_dir:
         files, dirs = listing(path)
         ident = [path, files, dirs, where]
     else:
         ident = [path, st.st_size, st.st_mtime, where]
-    k = hashlib.sha1(json.dumps(ident + [VERSION, A.VERSION]).encode()).hexdigest()
+    k = hashlib.sha1(json.dumps(ident + [VERSION, A.VERSION, ov], sort_keys=True).encode()).hexdigest()
     cdir = os.path.join(cache_dir, "cards", k[:2])
     cp, jp = os.path.join(cdir, k + ".jpg"), os.path.join(cdir, k + ".json")
     if os.path.isfile(cp) and os.path.isfile(jp):
@@ -730,7 +752,7 @@ def card(path, st, cache_dir, is_dir=False, where=""):
         except (OSError, ValueError):
             pass
     with _LOCK:
-        data, info = draw(kind, path, st, files, dirs, where)
+        data, info = draw(kind, path, st, files, dirs, where, ov)
         info["key"] = k
         os.makedirs(cdir, exist_ok=True)
         for p, blob in ((cp, data), (jp, json.dumps(info).encode("utf-8"))):
@@ -741,14 +763,15 @@ def card(path, st, cache_dir, is_dir=False, where=""):
         return data, info
 
 
-def embed_html(info, page_url, card_url, host):
+def embed_html(info, page_url, card_url, host, custom_image=False):
     e = lambda v: html.escape(str(v or ""), quote=True)  # noqa: E731
     tags = [
         ("property", "og:type", "website"), ("property", "og:site_name", host),
         ("property", "og:title", info["title"]), ("property", "og:description", info.get("description", "")),
         ("property", "og:url", page_url), ("property", "og:image", card_url),
-        ("property", "og:image:secure_url", card_url), ("property", "og:image:type", "image/jpeg"),
-        ("property", "og:image:width", A.W), ("property", "og:image:height", A.H),
+        ("property", "og:image:secure_url", card_url),
+    ] + ([] if custom_image else [("property", "og:image:type", "image/jpeg"),
+                                   ("property", "og:image:width", A.W), ("property", "og:image:height", A.H)]) + [
         ("property", "og:image:alt", info["title"]),
         ("name", "twitter:card", "summary_large_image"), ("name", "twitter:title", info["title"]),
         ("name", "twitter:description", info.get("description", "")), ("name", "twitter:image", card_url),
