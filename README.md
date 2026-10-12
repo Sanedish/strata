@@ -329,6 +329,8 @@ The remaining work is tracked in [ROADMAP.md](ROADMAP.md). The current prioritie
 
 ## License
 
-Strata is licensed under the [MIT License](LICENSE).
+Strata is licensed under the [MIT License](LICENSE). You're free to change your copy, interface included. A published version that keeps the name **Strata** should keep its flat, plain design language; a generic "AI dashboard" restyle needs a name of its own. Details are in [CONTRIBUTING.md](CONTRIBUTING.md#forks-and-the-name-strata).
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); `python tests/demo.py` runs the whole dashboard without Caddy or Cloudflare.
 
 The bundled CodeMirror 5.65.21 and Lucide icons retain their respective licenses in `static/vendor/`. Other dependencies are credited under **Settings › About**.
