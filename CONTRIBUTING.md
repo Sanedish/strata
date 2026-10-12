@@ -45,7 +45,7 @@ Strata is built and used on Windows. The Linux paths (systemd install, file hand
 ## Where to start
 
 - Issues labelled [**good first issue**](https://github.com/Sanedish/strata/labels/good%20first%20issue) are small and self-contained.
-- [`ROADMAP.md`](ROADMAP.md) lists what's planned and what's still open.
+- [Issues](https://github.com/Sanedish/strata/issues) lists what's planned and what's still open.
 - For anything bigger than a bug fix, open an issue first so we can agree on the approach before you spend time on it.
 
 ## Security issues

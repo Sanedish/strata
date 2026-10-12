@@ -325,7 +325,7 @@ setup.py        Installer
 media/          Media pipeline (see DESIGN.md)
 ```
 
-The remaining work is tracked in [ROADMAP.md](ROADMAP.md). The current priorities include testing the Linux installation on a real machine, testing the Windows service under `SYSTEM`, and deciding whether sign-in should be possible without e-mail delivery.
+Open work is tracked in [Issues](https://github.com/Sanedish/strata/issues). The current priorities are testing the Linux installation on a real machine and testing the Windows service under `SYSTEM`.
 
 ## License
 
