@@ -50,7 +50,7 @@ import urllib.request
 
 import instance
 
-VERSION = "0.3.0"                    # bump on every release; the dashboard compares it with the latest GitHub release
+VERSION = "0.3.1"                    # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")

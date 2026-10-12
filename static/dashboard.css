@@ -244,6 +244,7 @@ html.pane-dragging, html.pane-dragging * { cursor: col-resize !important; user-s
 .menu button.sep { border-top: 2px solid var(--color-divider); }
 .menu button.danger { color: var(--color-accent-700); }
 .menu button small, .pal button small { font-size: 10.5px; white-space: nowrap; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+#overlay .palbg { z-index: 65; } /* ask() dialogs open on top of a #sheet form (e.g. the Caddy diff on Save & apply) */
 .palbg { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, #000 40%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: calc(8 * var(--vh)) 16px calc(4 * var(--vh)); box-sizing: border-box; }
 .pal { width: 600px; max-width: calc(92 * var(--vw)); background: var(--color-raised); border: 1px solid var(--color-divider); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden; }
 .pal .pin { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 2px solid var(--color-divider); }

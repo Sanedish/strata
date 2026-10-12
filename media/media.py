@@ -113,6 +113,9 @@ def parse_spec(spec):
 
 
 TRUTHY = ("", "1", "true", "yes", "on")
+# bypass answers that only mean "busy right now" (a retry soon gets the variant); decode errors etc. keep the original
+WAIT_KINDS = ("deferred",) + tuple("bypass;kind=" + k for k in
+                                   ("inflight", "queue_full", "queue_timeout", "breaker_open", "backoff"))
 
 
 def bypass_reason(q, headers):
@@ -1509,6 +1512,11 @@ class Handler(BaseHTTPRequestHandler):
     def render(self, ctx, ans):
         """accel / orig (empty 200s for Caddy's handle_response), 304, redirect, held, pending or a text error."""
         kind = ans[0]
+        # ?_wait=1 (the gallery's thumbnails): load shedding answers 503 instead of the original, so a folder of
+        # 640 px tiles never turns into the whole library at source size; the page retries, the variant gets built
+        if kind == "orig" and ctx.q.get("_wait") and ans[1] in WAIT_KINDS:
+            self.svc.count("answer.wait")
+            return self.text(503, "variant not ready, try again shortly", [("Retry-After", "3")])
         self.svc.count("answer." + (kind if kind != "text" else str(ans[1])))
         if kind in ("accel", "orig", "notmod", "redirect"):
             try:

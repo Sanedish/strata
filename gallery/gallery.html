@@ -7,7 +7,8 @@
 <title>{{html .Name}}</title>
 <!-- Strata gallery: Caddy file_server browse template (gallery/gallery.html), enabled per folder by
      a "Gallery view" access rule. Caddy fills in the listing below; everything else is client-side. Thumbnails use
-     Strata's link modifiers (?w= &fm=), which Cloudflare caches; the listing itself is never edge-cached. -->
+     ?w= (Strata Media picks AVIF/WebP by Accept) + _wait=1 (busy -> 503 and a retry, never the original);
+     variants are edge-cached, the listing itself never is. -->
 <style>
 :root {
   --bg: #f6f6f8; --panel: #ffffff; --text: #18181b; --dim: #6b6b76; --line: #e4e4ea; --tile: #ececf1;
@@ -128,8 +129,8 @@ body.fit .t img, body.fit .t video { object-fit: contain; }
   var IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|avif)$/i;      // what Strata's link modifiers can resize
   var VID = /\.(mp4|webm|m4v|mov|ogv)$/i;
   var HIDDEN = /^(\.|\$|~\$)|^(thumbs\.db|desktop\.ini|system volume information)$/i;
-  var THUMB = '?w=640&fm=webp&q=78';
-  var VIEW = '?w=2560&fm=webp&q=88';
+  var THUMB = '?w=640&_wait=1';
+  var VIEW = '?w=2560&_wait=1';
   var CHUNK = 120;
 
   var raw = [];
@@ -222,12 +223,20 @@ body.fit .t img, body.fit .t video { object-fit: contain; }
     if (!dirs.length && !files.length) $('grid').innerHTML = '<div class="empty">' + (S.q ? 'Nothing matches.' : 'This folder is empty.') + '</div>';
   }
 
-  // a thumbnail that cannot be made (transforms off, odd file) falls back to the original once
+  // a thumbnail still being encoded answers 503: try again with backoff + jitter, never the original
+  // ponytail: gives up after 8 tries (~2.5 min); the tile still opens the file
+  function retry(el, done) {
+    var n = +(el.dataset.n || 0);
+    if (n >= 8) { done(); return; }
+    el.dataset.n = n + 1;
+    var url = el.src;
+    setTimeout(function () { el.removeAttribute('src'); el.src = url; }, Math.min(30000, 2000 << n) * (0.75 + Math.random() / 2));
+  }
   document.addEventListener('load', function (e) { if (e.target.tagName === 'IMG' && e.target.closest('.t')) e.target.classList.add('ok'); }, true);
   document.addEventListener('loadeddata', function (e) { if (e.target.tagName === 'VIDEO' && e.target.closest('.t')) e.target.classList.add('ok'); }, true);
   document.addEventListener('error', function (e) {
     var el = e.target;
-    if (el.tagName === 'IMG' && el.closest('.t') && !el.dataset.fb) { el.dataset.fb = 1; el.src = el.src.split('?')[0]; }
+    if (el.tagName === 'IMG' && el.closest('.t')) retry(el, function () {});
   }, true);
 
   new IntersectionObserver(function (es) { if (es[0].isIntersecting && rendered < files.length) more(); }, { rootMargin: '1200px' }).observe($('more'));
@@ -276,7 +285,7 @@ body.fit .t img, body.fit .t video { object-fit: contain; }
       // GIFs are shown as-is so they keep animating; everything else as a large preview
       var big = /\.gif$/i.test(f.name) ? f.url : f.url + VIEW;
       media.onload = function () { lb.classList.remove('loading'); };
-      media.onerror = function () { if (media.src.indexOf('?') >= 0) media.src = f.url; else lb.classList.remove('loading'); };
+      media.onerror = function () { if (big === f.url) lb.classList.remove('loading'); else retry(this, function () { lb.classList.remove('loading'); }); };
       media.src = big;
       [1, -1].forEach(function (d) {     // warm the neighbours
         var n = shown[(cur + d + shown.length) % shown.length];

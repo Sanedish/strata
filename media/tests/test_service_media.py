@@ -266,6 +266,9 @@ class MediaServiceTest(unittest.TestCase):
         self.assertEqual((st, h.get("x-strata-orig")), (200, "1"))
         self.assertEqual(h["x-strata-media"], "bypass;kind=breaker_open")
         self.assertEqual((h["x-strata-cache-control"], h["x-strata-cdn-cache-control"]), (BROWSER, SHORT))
+        # the gallery's ?_wait=1: busy means 503 (retry), never the original
+        st, h, _ = self.req("/bypass.png?_v=avif&_wait=1")
+        self.assertEqual((st, h.get("x-strata-orig"), h.get("retry-after")), (503, None, "3"))
         self.assertIn("bypass.breaker_open", self.event_kinds("/bypass.png"))
         ev = [e for e in self.svc.events.recent(200) if e["kind"] == "bypass.breaker_open"][0]
         self.assertEqual((ev["mount"], ev["detail"].get("detail")), (1, "forced"))

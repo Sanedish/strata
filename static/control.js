@@ -90,7 +90,7 @@ function openSheet(kicker, title, body, buttons, wide) {
 }
 function closeSheet() { const el = $('#sheet'); if (el) el.remove(); }
 ACT.sheetClose = closeSheet;
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sheet')) { e.stopImmediatePropagation(); closeSheet(); } }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sheet') && !S.dialog) { e.stopImmediatePropagation(); closeSheet(); } }, true);
 document.addEventListener('change', (e) => {
   const id = e.target.id || '';
   if (/_exp$/.test(id)) { const at = $('#' + id + 'at'); if (at) at.style.display = e.target.value === 'custom' ? 'inline-block' : 'none'; }
