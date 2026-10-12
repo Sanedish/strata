@@ -4,6 +4,8 @@
 Drives and access rules, live traffic, scraper-auto-bans, mail alerts, accounts and file management,  
 all in plain python and HTML - No cloud, no AI upselling, no SaaS-DA-9000-Styling.
 
+<img src="docs/images/overview.png" alt="The Summary page: request, bandwidth, visitor, error, latency and tunnel tiles, a seven-day traffic chart, the most requested files, and health of Caddy, the tunnel, storage and the host" width="100%">
+
 [Install](#install) · [How it works](#how-it-works) · [Configuration](#configuration) · [Development](#development) · [Security](SECURITY.md)
 
 ---
@@ -49,6 +51,14 @@ Since these are important features to me, Strata includes custom error pages, a 
 
 #### Error pages
 
+<table>
+<tr>
+<td width="33%"><img src="docs/images/error-404.png" alt="The 404 page: Not Found, the requested URL and a link to the home page"></td>
+<td width="33%"><img src="docs/images/error-403.png" alt="The 403 page: Forbidden"></td>
+<td width="33%"><img src="docs/images/error-502.png" alt="The 502 page: Bad Gateway"></td>
+</tr>
+</table>
+
 In `Site › Serving › Site`, click **Edit** next to a status code to edit its page. If the page doesn't exist on the selected drive, Strata copies it from `static/errors/` first. **Preview** opens the page in a new tab.
 
 The pages cover 404 (missing or hidden files), 403 (blocked or trashed files) and 502/503/504 (unavailable proxied services). They support light and dark mode and use five CSS variables for their colour scheme: `--bg`, `--text`, `--dim`, `--line` and `--accent`. Error pages aren't cached. If the 502 page isn't configured, Caddy returns plain text.
@@ -60,6 +70,13 @@ To change the default background colour palettes, edit `static/errors/background
 The pages can also display a background photo. Near the end of each HTML file, `var photos = [...]` contains 12 image URLs pointing to my CDN. Images are requested as WebP at up to 1920 pixels wide (`?w=1920&fm=webp`), with each source intended to stay under 500 KB. A random photo is selected; until it loads, the generated background remains visible. Once loaded, the photo replaces the standard colorway with itself and a lighter blur.
 
 Replace the URLs with your own images or empty the list to use only the embedded backgrounds. This will soon be replaced by a simple json index file set through the Site-settings.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/gallery.png" alt="The gallery: a folder of wallpapers and videos as a thumbnail grid, with a filter, sorting by name, date or size, three tile sizes, fit and file names"></td>
+<td width="50%"><img src="docs/images/music.png" alt="The audio player: the album cover on a blurred background, title and artist, playback and volume controls, and a spectrum visualizer along the bottom"></td>
+</tr>
+</table>
 
 **Gallery**
 
@@ -81,7 +98,22 @@ Both pages are Caddy templates. Their HTML and CSS can be edited directly; chang
 
 
 
+### Link previews
+
+<img src="docs/images/previews.jpg" alt="Six link-preview cards: a code file as a repository card, a zip as a terminal listing, a PDF as a document cover, a program with hazard stripes and its SHA-256, a gallery folder of pictures, and a font file with its type and size" width="100%">
+
+When someone shares a link to a file in Discord, Slack, Telegram, X, WhatsApp or similar apps, Strata answers the preview request with a card for that file: audio (cover and waveform), code and text (a repository-style card), archives (a terminal listing), PDFs (a document cover), gallery folders (their pictures), programs and scripts (a caution card with the SHA-256) and everything else (type, size and date). Pictures, videos and web pages keep the apps' own embeds.
+
+Hidden, protected and held files never get a preview. The **embed** tab in the Files inspector shows the card and lets you set its title, description, colour, card type or image, or switch it off. Preview crawlers need **Zone › Cache Rules › Edit** on the Cloudflare API token, so they reach your server instead of a cached copy of the file.
+
 ### Traffic
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/requests.png" alt="Requests: a live log with time, status, host, path, size, response time, country, client and agent"></td>
+<td width="50%"><img src="docs/images/visitors.png" alt="Visitors: requests, unique visitors and data sent per country, with the share of people, link previews and bots"></td>
+</tr>
+</table>
 
 Strata reads Caddy's access log into SQLite. The dashboard includes a live request log with filters and saved views, visitor statistics by country, network and client, the most requested files, and latency percentiles.
 
@@ -89,13 +121,19 @@ Individual requests are retained for 30 days; per-minute, hourly and daily aggre
 
 ### Security
 
+<img align="right" width="50%" src="docs/images/blocklist.png" alt="Blocklist: automatic bans for single addresses and a /24 range, next to the Cloudflare edge sync panel">
+
 Strata tracks requests for common probe targets such as `/.env` and `/wp-login.php`. Addresses that exceed the configured thresholds are banned automatically. If several addresses within the same `/24` subnet are banned within a week, Strata bans the entire range. Repeat offenders receive longer bans.
 
 With a Cloudflare API token configured, Strata also pushes its blocklist to Cloudflare. Requests from banned addresses can then be rejected at the edge before reaching your server.
 
 Security and service alerts appear in the dashboard. These include bans, failed sign-ins, outages, low disk space and error spikes. Alerts can also be sent by e-mail through SMTP or Resend, or to webhooks such as Discord, Slack, ntfy and endpoints that accept JSON.
 
+<br clear="right">
+
 ### Other features
+
+<img align="right" width="50%" src="docs/images/files.png" alt="Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity">
 
 - **Files:** Browse, upload, rename and move files. Uploads are chunked and resumable, with a default limit of 20 GB per file. Strata keeps file versions that can be restored later. Smart-Sort organizes uploads into folders by file type.
 - **Accounts:** Three roles — owner, administrators and members — with per-permission and per-folder access controls, account expiration dates and IP allowlists. Sign-ins require a second factor: the owner uses an authenticator app, while other accounts receive codes by e-mail. Accounts with permissions beyond file management can only sign in from the local network. API keys and an audit log are also available.
@@ -105,9 +143,15 @@ Security and service alerts appear in the dashboard. These include bans, failed 
 - **Media** (`media/`, disabled by default): Serve AVIF/WebP images and WebM/MP4 video, with `?nocompress` to request the original. Resource-intensive processing pauses when the CPU is busy. The pipeline can also scan new uploads before they become public. Image conversion is running on my own server; video conversion and upload scanning are newer and have seen less use. See [media/DESIGN.md](media/DESIGN.md).
 - **Telemetry** (optional): Publish a statistics page using redacted numerical data.
 
+<br clear="right">
+
+<img align="right" src="docs/images/mobile.png" alt="The Summary page on a phone" width="260">
+
 On mobile, the sidebar becomes a horizontally scrollable row of tabs, and dashboard tiles stack vertically.
 
 A Team page with a directory, presence information and a noticeboard is present in the code but currently hidden.
+
+<br clear="right">
 
 ## Install
 
