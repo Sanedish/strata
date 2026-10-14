@@ -82,7 +82,7 @@ GROUPS = {"files": "Files (inside assigned storage zones)", "insight": "Read acc
           "office": "Team"}
 # Capabilities that can create or take over identities, or run code on this machine. They are never stored on an
 # account: only the root account (and CLI-issued API keys) holds them, so no grant can lead to privilege escalation.
-ROOT_ONLY = {"accounts.manage", "code.write", "mail.manage", "system.backup"}
+ROOT_ONLY = {"accounts.manage", "code.write", "mail.manage", "system.backup", "security.bots"}
 # Older coarse ids (still valid in stored grants) and what they mean in fine-grained terms.
 LEGACY = {
     "files.write": {"files.upload", "files.mkdir", "files.rename", "files.move", "files.copy", "files.edit",

@@ -23,6 +23,7 @@ const VIEWS = {
   analyze: ['Analyze', 'Disk usage and growth', 'chart-pie'],
   serving: ['Serving', 'Drives, rules and error pages', 'server'],
   blacklist: ['Blocklist', 'Blocked IPs, countries and clients', 'ban'],
+  challenger: ['Challenger', 'Puzzle for browsers, against scrapers', 'shield-check'],
   links: ['Links', 'Short and signed links', 'link'],
   alerts: ['Alerts', 'Security and health events', 'bell'],
   network: ['Network', 'DNS, zone settings and exposed services', 'globe'],
@@ -48,7 +49,7 @@ const VIEWS = {
 };
 const HUBS = {
   traffic: ['requests', 'visitors', 'content', 'insights'],
-  guard: ['blacklist', 'security', 'alerts'],
+  guard: ['blacklist', 'challenger', 'security', 'alerts'],
   health: ['tunnel', 'origins', 'edge', 'latency', 'history', 'system', 'logs'],
   drive: ['files', 'analyze'],
   site: ['serving', 'links', 'compression'],
@@ -72,7 +73,7 @@ const NAV_GROUPS = [
 const NAV_C = HUBS.site; // media.js appends 'media'
 // "work" views (files, team, configuration, administration, settings) have no use for the traffic vitals, time ranges
 // or the request filter: they get that height and width back unless Settings › Vitals › Show everywhere is on
-const WORK_VIEWS = new Set(['office', 'files', 'upload', 'analyze', 'serving', 'blacklist', 'links', 'alerts', 'network', 'accounts', 'ide', 'settings']);
+const WORK_VIEWS = new Set(['office', 'files', 'upload', 'analyze', 'serving', 'blacklist', 'challenger', 'links', 'alerts', 'network', 'accounts', 'ide', 'settings']);
 const workView = (v = S.view) => WORK_VIEWS.has(v);
 const NAV_BADGES = [];   // modules push () => ({badges: {view: text}, alerts: {view: true}})
 const STATIC_VIEWS = new Set(['settings']);
@@ -106,7 +107,7 @@ const store = {
 // every key here is a preference: saved in this browser and, with Settings › Preferences › Sync on, in the account
 const PREFS = {
   view: 'summary', range: 'live', nobots: false, rate: 1000, widths: {}, fields: false, scale: null,
-  scale100: false, reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
+  scale115: false, reduceMotion: false, theme: 'auto', accent: null, density: 'normal', radius: 1, font: 'archivo',
   zebra: false, navCollapsed: false, navHidden: [], navPinned: [], landing: '', vitals: ['reqs', 'bytes', 'uniq', 'errors', 'latency', 'tunnel'],
   clock24: true, relTimes: true, hiddenPause: true, notify: false, savedFilters: [], syncPrefs: false, palRecent: [],
   confirmDelete: true, vitalsAll: false, hubLast: {}, navOpen: {},
@@ -147,21 +148,21 @@ async function pullPrefs() {
   } catch { /* not synced */ }
 }
 
-/* UI scale: CSS zoom on <html>, 100 % by default so every machine starts the same. No auto-fit: browser zoom
+/* UI scale: CSS zoom on <html>, 115 % by default (the nightly build's look: 100 % plus a little browser zoom) so every machine starts the same. No auto-fit: browser zoom
    already does that, and a scale that changed with the window made the same page look different everywhere. */
-const SCALE_MIN = 0.75, SCALE_MAX = 2, SCALE_DEFAULT = 1;
+const SCALE_MIN = 0.75, SCALE_MAX = 2, SCALE_DEFAULT = 1.15;
 const SCALE_PRESETS = [1, 1.15, 1.25, 1.3, 1.4, 1.5, 1.75];
 const clampScale = (v) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(v * 100) / 100));
-// 130 % was the default until October 2026 and was saved with every other preference: move those to the new default
+// 130 %, then 100 %, were saved as the default with every other preference: move those to the new default
 // once. `prefs` is where the scale came from (this browser, or the account when preferences sync).
 function scaleMigrate(prefs) {
-  if (prefs.scale100) return false;
-  if (S.scale === 1.3) S.scale = SCALE_DEFAULT;
-  S.scale100 = true;
+  if (prefs.scale115) return false;
+  if (S.scale === 1.3 || S.scale === 1) S.scale = SCALE_DEFAULT;
+  S.scale115 = true;
   return true;
 }
 if (typeof S.scale !== 'number') S.scale = SCALE_DEFAULT;
-if (scaleMigrate({ scale100: S.scale100 })) { store.set('scale', S.scale); store.set('scale100', true); }
+if (scaleMigrate({ scale115: S.scale115 })) { store.set('scale', S.scale); store.set('scale115', true); }
 let zoomNow = 1;
 function effectiveScale() {
   let z = S.scale;
@@ -460,7 +461,7 @@ function navHub(h, b, alert) {
 const VIEW_NEEDS = { summary: ['analytics.read'], requests: ['analytics.visitors'], logs: ['logs.runtime', 'logs.access', 'audit.read'],
   content: ['analytics.read'], visitors: ['analytics.visitors'], insights: ['analytics.read'], tunnel: ['analytics.read'],
   origins: ['analytics.read'], files: ['files.read'], upload: ['files.upload'], analyze: ['files.analyze'],
-  serving: ['serving.read'], blacklist: ['serving.blacklist'], links: ['serving.read', 'serving.links'], alerts: ['alerts.read'],
+  serving: ['serving.read'], blacklist: ['serving.blacklist'], challenger: ['security.bots'], links: ['serving.read', 'serving.links'], alerts: ['alerts.read'],
   network: ['network.read'], media: ['media.read'], compression: ['analytics.read'], security: ['analytics.read'],
   latency: ['analytics.read'], history: ['analytics.read'], edge: ['analytics.read'], system: ['system.read'],
   accounts: ['accounts.manage'], ide: ['code.read'], office: ['office.view'] };
@@ -491,6 +492,7 @@ function renderNav() {
     security: st ? fmt.n(st.scanners.length) : '',
     latency: st ? fmt.ms(st.totals.p95) : '',
     edge: D.edge && !D.edge.configured ? 'setup' : '',
+    challenger: D.me ? (D.me.bots ? 'on' : 'off') : '',
     compression: L?.compress?.running ? 'running' : st && st.totals.reqs ? fmt.pct(share(st.totals.encoded, st.totals.reqs)) : '',
   };
   const alert = { tunnel: t && (!t.up || t.ha < 4), origins: originsDown > 0, security: st && st.scanners.length > 0 };
@@ -624,13 +626,12 @@ function auxPanel(a) {
   </aside>`;
 }
 function tblView(o) {
-  const csv = o.tabs ? `<button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button>` : '';
-  // no tab pills: the CSV button joins the title line instead of sitting alone in an empty bar
-  const tabs = o.tabs?.length ? `<div class="tbar">${o.tabs.map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('')}<div class="grow"></div>${csv}</div>` : '';
+  // one bar, like Requests: the view's tabs, then what it shows, then CSV
+  const pills = (o.tabs || []).map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('');
   return `<div class="split" style="grid-template-columns:1fr 300px">
     <section class="aside">
-      <div class="ph" style="padding:14px 18px 8px;margin:0;gap:12px;align-items:center"><h5>${esc(o.title)}</h5><span class="small dim ell" style="margin-left:auto">${esc(o.note || '')}</span>${tabs ? '' : csv}</div>
-      <div style="border-top:2px solid var(--color-divider)"></div>${tabs}
+      <div class="tbar">${pills}<span class="small dim ell" style="flex:1 1 120px;min-width:0;text-align:right">${esc(o.note || '')}</span>
+        <button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>
       ${table(o.key, o.labels, o.rows, o)}
     </section>
     ${auxPanel(o.aux)}
@@ -1033,8 +1034,8 @@ function vHistory() {
   const peak = (a) => { let bi = 0; a.forEach((v, i) => { if ((v || 0) > (a[bi] || 0)) bi = i; }); return bi; };
   const mean = (a) => { const v = a.filter((x) => x != null); return v.length ? sum(v) / v.length : null; };
   const pr = peak(h.reqs);
-  return `<section class="col-fill px-18 py-16 oy-auto" data-scroll="hist">
-    <div class="ph mb-12"><h5>${icon('clock-fading')}Last 24 hours</h5><span class="small dim">requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
+  return `<div class="col-fill"><div class="tbar"><span class="small dim">Last 24 hours · requests from the access log · vitals from minute samples${engineNote(h)}</span></div>
+    <section class="col-fill px-18 py-16 oy-auto" data-scroll="hist">
     ${band('Requests', `${fmt.n(sum(h.reqs))} total · peak ${fmt.n(h.reqs[pr])} at ${fmt.hm(h.hours[pr])}`, h.reqs, (v) => fmt.n(v) + ' requests')}
     ${band('Bandwidth', fmt.bytes(sum(h.bytes)) + ' sent', h.bytes, (v) => fmt.bytes(v))}
     ${band('Saved by Brotli', fmt.bytes(sum(h.saved)) + ' not sent thanks to precompression', h.saved, (v) => fmt.bytes(v))}
@@ -1044,7 +1045,7 @@ function vHistory() {
     ${band('Tunnel RTT', 'mean ' + fmt.ms(mean(h.tunnel_rtt)), h.tunnel_rtt, (v) => fmt.ms(v), (v) => v > 150)}
     ${band('NAS latency', 'mean ' + fmt.ms(mean(h.nas_ms)), h.nas_ms, (v) => fmt.ms(v), (v) => v > 250)}
     ${band('Caddy CPU', 'mean ' + fmt.pct(mean(h.caddy_cpu)), h.caddy_cpu, (v) => fmt.pct(v), (v) => v > 50)}
-  </section>`;
+  </section></div>`;
 }
 
 function vEdge() {
@@ -1087,6 +1088,8 @@ function vEdge() {
   const crow = Object.entries(countries).sort((a, b) => b[1].r - a[1].r).slice(0, 40)
     .map(([k, v]) => ({ cells: [cell(cname(k)), cell(k, 'dim'), cell(fmt.n(v.r), 'r h800'), cell(fmt.bytes(v.b), 'r dim'), cell(fmt.n(v.t), 'r ' + (v.t ? 'hot' : 'dim'))] }));
   return `<div class="col-fill">
+    <div class="tbar"><span class="small dim">Cloudflare edge analytics · refreshed ${esc(fmt.ago(e.fetched))}</span><div class="grow"></div>
+      <button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
     <div class="kpis">
       ${kpi('Requests · 24 h', fmt.n(req), 'at the Cloudflare edge')}
       ${kpi('Served from cache', fmt.pct(share(creq, req)), fmt.n(creq) + ' requests never hit Caddy')}
@@ -1097,7 +1100,7 @@ function vEdge() {
     </div>
     <div class="grid2 cols-135 fill">
       <section class="panel oy-auto">
-        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin · refreshed ${esc(fmt.ago(e.fetched))}</span></div>
+        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
         <div class="ph smt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
@@ -1105,7 +1108,7 @@ function vEdge() {
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
       <section class="aside">
-        <div class="ph ph-pad"><h5>Countries at the edge</h5><button class="pill" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Refresh</button></div>
+        <div class="ph ph-pad"><h5>Countries at the edge</h5></div>
         <div class="bt-div"></div>
         ${table('edge', [{ t: 'Country', w: 170 }, { t: 'CC', w: 40 }, { t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 80, a: 'r' }, { t: 'Threats', w: 60, a: 'r' }], crow)}
       </section>
@@ -1309,6 +1312,7 @@ function vSettings() {
 // Settings › About: the author and every project whose code or data Strata ships with or drives
 const CREDITS = [
   ['Caddy', 'Web server Strata configures · Apache 2.0', 'https://caddyserver.com'],
+  ['Anubis', 'Optional bot protection, by Techaro · MIT', 'https://github.com/TecharoHQ/anubis'],
   ['cloudflared', 'Cloudflare Tunnel client · Apache 2.0', 'https://github.com/cloudflare/cloudflared'],
   ['FFmpeg', 'Video and audio processing · LGPL / GPL', 'https://ffmpeg.org'],
   ['Python', 'Runtime and standard library · PSF', 'https://www.python.org'],

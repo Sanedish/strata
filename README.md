@@ -127,6 +127,37 @@ With a Cloudflare API token configured, Strata also pushes its blocklist to Clou
 
 Security and service alerts appear in the dashboard. These include bans, failed sign-ins, outages, low disk space and error spikes. Alerts can also be sent by e-mail through SMTP or Resend, or to webhooks such as Discord, Slack, ntfy and endpoints that accept JSON.
 
+<<<<<<< HEAD
+=======
+<br clear="right">
+
+### Bot protection (optional)
+
+[Anubis](https://anubis.techaro.lol) ([MIT](https://github.com/TecharoHQ/anubis), by Techaro) makes a browser solve a small proof-of-work puzzle before it gets a page, which slows scrapers down. Strata can put it in front of paths you choose. It is **off by default**: Strata doesn't bundle Anubis, nothing runs until the owner clicks, and with it off nothing changes, not even the generated Caddy config.
+
+1. **Security › Challenger › Set up everything.** The dashboard downloads Anubis 1.28.1 (the version Strata is tested with) from github.com, creates the signing key and the policy, registers a start-up task (Task Scheduler on Windows, a systemd unit on Linux; [docs/anubis/strata-anubis.service](docs/anubis/strata-anubis.service) is the unit as a sample), starts it, and switches protection on once Anubis answers. Each of those is also a button of its own on the page: install, register, remove, check, restart, stop, and the on/off switch (Strata won't switch it on while Anubis doesn't answer, and won't stop it while it is on).
+2. **Challenge all pages** on the same page adds the rule, or use **Serving › Rules** with the action **Bot challenge** for the paths you choose.
+
+The download (about 25 MB) is fetched over HTTPS from github.com only, checked against the SHA-256 GitHub publishes for that file, and only `anubis(.exe)` and its licence are unpacked, into `.private/anubis/` of the instance. It doesn't check the release's PGP signature, and a compromised GitHub release would pass the checksum. To use an Anubis you installed yourself (a package, a pinned container's binary), put its path under **Challenger › Settings**.
+
+Caddy asks Anubis through `forward_auth` (Anubis runs without a target, so it never proxies your files and nothing loops). A visitor with a valid pass cookie carries on; the others are redirected to Anubis' puzzle page, solve it in their browser's JavaScript, and land on the page they asked for. Anubis' puzzle page needs a public URL to know where to send the browser afterwards; Strata passes just the scheme (`https://`, as everything arrives through Cloudflare), so one Anubis serves every host name of the instance.
+
+**Try it first.** `python tests/anubis_demo.py --caddy <caddy> --anubis <anubis>` starts a small site behind a real Caddy and a real Anubis in a temp folder (open `http://localhost:8480/`; the link-preview server is a stub) and prints `curl` lines for what a scraper gets.
+
+What it costs and what it doesn't cover:
+
+- **Cloudflare's cache.** A file the edge has cached never reaches your server, so Anubis never sees the request. Strata adds a Cache Rule so matching browser requests skip the edge cache (the same **Zone › Cache Rules › Edit** permission as link previews). Those requests now hit your server and your upload bandwidth. Turning bot protection off removes the rule again.
+- **Who is challenged.** By default people opening a page and anyone opening a gallery folder. `<img>`, `<audio>`, `fetch()`, curl and download tools send no navigation, so they get the file; a scraper that asks for `Accept: */*` is not stopped. **Also challenge direct file requests** closes that gap but breaks curl, download managers, media players, Range requests and hotlinked images.
+- **Never challenged:** link-preview crawlers on a bare file URL (they get their card; a spoofed crawler agent that asks for anything else gets the puzzle), `?card=1`, signed links, paths an **Allow** rule covers, `/.well-known/`, `robots.txt`, favicons, and Bearer-key calls to `/api/`. A page that passed hands its cookie to the images and audio it loads.
+- **Client address.** Anubis is told Caddy's own `client_ip` (Cloudflare's `Cf-Connecting-Ip`, trusted from loopback only, like the login gate). An `X-Real-IP` or `X-Forwarded-For` the client sends is overwritten, and the pass cookie only works from the address that solved the puzzle.
+- **Statistics.** Puzzle pages, solutions and the redirect to them are left out of the traffic numbers, and a failed puzzle never triggers an auto-ban by itself.
+- **If Anubis is down,** challenged paths answer 502 until it is back (a gap would be worse). Switch the rule off to bypass it.
+- **Redirect after the puzzle** keeps only the first `?parameter` of the address (`?dl=1`, `?w=` and `?ver=` are fine).
+- **Branding.** The challenge page carries Anubis' own branding and Strata leaves it alone. Techaro sells an unbranded version ([BotStopper](https://anubis.techaro.lol/docs/admin/botstopper)).
+
+Each instance has its own Anubis: its own port (8923, plus the instance's port offset), signing key (`.private/anubis.key`, created for you, never in `strata.json`, a log or a command line) and policy (`generated/anubis-policy.yaml`, rewritten on every change; it can also load Anubis' shipped lists that deny known AI scrapers and allow real search crawlers). Anubis' Prometheus metrics are on `127.0.0.1:9923` (plus the offset): add `- targets: ['127.0.0.1:9923']` to a `scrape_configs` job next to Caddy's.
+
+>>>>>>> nightly
 ### Other features
 
 ![Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity](docs/images/files.png)
@@ -192,7 +223,7 @@ You can run `setup.py` again at any time to change the configuration. Each promp
 
 The installer includes a systemd setup path. Install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`.
 
-The Linux installation has not yet been tested on a real machine. Expect issues and report any you encounter. Restarting the tunnel from the dashboard currently works only on Windows.
+The Linux installation has not yet been tested on a real machine. Expect issues and report any you encounter. Restarting the tunnel from the dashboard uses `systemctl restart <name>` when `instance.tunnel_restart` is `{"kind": "service", "name": "cloudflared"}`; that path is untested.
 
 ### E-mail and sign-in codes
 
@@ -240,17 +271,16 @@ The dashboard listens on `127.0.0.1` by default. Caddy can optionally expose it 
 
 ### Ports
 
-
-| Port | Process                  | Purpose                                                             |
-| ---- | ------------------------ | ------------------------------------------------------------------- |
-| 8090 | `strata.py`              | Dashboard and API, bound to loopback                                |
-| 8091 | Caddy                    | Optional LAN-accessible dashboard                                   |
-| 8080 | Caddy                    | Serving site; the tunnel forwards traffic here                      |
-| 8081 | `strata.py`              | Redacted telemetry feed, bound to loopback and protected by a token |
-| 8083 | `transform/transform.py` | Image resizing and signed links, bound to loopback                  |
-| 8084 | `media/media.py`         | Media processing and delivery, when enabled                         |
-| 8085 | `gate.py`                | Sign-in gateway for proxied services, bound to loopback             |
-
+| Port | Process                  | Purpose                                                                                        |
+| ---- | ------------------------ | ---------------------------------------------------------------------------------------------- |
+| 8090 | `strata.py`              | Dashboard and API, bound to loopback                                                           |
+| 8091 | Caddy                    | Optional LAN-accessible dashboard                                                              |
+| 8080 | Caddy                    | Serving site; the tunnel forwards traffic here                                                 |
+| 8081 | `strata.py`              | Redacted telemetry feed, bound to loopback and protected by a token                            |
+| 8083 | `transform/transform.py` | Image resizing and signed links, bound to loopback                                             |
+| 8084 | `media/media.py`         | Media processing and delivery, when enabled                                                    |
+| 8085 | `gate.py`                | Sign-in gateway for proxied services, bound to loopback                                        |
+| 8923 | Anubis                   | Optional bot protection, started by its own start-up task, bound to loopback; metrics on 9923   |
 
 A second instance configured with `--home` uses the same port layout offset by 100, starting at 8190, 8191 and so on.
 
@@ -260,17 +290,18 @@ Each instance has its own directory, referred to as the *instance directory*. By
 
 A single copy of the code can run multiple instances, each started with its own `--home` argument. Most settings are managed through the dashboard. The installer writes the following configuration keys:
 
-
-| Keys                                                               | Purpose                                                                                                 |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `instance.name`, `instance.id`                                     | Dashboard name and a unique identifier for each instance                                                |
-| `public.hosts`, `public_base_url`                                  | Served hostnames and the base URL used for share links                                                  |
-| `storage_paths`                                                    | Directories to serve; the first entry becomes the first drive                                           |
-| `caddy_exe`, `caddyfile`, `access_log`                             | Caddy executable, configuration file and access log paths                                               |
-| `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | Tunnel executable, configuration file and tunnel restart behavior                                       |
-| `cloudflare.zone_id`, `cloudflare.zone_name`                       | Cloudflare zone; the API token is `CF_API_TOKEN` in `data/.env`                                         |
-| `alerts.provider`, `alerts.smtp`, `alerts.from`, `alerts.to`       | Mail provider, delivery settings, sender and recipient addresses; passwords and keys are in `data/.env` |
-| `listen`, `feed_listen`, `transform_listen`, `gate_listen`         | Listen addresses for Strata's internal services                                                         |
+| Keys                                                                                                                             | Purpose                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `instance.name`, `instance.id`                                                                                                   | Dashboard name and a unique identifier for each instance                                                |
+| `public.hosts`, `public_base_url`                                                                                                | Served hostnames and the base URL used for share links                                                  |
+| `storage_paths`                                                                                                                  | Directories to serve; the first entry becomes the first drive                                           |
+| `caddy_exe`, `caddyfile`, `access_log`                                                                                           | Caddy executable, configuration file and access log paths                                               |
+| `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart`                                                               | Tunnel executable, configuration file and tunnel restart behavior                                       |
+| `cloudflare.zone_id`, `cloudflare.zone_name`                                                                                     | Cloudflare zone; the API token is `CF_API_TOKEN` in `data/.env`                                         |
+| `alerts.provider`, `alerts.smtp`, `alerts.from`, `alerts.to`                                                                     | Mail provider, delivery settings, sender and recipient addresses; passwords and keys are in `data/.env` |
+| `listen`, `feed_listen`, `transform_listen`, `gate_listen`                                                                       | Listen addresses for Strata's internal services                                                         |
+| `anubis.enabled`, `anubis.bind`, `anubis.exe`, `anubis.difficulty`, `anubis.defaults`, `anubis.cookie_domain`, `anubis.metrics` | Optional bot protection (off by default); set from **Security › Challenger**                            |
+| `anubis.public_url`                                                                                                              | `https://` (the default) or `http://` for a site not reached over TLS; only in `strata.json`            |
 
 
 Defaults are defined in `DEFAULTS` near the top of [core.py](core.py). `strata.json` is excluded from version control through `.gitignore`, but it holds no secrets.
@@ -288,16 +319,13 @@ Anyone with administrator rights on the machine can still read the file, so keep
 
 ## Platform support
 
-
-| Feature                                             | Windows                | Linux                                          |
-| --------------------------------------------------- | ---------------------- | ---------------------------------------------- |
-| Dashboard, traffic, files, serving and accounts     | Supported              | Test suite passes; no real installation tested |
-| Installer                                           | Windows Task Scheduler | systemd, untested                              |
-| Restarting the tunnel from the dashboard            | Supported              | Not yet supported                              |
-| Drive letters and volume labels in the drive picker | Supported              | Not applicable                                 |
-
-
-
+| Feature                                             | Windows                | Linux                                                                                                     |
+| --------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| Dashboard, traffic, files, serving and accounts     | Supported              | Test suite passes; no real installation tested                                                            |
+| Installer                                           | Windows Task Scheduler | systemd, untested                                                                                         |
+| Restarting the tunnel from the dashboard            | Supported              | `instance.tunnel_restart` kind `service` runs `systemctl restart`; untested                               |
+| Bot protection (Anubis)                             | Tested with Anubis 1.28.1 | Config and request tests run on Linux in CI (`.github/workflows/linux.yml`); no real installation tested |
+| Drive letters and volume labels in the drive picker | Supported              | Not applicable                                                                                            |
 
 ## Development
 
@@ -307,7 +335,7 @@ Run the test suite with:
 python tests/run_all.py
 ```
 
-This creates a temporary Strata instance, uses a stub Caddy executable, seeds test accounts and runs the test suites. Coverage includes first-run setup, mail delivery, security regressions, permissions, the Team page, sign-in, the installer, automatic bans and media unit tests.
+This creates a temporary Strata instance, uses a stub Caddy executable, seeds test accounts and runs the test suites. Coverage includes first-run setup, mail delivery, security regressions, permissions, the Team page, sign-in, the installer, automatic bans, bot protection and media unit tests. The bot protection suite sends real requests through a real Caddy when one is installed, and through a real Anubis as well when you set `STRATA_ANUBIS`.
 
 The tests operate within the temporary directory. Caddy doesn't need to be installed, and the test run doesn't modify the rest of your system.
 
@@ -351,5 +379,5 @@ Strata is licensed under the [MIT License](LICENSE). You're free to change your 
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); `python tests/demo.py` runs the whole dashboard without Caddy or Cloudflare.
 
-The bundled CodeMirror 5.65.21 and Lucide icons retain their respective licenses in `static/vendor/`. Other dependencies are credited under **Settings › About**.
+Optional bot protection uses [Anubis](https://github.com/TecharoHQ/anubis) by Techaro (MIT), which Strata can download for you from github.com when you ask (it isn't bundled); its licence is in [third_party/anubis/](third_party/anubis/LICENSE) and goes along with every download. The bundled CodeMirror 5.65.21 and Lucide icons retain their respective licenses in `static/vendor/`. Other dependencies are credited under **Settings › About**.
 

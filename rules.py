@@ -31,6 +31,7 @@ import time
 import traceback
 import urllib.parse
 
+import anubis
 import auth
 import core
 import files
@@ -64,6 +65,7 @@ ACTIONS = {
     "gallery": "Gallery view (folders as a thumbnail grid)",
     "player": "Audio player (visualizer page for audio files)",
     "preview": "Link preview (title, colour, image, card type, or off)",
+    "challenge": "Bot challenge (Anubis puzzle for browsers)",
 }
 PREVIEW_KINDS = ("", "audio", "text", "archive", "pdf", "folder", "warning", "file")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -427,6 +429,8 @@ def clean_rule(d, old=None):
         if bg:
             bg = norm_path(bg, "placeholder folder must be a URL path like /share/placeholders")
         params = {"placeholders": bg}
+    elif action == "challenge":  # browsers (and gallery pages) only, unless direct file requests are asked for too
+        params = {"downloads": bool(p.get("downloads"))}
     elif action == "preview":
         color = str(p.get("color") or "").strip()
         if color and not COLOR_RE.match(color):
@@ -1023,6 +1027,87 @@ def render_previews(o, mounts, rules):
             proxy(n, m["id"], page, False)
 
 
+def challenge_pairs(rules, mounts):
+    """(rule, drive) for every active `challenge` rule on a files drive - empty while bot protection is off, which is
+    what keeps the generated config byte-for-byte what it was before Anubis existed."""
+    if not anubis.enabled():
+        return []
+    return [(r, m) for r in rules if r["action"] == "challenge" for m in mounts
+            if m["kind"] == "files" and (not r["mount"] or r["mount"] == m["id"])]
+
+
+def anubis_headers(o, depth):
+    """What Anubis is told about the visitor. {client_ip} is Caddy's own verdict (Cloudflare's address is trusted only
+    from loopback peers, like the login gate); header_up overwrites whatever the client sent under these names."""
+    o.add(depth, "header_up X-Real-IP {client_ip}")
+    o.add(depth, "header_up X-Forwarded-For {client_ip}")
+    o.add(depth, "header_up X-Forwarded-Proto https")
+
+
+def render_challenge_routes(o, rules, mounts):
+    """Anubis' own URL space (/.within.website/: the puzzle page, its scripts, the answer) goes to Anubis. Rendered
+    right after the blacklist and before the access rules, whose built-in "hide dot-files" would answer it 404."""
+    hosts = list(dict.fromkeys(h for _, m in challenge_pairs(rules, mounts) for h in m["hosts"]))
+    if not hosts:
+        return
+    n = o.name("anubis")
+    o.add(2, "# bot protection: Anubis' pages (the puzzle) - the challenge rules are further down")
+    o.matcher(2, n, [host_cond(hosts), "path " + bq(core.CHALLENGE_PATH + "*")])
+    o.add(2, "reverse_proxy @%s %s {" % (n, anubis.settings()["bind"]))
+    anubis_headers(o, 3)
+    o.add(2, "}")
+
+
+def render_challenge(o, rules, mounts, allows):
+    """Step 3a, before galleries and players (they answer on their own): requests under a `challenge` rule's patterns
+    ask Anubis (forward_auth). A visitor with a valid pass cookie carries on; the others are redirected to the puzzle.
+    Left alone: what link previews answer (a crawler on a bare file URL, ?card=1: Transform's cheap card, never the
+    file - the preview step runs later, so a spoofed crawler agent gets nothing more), signed links (the signed rule
+    already checked the signature), `allow` rules, /.well-known/, robots.txt, favicons, and Bearer-key calls to /api/.
+    Without "downloads" only browser navigations and folder URLs (galleries) are challenged: <img>, <audio>, fetch()
+    and download tools do not send a navigation and cannot solve a puzzle."""
+    pairs = challenge_pairs(rules, mounts)
+    if not pairs:
+        return
+    signed = [r for r in rules if r["action"] == "signed"]
+    s = anubis.settings()
+    o.add(2, "# bot challenge (Anubis at %s): ask it first, redirect to the puzzle when the visitor has no pass cookie" % s["bind"])
+    for r, m in pairs:
+        pre = "" if m["prefix"] == "/" else m["prefix"]
+        mine = [a for a in allows + signed if not a["mount"] or a["mount"] == m["id"]]
+        preview = ('(({query.card} == "1" || ({http.request.header.User-Agent}.matches(%s) && {http.request.uri.query} == ""))'
+                   ' && {http.request.uri.path}.matches(%s) && !{http.request.uri.path}.matches(%s))' % (
+                       cel(PREVIEW_UA), cel(r"[.][A-Za-z0-9]{1,10}$"), cel(PREVIEW_NATIVE_RX.replace(r"\.", "[.]"))))
+        expr = ['!%s' % preview,
+                '!({http.request.header.Authorization}.startsWith("Bearer ") && {http.request.uri.path}.startsWith("/api/"))']
+        if pre:
+            expr.append('({http.request.uri.path} == %s || {http.request.uri.path}.startsWith(%s))' % (cel(pre), cel(pre + "/")))
+        if not (r["params"] or {}).get("downloads"):
+            expr.append("(%s || {http.request.uri.path}.matches(%s))" % (NAV_EXPR, cel("(/|/[^./]+)$")))
+        conds = [host_cond(m["hosts"])] + path_conds(r["patterns"], o, "ch") + exception_conds(mine, o) + [
+            "not path /.well-known/* /robots.txt /favicon.ico /favicon.png /sitemap.xml", "expression `%s`" % " && ".join(expr)]
+        n = o.name("ch%d" % r["id"])
+        o.add(2, "# %s" % re.sub(r"[\r\n]", " ", r["name"]))
+        o.matcher(2, n, conds)
+        o.add(2, "route @%s {" % n)
+        o.add(3, "forward_auth %s {" % s["bind"])
+        o.add(4, "uri %s" % anubis.CHECK_PATH)
+        anubis_headers(o, 4)
+        o.add(4, "@%s_ask status 401 307" % n)  # 401 plain; 307 (to a URL we replace) when Anubis has a public URL
+        o.add(4, "handle_response @%s_ask {" % n)
+        o.add(5, "header Cache-Control `no-store`")
+        o.add(5, "header -%s" % EDGE_HEADER)
+        o.add(5, "redir * %s?redir={uri} 307" % core.CHALLENGE_PATH)
+        o.add(4, "}")
+        o.add(3, "}")
+        o.add(2, "}")
+
+
+def cel(text):
+    """A string literal for a Caddy CEL `expression` (which sits in backticks: no Caddyfile escaping applies)."""
+    return '"%s"' % text.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def render(db):
     D = load(db)
     S = D["site"]
@@ -1094,12 +1179,14 @@ def render(db):
         o.matcher(2, n, ["path " + " ".join(bq(p) for p in bpaths), safe])
         o.add(2, "respond @%s `Forbidden` 403" % n)
 
+    render_challenge_routes(o, rules, mounts)  # Anubis' own pages: before the access rules (they hide /.within...)
+
     # 2 access rules
     allows = [r for r in rules if r["action"] == "allow"]
     if rules:
         o.add(2, "# access rules")
     for r in rules:
-        if r["action"] in ("allow", "gallery", "player", "preview"):
+        if r["action"] in ("allow", "gallery", "player", "preview", "challenge"):
             continue
         scope = None
         if r["mount"]:
@@ -1174,6 +1261,7 @@ def render(db):
             else:
                 o.add(2, "respond @%s `This link has expired.` 410" % n)
 
+    render_challenge(o, rules, mounts, allows)
     render_galleries(o, rules, mounts)
     render_players(o, rules, mounts)
 
@@ -1467,6 +1555,7 @@ def apply(db, user="", reason="", force=False):
     """Render -> validate -> swap -> reload. Raises ServeError (and leaves Caddy untouched) on any failure."""
     with APPLY_LOCK:
         text = render(db)
+        anubis.write_policy()
         cur = read_gen()
         if cur == text and not force:
             write_transform_config(core.mounts(refresh=True), db)  # link-preview rules change Transform, not Caddy
@@ -1497,6 +1586,8 @@ def apply(db, user="", reason="", force=False):
         set_meta(db, "serving", {"ts": now(), "sha": sha, "user": user, "reason": reason})
         log("serving: applied %s (%s)" % (sha, reason))
         MATCH.dirty = True
+        if core.CHALLENGE_PATH in text or core.CHALLENGE_PATH in (cur or ""):
+            EDGE_SYNC.set()  # the challenged paths must (no longer) skip Cloudflare's cache
         return {"changed": True, "sha": sha}
 
 
@@ -2564,6 +2655,10 @@ def test_url(url, ip="", ua="", country="", referer=""):
             return {"result": "%d redirect to %s" % (p.get("code", 302), p["to"]), "steps": steps}
         if a in PRIVATE_ACTIONS:
             steps.append("→ response is sent with Cache-Control: private, no-store")
+        if a == "challenge":
+            steps.append("→ a browser without a pass cookie is sent to Anubis' puzzle first (link-preview crawlers, signed links "
+                         "and /.well-known/ are not)" if anubis.enabled() else
+                         "→ bot protection is off (Security › Challenger): this rule does nothing yet")
     if m_hit and m_hit["kind"] == "proxy":
         g = gate.conf(m_hit)
         steps.append("Service “%s” → %s%s" % (m_hit["name"], m_hit["path"], "" if m_hit["prefix"] == "/" else

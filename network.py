@@ -499,6 +499,8 @@ def restart_tunnel(user):
         subprocess.run(["schtasks", "/End", "/TN", name], capture_output=True, creationflags=NOWIN, timeout=30)
         time.sleep(2)
         p = subprocess.run(["schtasks", "/Run", "/TN", name], capture_output=True, text=True, creationflags=NOWIN, timeout=30)
+    elif os.name != "nt":
+        p = subprocess.run(["systemctl", "restart", name], capture_output=True, text=True, timeout=90)
     else:
         p = subprocess.run(["powershell", "-NoProfile", "-Command", "Restart-Service -Name '%s' -Force" % name.replace("'", "")],
                            capture_output=True, text=True, creationflags=NOWIN, timeout=90)

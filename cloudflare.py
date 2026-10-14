@@ -28,6 +28,7 @@ REF_CHALLENGE = core.prefixed("blacklist_challenge")
 PHASE = "http_request_firewall_custom"
 CACHE_PHASE = "http_request_cache_settings"
 REF_PREVIEWS = core.prefixed("previews_nocache")
+REF_CHALLENGE_CACHE = core.prefixed("challenge_nocache")
 PERMS = {
     "lists": "Account › Account Filter Lists › Edit",
     "waf": "Zone › Zone WAF › Edit",
@@ -274,6 +275,78 @@ def sync_previews():
     return {"previews": "created"}
 
 
+def challenge_expression(pairs):
+    """Cache-bypass expression for the paths Anubis protects, or None. A file Cloudflare has cached never reaches the
+    origin, so Anubis would never see the request. Without "downloads" only navigations bypass the cache (what Caddy
+    challenges); a pattern this can't express (a regex, a * in the middle) bypasses the whole host instead: more origin
+    traffic, never a gap."""
+    nav = ('(any(http.request.headers["sec-fetch-dest"][*] in {"document" "iframe"}) or (len(http.request.headers["sec-fetch-dest"]) eq 0'
+           ' and any(http.request.headers["accept"][*] contains "text/html")))')
+    out = []
+    for r, m in pairs:
+        host = "http.host in {%s}" % " ".join(cf_str(h) for h in m["hosts"])
+        paths = []
+        for p in r["patterns"]:
+            star = p.count("*")
+            if p.startswith("re:") or (star > 1) or (star == 1 and not (p.endswith("*") or p.startswith("*"))):
+                paths = None
+                break
+            paths.append('starts_with(http.request.uri.path, %s)' % cf_str(p[:-1]) if p.endswith("*")
+                         else 'ends_with(http.request.uri.path, %s)' % cf_str(p[1:]) if p.startswith("*")
+                         else "http.request.uri.path eq %s" % cf_str(p))
+        parts = [host] + (["(%s)" % " or ".join(paths)] if paths else []) + ([] if (r["params"] or {}).get("downloads") else [nav])
+        out.append("(%s)" % " and ".join(parts))
+    return " or ".join(dict.fromkeys(out)) or None
+
+
+def sync_challenge():
+    """One cache rule that lets the challenged paths past Cloudflare's cache (see challenge_expression); removed again
+    when no challenge rule is left, so switching bot protection off gives the edge cache back."""
+    db = connect()
+    try:
+        D = rules.load(db)
+        made = get_meta(db, "cf_challenge_rule", False)  # we created the Cloudflare rule earlier
+    finally:
+        db.close()
+    pairs = rules.challenge_pairs([r for r in D["rules"] if rules.active(r)], [m for m in D["mounts"] if m["enabled"]])
+    ex = challenge_expression(pairs)
+    if not ex and not made:
+        return {}  # never used bot protection: no API call at all
+    if ex and len(ex) > 3800:
+        raise CFError(400, "too many challenged paths for one Cloudflare rule: use fewer, broader patterns")
+    res = _challenge_rule(zone_id(), ex)
+    db = connect()
+    try:
+        with db:
+            set_meta(db, "cf_challenge_rule", bool(ex))
+    finally:
+        db.close()
+    return res
+
+
+def _challenge_rule(zone, ex):
+    want = {"ref": REF_CHALLENGE_CACHE, "description": "Strata bot protection - challenged paths skip the edge cache (managed by Strata)",
+            "expression": ex, "action": "set_cache_settings", "action_parameters": {"cache": False}, "enabled": True}
+    try:
+        rs = call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE))["result"]
+    except CFError as e:
+        if e.status != 404:
+            raise
+        if ex:
+            call("PUT", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE), {"rules": [want]})
+        return {"challenge": "created" if ex else "none"}
+    have = {r.get("ref"): r for r in rs.get("rules", [])}.get(REF_CHALLENGE_CACHE)
+    if not ex:
+        if have:
+            call("DELETE", "/zones/%s/rulesets/%s/rules/%s" % (zone, rs["id"], have["id"]))
+        return {"challenge": "removed" if have else "none"}
+    if have:
+        call("PATCH", "/zones/%s/rulesets/%s/rules/%s" % (zone, rs["id"], have["id"]), want)
+        return {"challenge": "updated"}
+    call("POST", "/zones/%s/rulesets/%s/rules" % (zone, rs["id"]), want)
+    return {"challenge": "created"}
+
+
 class EdgeSync(threading.Thread):
     daemon = True
 
@@ -294,6 +367,10 @@ class EdgeSync(threading.Thread):
                         status.update(sync_previews(), previews_error="")
                     except CFError as e:  # a token without Cache Rules: previews still work, just not past the edge cache
                         status["previews_error"] = str(e) + (" - add %s" % PERMS["cache_rules"] if e.status == 403 else "")
+                    try:
+                        status.update(sync_challenge(), challenge_error="")
+                    except CFError as e:  # without it, cached challenged files are served past Anubis: say so
+                        status["challenge_error"] = str(e) + (" - add %s" % PERMS["cache_rules"] if e.status == 403 else "")
             except CFError as e:
                 status.update(ok=False, error=str(e), status=e.status)
                 if e.status == 403:

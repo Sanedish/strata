@@ -7,7 +7,7 @@ Object.assign(S, {
   fmount: store.get('fmount', 1), fgrid: store.get('fgrid', false), ftree: store.get('ftree', false), ftreeExpanded: new Set(['/']), fq: '', clip: null, finsTab: 'details',
   fOffset: Math.max(0, Math.floor(Number(store.get('fOffset', 0)) || 0)), fPageSize: Number(store.get('fPageSize', 250)) || 250,
   upMount: store.get('upMount', 1), upPath: store.get('upPath', '/'), upPolicy: store.get('upPolicy', 'ask'),
-  anMount: store.get('anMount', 'all'), anPath: '/', anTab: 'types', anColor: 'extension', editor: null, picker: null, resumeFor: null,
+  anMount: store.get('anMount', 'all'), anPath: '/', anTab: 'types', editor: null, picker: null, resumeFor: null,
 });
 if (![100, 250, 500].includes(S.fPageSize)) S.fPageSize = 250;
 S.sort.files = S.sort.files || 'name';
@@ -16,10 +16,10 @@ Object.assign(D, { drives: null, uploadsSrv: null, an: null, anTree: null, anLis
   fsearch: null, info: null, vers: null, filePreview: null, folderTree: Object.create(null) });
 const MiB = 1048576;
 const UPCFG = { chunk: 32 * MiB, parallel: 3 };
-const CAT_COLOR = { image: 'var(--color-text)', video: 'var(--color-accent)', audio: 'var(--color-accent-700)',
-  '3d': 'var(--color-neutral-700)', web: 'var(--color-neutral-500)', text: 'var(--color-neutral-400)',
-  font: 'var(--color-neutral-600)', archive: 'var(--color-accent-400)', document: 'var(--color-neutral-800)',
-  other: 'var(--color-neutral-300)', page: 'var(--color-neutral-400)' };
+// one palette for every chart: a hue per file type at the same lightness and chroma, so no colour shouts
+const CAT_COLOR = { image: 'oklch(0.66 0.14 250)', video: 'oklch(0.66 0.15 25)', audio: 'oklch(0.66 0.14 300)', document: 'oklch(0.72 0.14 85)',
+  archive: 'oklch(0.66 0.12 195)', web: 'oklch(0.66 0.14 150)', page: 'oklch(0.66 0.14 150)', font: 'oklch(0.68 0.13 350)', '3d': 'oklch(0.7 0.14 55)',
+  text: 'oklch(0.62 0.03 250)', other: 'oklch(0.52 0.02 250)' };
 const DARK_CATS = new Set(['image', 'video', 'audio', '3d', 'document', 'font']);
 const ACCESS = { hide: ['hidden', 'dim'], deny: ['403', 'hot'], password: ['login', 'hot'], signed: ['signed', 'hot'],
   ip_allow: ['IP only', 'hot'], geo_allow: ['geo', 'hot'], geo_deny: ['geo', 'hot'], hotlink: ['hotlink', 'hot'] };
@@ -1450,66 +1450,85 @@ async function pollAnalyze() {
 VIEW_REFRESH.analyze = pollAnalyze;
 setInterval(() => { if (S.view === 'analyze' && D.live?.compress?.running) pollAnalyze(); }, 10000);
 
-function squarify(nodes, W, H) {
-  const out = [];
-  let items = nodes.filter((n) => n.size > 0);
-  const total = items.reduce((a, n) => a + n.size, 0);
-  if (!total) return out;
-  const scale = (W * H) / total;
-  items = items.map((n) => ({ n, a: n.size * scale }));
-  let x = 0, y = 0, w = W, h = H, row = [];
-  const worst = (r, side) => {
-    const s = r.reduce((a, i) => a + i.a, 0), mx = Math.max(...r.map((i) => i.a)), mn = Math.min(...r.map((i) => i.a));
-    return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
-  };
-  const lay = (r) => {
-    const s = r.reduce((a, i) => a + i.a, 0);
-    if (w >= h) { const cw = s / h; let yy = y; for (const i of r) { const hh = i.a / cw; out.push({ x, y: yy, w: cw, h: hh, n: i.n }); yy += hh; } x += cw; w -= cw; }
-    else { const rh = s / w; let xx = x; for (const i of r) { const ww = i.a / rh; out.push({ x: xx, y, w: ww, h: rh, n: i.n }); xx += ww; } y += rh; h -= rh; }
-  };
-  for (const it of items) {
-    const side = Math.min(w, h);
-    if (!row.length || worst(row.concat([it]), side) <= worst(row, side)) row.push(it);
-    else { lay(row); row = [it]; }
+/* ---- charts: inline SVG and flat boxes, no library. The legend or labels carry the values. */
+function donut(items, o) {
+  items = items.filter((i) => i.v > 0);
+  const total = items.reduce((a, i) => a + i.v, 0);
+  if (!total) return '<div class="empty">Nothing here yet.</div>';
+  if (items.length > 8) items = items.slice(0, 7).concat([{ k: 'other', v: items.slice(7).reduce((a, i) => a + i.v, 0), color: CAT_COLOR.other }]);
+  let off = 25; // the first slice starts at 12 o'clock
+  const arcs = items.map((i) => {
+    const p = share(i.v, total);
+    const c = `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${i.color}" stroke-width="6" stroke-dasharray="${p.toFixed(3)} ${(100 - p).toFixed(3)}" stroke-dashoffset="${off.toFixed(3)}"><title>${esc(i.k + ' · ' + o.fmtv(i.v) + ' · ' + fmt.pct(p))}</title></circle>`;
+    off -= p;
+    return c;
+  }).join('');
+  const [big, small] = o.center || [];
+  const svg = `<svg class="dv-donut" viewBox="0 0 42 42" role="img" aria-label="${esc(o.label || 'Share by type')}">${arcs}${big ? `<text x="21" y="21.4" font-size="4.6" font-weight="800">${esc(big)}</text><text x="21" y="26" font-size="2.6" opacity=".6">${esc(small || '')}</text>` : ''}</svg>`;
+  const rows = items.map((i) => `<div class="dv-row"><i style="background:${i.color}"></i><span class="ell" title="${esc(i.k)}">${esc(i.k)}</span><b>${esc(o.fmtv(i.v))}</b><span>${fmt.pct(share(i.v, total))}</span></div>`).join('');
+  // side: the legend sits right of the chart behind a hairline, so the panel stays short; it scrolls when it must
+  return o.side ? `<div class="dv-side">${svg}<div class="dv-legend">${rows}</div></div>` : `${svg}<div>${rows}</div>`;
+}
+function columns(items, fmtv) {
+  const max = niceMax(items.map((i) => i.v), 1);
+  return `<div class="dv-box"><span class="ymax">${esc(fmtv(max))}</span><div class="dv-cols">${items.map((i) => `<div class="dv-col" title="${esc(i.k + ' · ' + fmtv(i.v) + (i.sub ? ' · ' + i.sub : ''))}"><span class="dv-bar" style="height:${share(i.v, max).toFixed(1)}%"><i style="flex:1;background:${i.color}"></i></span></div>`).join('')}</div></div>
+    <div class="dv-x">${items.map((i) => `<span><b>${esc(i.k)}</b><small>${esc(fmtv(i.v))}</small></span>`).join('')}</div>`;
+}
+// folders as columns, each stacked by file type; a click opens the folder
+function stackCols(rows) {
+  rows = rows.filter((r) => r.bytes > 0);
+  if (!rows.length) return '<div class="empty">No folders indexed yet.</div>';
+  const max = niceMax(rows.map((r) => r.bytes), 1), seen = new Map();
+  rows.forEach((r) => Object.entries(r.cats || {}).forEach(([c, b]) => seen.set(c, (seen.get(c) || 0) + b)));
+  const name = (r) => r.path.split('/').filter(Boolean).pop() || r.path;
+  return `<div class="dv-fill"><div class="dv-box fill"><span class="ymax">${esc(fmt.bytes(max))}</span><div class="dv-cols">${rows.map((r) => `<button class="dv-col" data-act="anGoM" data-arg="${esc(r.mount + '|' + r.path)}" title="${esc(r.path + ' · ' + fmt.bytes(r.bytes))}"><span class="dv-bar" style="height:${share(r.bytes, max).toFixed(1)}%">${Object.entries(r.cats || {}).sort((a, b) => b[1] - a[1]).map(([c, b]) => `<i style="flex:${b};background:${CAT_COLOR[c] || CAT_COLOR.other}" title="${esc(c + ' · ' + fmt.bytes(b))}"></i>`).join('')}</span></button>`).join('')}</div></div>
+    <div class="dv-x">${rows.map((r) => `<span title="${esc(r.path)}"><b>${esc(name(r))}</b><small>${esc(fmt.bytes(r.bytes))}</small></span>`).join('')}</div>
+    <div class="dv-key">${[...seen].sort((a, b) => b[1] - a[1]).map(([c]) => `<span><i style="background:${CAT_COLOR[c] || CAT_COLOR.other}"></i>${esc(c)}</span>`).join('')}</div></div>`;
+}
+/* ---- layout: drag the gutters between the three top panels and above the lists; sizes are kept in this browser.
+   The page never scrolls: the top row has a height, the lists below take what is left and scroll inside. */
+const AN = Object.assign({ h: null, c: [1, 1.5, 1] }, store.get('anLayout', {}));
+if (!Array.isArray(AN.c) || AN.c.length !== 3 || AN.c.some((w) => !(w > 0))) AN.c = [1, 1.5, 1];
+const anFrame = () => $('#main .angrid');
+let anDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const g = e.target.closest && e.target.closest('[data-an-grip]');
+  const grid = anFrame();
+  if (!g || !grid || e.button !== 0) return;
+  e.preventDefault();
+  const panels = [...grid.children].filter((c) => c.matches('.panel'));
+  anDrag = { k: g.dataset.anGrip, x0: e.clientX, y0: e.clientY, w: panels.map((p) => p.offsetWidth), h: grid.offsetHeight, g };
+  g.classList.add('drag');
+  try { g.setPointerCapture(e.pointerId); } catch { /* old browser */ }
+});
+document.addEventListener('pointermove', (e) => {
+  const grid = anDrag && anFrame();
+  if (!grid) return;
+  const z = typeof zoomNow === 'number' && zoomNow > 0 ? zoomNow : 1, d = anDrag;
+  if (d.k === 'h') {
+    const room = $('#main .an-page').clientHeight - grid.previousElementSibling.offsetHeight - 8 - 150; // keep the lists usable
+    AN.h = Math.round(Math.min(Math.max(120, room), Math.max(120, d.h + (e.clientY - d.y0) / z)));
+    grid.style.height = AN.h + 'px';
+  } else {
+    const i = +d.k, sum = d.w[i] + d.w[i + 1], w = d.w.slice();
+    w[i] = Math.min(sum - 150, Math.max(150, d.w[i] + (e.clientX - d.x0) / z)); w[i + 1] = sum - w[i];
+    AN.c = w.map((x) => Math.round(x * 10) / 10);
+    grid.style.gridTemplateColumns = AN.c.map((x) => `minmax(0,${x}fr)`).join(' 8px ');
   }
-  if (row.length) lay(row);
-  return out;
-}
-function treemap() {
-  const T = D.anTree;
-  if (!T || !T.nodes) return '<div class="empty">No index yet. The first scan runs shortly after Strata starts.</div>';
-  const W = 240, H = 100;
-  const nodes = T.nodes.slice(0, 300);
-  const rects = squarify(nodes, W, H);
-  const tot = nodes.reduce((a, n) => a + n.size, 0) || 1;
-  return `<div class="treemap">${rects.map((r) => {
-    const n = r.n, big = r.w > 14 && r.h > 9, ext = treeExt(n), cat = n.cat || 'other';
-    const title = `${n.path}\n${fmt.bytes(n.size)} · ${fmt.pct(share(n.size, tot))} of shown items · ${n.dir ? 'folder · ' + fmt.n(n.files) + ' files' : '.' + ext + ' · ' + cat}\n${fmt.n(n.hits || 0)} origin hits · ${fmt.bytes(n.sent || 0)} sent in 30 days`;
-    return `<button class="tm ${n.dir ? 'dir' : ''}" style="left:${(r.x / W * 100).toFixed(3)}%;top:${(r.y / H * 100).toFixed(3)}%;width:${(r.w / W * 100).toFixed(3)}%;height:${(r.h / H * 100).toFixed(3)}%;background:${treemapColor(n)}"
-      data-act="${n.dir ? 'anGo' : 'anReveal'}" data-arg="${esc(n.path)}" title="${esc(title)}" aria-label="${esc(title)}">${big ? `<b>${esc(n.name)}</b><span>${esc(fmt.bytes(n.size))}</span>` : ''}</button>`;
-  }).join('')}</div>`;
-}
-function treeExt(n) { return n.dir ? (n.cat || 'folder').toLowerCase() : (n.name.includes('.') ? n.name.split('.').pop().toLowerCase() : 'no extension'); }
-function hueFor(value) {
-  let h = 0;
-  for (const ch of String(value)) h = ((h * 31) + ch.charCodeAt(0)) | 0;
-  return Math.abs(h) % 360;
-}
-function treemapColor(n) {
-  const maxHits = Math.max(1, ...(D.anTree?.nodes || []).map((x) => x.hits || 0));
-  if (S.anColor === 'traffic') {
-    const heat = Math.log1p(n.hits || 0) / Math.log1p(maxHits);
-    return `hsl(${205 - 165 * heat} 72% ${88 - 42 * heat}%)`;
-  }
-  const key = S.anColor === 'category' || n.dir ? (n.cat || 'other') : treeExt(n);
-  return `hsl(${hueFor(key)} 62% 76%)`;
-}
-function treemapLegend(nodes) {
-  if (S.anColor === 'traffic') return '<span><i class="key-cool"></i>few origin hits</span><span><i class="key-warm"></i>many origin hits (30 days)</span>';
-  const totals = new Map();
-  for (const n of nodes) { const k = S.anColor === 'category' || n.dir ? (n.cat || 'other') : treeExt(n); totals.set(k, (totals.get(k) || 0) + n.size); }
-  return [...totals].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => `<span><i style="background:hsl(${hueFor(k)} 62% 76%)"></i>${S.anColor === 'extension' && k !== 'no extension' && k !== 'folder' ? '.' : ''}${esc(k)}</span>`).join('');
-}
+});
+const anDragEnd = () => { if (!anDrag) return; anDrag.g.classList.remove('drag'); anDrag = null; store.set('anLayout', AN); };
+document.addEventListener('pointerup', anDragEnd);
+document.addEventListener('pointercancel', anDragEnd);
+document.addEventListener('dblclick', (e) => {
+  const g = e.target.closest && e.target.closest('[data-an-grip]');
+  if (!g) return;
+  if (g.dataset.anGrip === 'h') AN.h = null; else AN.c = [1, 1.5, 1];
+  store.set('anLayout', AN); render(true);
+});
+// the drive drop-down closes on any click elsewhere and on Escape
+document.addEventListener('click', (e) => { if (D.anDD && !e.target.closest('.an-dd')) { D.anDD = false; render(true); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && D.anDD) { D.anDD = false; render(true); } });
+
 function vAnalyze() {
   const A = D.an;
   if (D.anError) return `<div class="admin-page"><section class="panel"><div class="empty big">${icon('shield-alert', 'xl')}<b>Analyze scope required</b><span>${esc(D.anError)}</span></div></section></div>`;
@@ -1524,11 +1543,14 @@ function vAnalyze() {
   const sc = D.live?.compress || {};
   const here = D.anTree?.self || {};
   const cats = Object.entries(here.cats || {}).sort((a, b) => b[1] - a[1]);
-  return `<div class="col-fill">
-    <div class="tbar"><span class="cap">Drive</span>${isRootAccount() ? `<button class="pill ${S.anMount === 'all' ? 'on' : ''}" data-act="anMount" data-arg="all">All</button>` : ''}
-      ${served().map((m) => `<button class="pill ${String(m.mount) === String(S.anMount) ? 'on' : ''}" data-act="anMount" data-arg="${m.mount}">${esc(m.name)}</button>`).join('')}
-      <div class="grow"></div><span class="small dim">${sc.running ? 'scanning… ' + fmt.n(sc.scanned || 0) + ' files' : sc.hashing ? 'hashing duplicate candidates…' : 'index from ' + fmt.ago((A.drives[0] || {}).scanned)}</span>
-      <button class="pill" data-act="compressRun">Rescan now</button></div>
+  const status = sc.running ? 'scanning… ' + fmt.n(sc.scanned || 0) + ' files' : sc.hashing ? 'hashing duplicates…' : 'index from ' + fmt.ago((A.drives[0] || {}).scanned);
+  const driveName = S.anMount === 'all' ? 'All drives' : mountName(S.anMount);
+  const driveOpts = (isRootAccount() ? [['all', 'All drives']] : []).concat(served().map((m) => [m.mount, m.name]));
+  const sel = (v) => String(v) === String(S.anMount);
+  const dd = `<span class="an-dd"><button class="an-dd-btn" data-act="anDD" aria-haspopup="listbox" aria-expanded="${D.anDD ? 'true' : 'false'}" title="Choose the drive to analyse">${icon('hard-drive', 'sm')}<span class="ell">${esc(driveName)}</span>${icon('chevron-down', 'sm')}</button>
+    ${D.anDD ? `<div class="an-dd-list" role="listbox">${driveOpts.map(([v, n]) => `<button role="option" aria-selected="${sel(v)}" class="${sel(v) ? 'on' : ''}" data-act="anMount" data-arg="${v}" title="${esc(n)}"><span class="ell">${esc(n)}</span></button>`).join('')}</div>` : ''}</span>`;
+  const gstyle = `style="${AN.h ? `height:${AN.h}px;` : ''}grid-template-columns:${AN.c.map((w) => `minmax(0,${w}fr)`).join(' 8px ')}"`;
+  return `<div class="col-fill an-page">
     <div class="kpis">
       ${kpi('Stored', fmt.bytes(t.bytes), fmt.n(t.files) + ' files · ' + fmt.n(t.folders) + ' folders')}
       ${kpi('Largest file', fmt.bytes(t.largest), (A.largest[0] || {}).path || '')}
@@ -1537,17 +1559,21 @@ function vAnalyze() {
       ${kpi('Strata overhead', fmt.bytes(overBytes), 'versions ' + fmt.bytes(ov.versions?.bytes) + ' · trash ' + fmt.bytes(ov.trash?.bytes))}
       ${kpi('Over the cache limit', fmt.n(A.delivery.over_cache_limit.c), fmt.bytes(A.delivery.over_cache_limit.b) + ' · > 512 MB, never cached by Cloudflare', A.delivery.over_cache_limit.c > 0)}
     </div>
-    <div class="grid2 angrid">
-      <section class="panel">
-        <div class="ph"><h5>Where the space goes</h5><span class="crumbs"><button data-act="anGo" data-arg="/">${esc(mountName(tm))}</button>${parts.map((p, i) => `<span class="dim">/</span><button data-act="anGo" data-arg="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</button>`).join('')}</span>
-          <button class="pill" data-act="anColor" title="Change treemap colors">Color: ${S.anColor === 'extension' ? 'file type' : S.anColor === 'category' ? 'category' : 'origin hits'}</button></div>
-        ${treemap()}
-        <div class="keyrow2">${treemapLegend(D.anTree?.nodes || [])}<span class="dim">Area is size. Click a folder to zoom in${D.anTree?.more ? `; ${fmt.n(D.anTree.more)} more items not shown` : ''}.</span></div>
+    <div class="grid2 angrid" ${gstyle}>
+      <section class="panel an-type">
+        <div class="ph"><h5>By type</h5><span class="an-tools"><span class="small dim">${esc(status)}</span><button class="pill" data-act="compressRun" title="Scan the drives again">${icon('refresh-cw', 'sm')}Reload</button></span></div>
+        <div class="an-path">${dd}${parts.length ? `<button class="link" data-act="anGo" data-arg="/" title="Drive root">/</button>` : ''}<span class="crumbs">${parts.map((p, i) => `<span class="dim">/</span><button data-act="anGo" data-arg="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</button>`).join('')}</span></div>
+        ${donut(cats.map(([k, v]) => ({ k, v, color: CAT_COLOR[k] || CAT_COLOR.other })), { fmtv: fmt.bytes, side: true, center: [fmt.bytes(here.bytes), fmt.n(here.files) + ' files'], label: 'Space by file type in this folder' })}
       </section>
+      <div class="an-grip" data-an-grip="0" role="separator" aria-orientation="vertical" aria-label="Resize panels" title="Drag to resize · double-click to reset"></div>
+      <section class="panel">
+        <div class="ph"><h5>Largest folders</h5><span class="small dim">stacked by type · click to open</span></div>
+        ${stackCols(A.folders.slice(0, 8))}
+      </section>
+      <div class="an-grip" data-an-grip="1" role="separator" aria-orientation="vertical" aria-label="Resize panels" title="Drag to resize · double-click to reset"></div>
       <section class="panel">
         <div class="ph"><h5>This folder</h5><span class="small dim">${esc(fmt.bytes(here.bytes))} · ${fmt.n(here.files)} files · ${fmt.n(here.dirs)} folders</span></div>
-        <div class="scroll" data-scroll="an-details">${barList(cats.map(([k, v]) => ({ k, v })), { label: (r) => r.k, value: (r) => r.v, fmtv: (r) => fmt.bytes(r.v) + ' · ' + fmt.pct(share(r.v, here.bytes)) })}
-          <div class="cap mx-0 mt-14 mb-4">Items here</div>
+        <div class="scroll" data-scroll="an-details">
           ${table('anhere', [
             { t: 'Type', w: 36 },
             { t: 'Name', w: 320, sort: 'name' },
@@ -1562,8 +1588,11 @@ function vAnalyze() {
           <div class="act-row"><button class="btn btn-secondary" data-act="anOpenFiles">Open in Files</button></div></div>
       </section>
     </div>
-    <div class="tbar">${tabs.map(([k, l]) => `<button class="pill ${S.anTab === k ? 'on' : ''}" data-act="anTab" data-arg="${k}">${l}</button>`).join('')}</div>
-    <div class="antab" data-scroll="antab">${anTabBody()}</div>
+    <div class="an-hgrip" data-an-grip="h" role="separator" aria-orientation="horizontal" aria-label="Resize rows" title="Drag to resize · double-click to reset"></div>
+    <div class="an-bottom">
+      <div class="tbar">${tabs.map(([k, l]) => `<button class="pill ${S.anTab === k ? 'on' : ''}" data-act="anTab" data-arg="${k}">${l}</button>`).join('')}</div>
+      <div class="antab" data-scroll="antab">${anTabBody()}</div>
+    </div>
   </div>`;
 }
 function pathRows(rows, extra) {
@@ -1575,8 +1604,8 @@ function anTabBody() {
   const A = D.an, tab = S.anTab;
   if (tab === 'types') {
     return `<div class="grid2 cols-2">
-      <section class="panel"><div class="ph"><h5>Categories</h5></div>${barList(A.cats, { label: (r) => r.k + ' · ' + fmt.n(r.c) + ' files', value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) + ' · ' + fmt.pct(share(r.b, A.totals.bytes)), attrs: (r) => `data-act="anList" data-arg="cat|${esc(r.k)}" style="cursor:pointer"` })}</section>
-      <section class="panel"><div class="ph"><h5>Extensions</h5><span class="small dim">click for the files</span></div>${barList(A.exts, { label: (r) => (r.k ? '.' + r.k : '(none)') + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b), attrs: (r) => `data-act="anList" data-arg="ext|${esc(r.k)}" style="cursor:pointer"` })}</section>
+      <section class="panel"><div class="ph"><h5>Categories</h5></div><div class="an-rows">${barList(A.cats, { label: (r) => r.k + ' · ' + fmt.n(r.c) + ' files', value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) + ' · ' + fmt.pct(share(r.b, A.totals.bytes)), attrs: (r) => `data-act="anList" data-arg="cat|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
+      <section class="panel"><div class="ph"><h5>Extensions</h5><span class="small dim">click for the files</span></div><div class="an-rows">${barList(A.exts, { label: (r) => (r.k ? '.' + r.k : '(none)') + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b), attrs: (r) => `data-act="anList" data-arg="ext|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
     </div>` + (D.anList && D.anList.title ? `<div class="ph px-18 py-10"><h5>${esc(D.anList.title)}</h5></div>` + table('anlist', PATH_LABELS, pathRows(D.anList.rows)) : '');
   }
   if (tab === 'largest') return table('anlargest', PATH_LABELS, pathRows(A.largest));
@@ -1614,17 +1643,19 @@ function anTabBody() {
     </div>` + (D.anList && D.anList.title ? `<div class="ph" style="padding:10px 18px"><h5>${esc(D.anList.title)}</h5></div>` + table('anlist', PATH_LABELS, pathRows(D.anList.rows)) : '');
   }
   if (tab === 'age') {
+    const col = (rows, color) => columns(rows.map((r) => ({ k: r.k, v: r.b, sub: fmt.n(r.c) + ' files', color })), fmt.bytes);
     return `<div class="grid2 cols-2">
-      <section class="panel"><div class="ph"><h5>By last modified</h5></div>${barList(A.ages, { label: (r) => r.k + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) })}</section>
-      <section class="panel"><div class="ph"><h5>By file size</h5></div>${barList(A.sizes, { label: (r) => r.k + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) })}</section></div>`;
+      <section class="panel"><div class="ph"><h5>By last modified</h5><span class="small dim">space per age</span></div>${col(A.ages, CAT_COLOR.image)}</section>
+      <section class="panel"><div class="ph"><h5>By file size</h5><span class="small dim">space per size class</span></div>${col(A.sizes, CAT_COLOR.document)}</section></div>`;
   }
   if (tab === 'hot') {
     return `<div class="tbar border-0"><span class="small dim">Most bytes served by the origin in 90 days, cache hits not counted.</span></div>` +
       table('anhot', PATH_LABELS.concat([{ t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 90, a: 'r' }]), pathRows(A.hot, (r) => [cell(fmt.n(r.hits), 'r'), cell(fmt.bytes(r.sent), 'r h800')]));
   }
-  return `<div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))">${A.drives.map((d) => `<section class="panel"><div class="ph"><h5>${esc(d.name)}</h5><span class="small dim">${esc(d.kind)}${d.enabled ? '' : ' · disabled'}</span></div>
+  return `<div class="grid2 cols-3">${A.drives.map((d) => `<section class="panel"><div class="ph"><h5>${esc(d.name)}</h5><span class="small dim">${esc(d.kind)}${d.enabled ? '' : ' · disabled'}</span></div>
       <div class="small dim" style="word-break:break-all">${esc(d.path)}</div>
-      ${d.disk ? segs(share(d.disk.used, d.disk.total), 24, 90, 's7') + `<div class="small dim smt-1">${esc(fmt.bytes(d.disk.free))} free of ${esc(fmt.bytes(d.disk.total))}</div>` : '<div class="small hot">offline</div>'}
+      ${d.disk ? donut([{ k: 'Used', v: d.disk.used, color: 'var(--color-accent)' }, { k: 'Free', v: d.disk.free, color: 'var(--color-neutral-300)' }],
+        { fmtv: fmt.bytes, center: [fmt.pct(share(d.disk.used, d.disk.total)), 'of ' + fmt.bytes(d.disk.total)], label: 'Disk used and free' }) : '<div class="small hot">offline</div>'}
       <div class="cap smt-2">Indexed</div><div class="h800">${esc(fmt.bytes(d.bytes))} · ${fmt.n(d.files)} files</div>
       <span class="mix smt-2">${Object.entries(d.cats || {}).sort((a, b) => b[1] - a[1]).map(([c, b]) => `<i title="${esc(c)} ${esc(fmt.bytes(b))}" style="flex:${b};background:${CAT_COLOR[c] || CAT_COLOR.other}"></i>`).join('')}</span>
       <div class="small dim smt-2">scanned ${esc(fmt.ago(d.scanned))}</div></section>`).join('')}</div>`;
@@ -1636,10 +1667,10 @@ Object.assign(ACT, {
       if (m === 'all') m = allowed[0]?.mount;
       else if (!allowed.some((d) => +d.mount === +m)) return note('You can’t analyze that drive. Ask an administrator for access.', { err: true });
     }
-    S.anMount = m === 'all' ? 'all' : +m; S.anPath = '/'; D.anList = null; D.dupes = null; save(); pollAnalyze();
+    D.anDD = false; S.anMount = m === 'all' ? 'all' : +m; S.anPath = '/'; D.anList = null; D.dupes = null; save(); pollAnalyze();
   },
+  anDD() { D.anDD = !D.anDD; render(true); },
   anGo(p) { S.anPath = p || '/'; pollAnalyze(); },
-  anColor() { S.anColor = ({ extension: 'category', category: 'traffic', traffic: 'extension' })[S.anColor] || 'extension'; render(true); },
   anGoM(arg) { const i = arg.indexOf('|'); S.anMount = +arg.slice(0, i); S.anPath = arg.slice(i + 1); save(); pollAnalyze(); },
   anReveal(p) { const tm = S.anMount !== 'all' ? S.anMount : (served().find((x) => x.online !== false) || {}).mount; S.fmount = tm; go('files'); ACT.freveal(p); },
   anRevealM(arg) { const i = arg.indexOf('|'); S.fmount = +arg.slice(0, i); go('files'); ACT.freveal(arg.slice(i + 1)); },

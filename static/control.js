@@ -3,7 +3,7 @@
    Loaded after app.js and storage.js. Every change goes through Strata's API, which validates the resulting Caddy
    config before applying it - an invalid change is refused and nothing is touched. */
 
-['serving', 'blacklist', 'links', 'alerts'].forEach((v) => STATIC_VIEWS.add(v));
+['serving', 'blacklist', 'challenger', 'links', 'alerts'].forEach((v) => STATIC_VIEWS.add(v));
 Object.assign(S, { srvTab: store.get('srvTab', 'drives'), blFilter: 'active', blQ: '', alFilter: 'open' });
 Object.assign(D, { serv: null, cf: null, alerts: null, histView: null, testRes: null, twofa: null });
 const CC_RE = /^[A-Z]{2}$/;
@@ -23,6 +23,7 @@ const ACTION_HELP = {
   redirect: 'Sends visitors elsewhere (301 permanent or 302 temporary).',
   gallery: 'Matching folders open as a thumbnail gallery with a viewer instead of a 404. /folder/* covers the folder and every sub-folder; files are served exactly as before. Listings are never cached by Cloudflare, thumbnails use the drive’s ?w= modifiers. Switch the rule off to hide the gallery again.',
   player: 'Desktop and tablet browsers opening a matching audio file (mp3, flac, m4a, ogg, opus, wav, alac…) get a visualizer page with the cover art, title and artist instead of the bare file. Phones, embedded players, link previews and ?dl=1 still get the file; ?raw=1 always does. Cloudflare stops caching the bare URL (it caches ?raw=1 instead). Tick “Purge” below so older cached copies stop being served.',
+  challenge: 'Makes browsers solve a short puzzle (Anubis) before they get a matching page, which slows scrapers down. Needs Anubis set up and switched on under Security › Challenger; until then this rule does nothing. Matching files Cloudflare has cached skip its cache (more traffic reaches your server). Link-preview crawlers are not challenged.',
   preview: 'What Discord, Slack and the others show for a shared link. The most specific matching rule wins, field by field. Title, description and image apply only to patterns naming one exact file or folder; colour, card type and “no preview” also work for folders (/folder/*) and whole drives (/*). Pictures, videos and web pages keep the platforms’ own embeds.',
 };
 
@@ -166,7 +167,8 @@ function rulesTab(V) {
     const p = r.params || {};
     const detail = r.action === 'password' ? (p.users || []).map((u) => u.user).join(', ') : r.action === 'ip_allow' ? (p.ips || []).join(', ')
       : r.action.startsWith('geo') ? (p.countries || []).join(', ') : r.action === 'hotlink' ? (p.domains || []).join(', ') : r.action === 'cache' ? p.value
-      : r.action === 'redirect' ? p.code + ' → ' + p.to : r.action === 'player' && p.placeholders ? 'backgrounds: ' + p.placeholders : '';
+      : r.action === 'redirect' ? p.code + ' → ' + p.to : r.action === 'player' && p.placeholders ? 'backgrounds: ' + p.placeholders
+      : r.action === 'challenge' ? (p.downloads ? 'every request' : 'browsers and gallery pages') : '';
     return {
       cells: [hcell(`<button class="link" data-act="ruleMove" data-arg="${r.id}|-1" ${i ? '' : 'disabled'}>▲</button> <button class="link" data-act="ruleMove" data-arg="${r.id}|1" ${i < V.rules.length - 1 ? '' : 'disabled'}>▼</button>`),
         cell(r.name, 'h800'), cell(mName(r.mount), 'dim'), cell(r.patterns.join('  '), '', r.patterns.join('\n')), hcell(`<span class="acc ${r.action === 'allow' ? 'dim' : 'hot'}">${esc(r.action)}</span>`),
@@ -294,6 +296,8 @@ function ruleParams(action, p) {
   if (action === 'redirect') return `<label class="wide">Target URL or path<input id="p_to" class="input" value="${esc(p.to || '')}" placeholder="https://… or /new/path"></label>
     <label>Type<select id="p_code" class="input"><option value="302" ${p.code !== 301 ? 'selected' : ''}>302 temporary</option><option value="301" ${p.code === 301 ? 'selected' : ''}>301 permanent</option></select></label>`;
   if (action === 'player') return `<label class="wide">Backgrounds for files without cover art (a folder on this drive)<input id="p_bg" class="input" value="${esc(p.placeholders || '')}" placeholder="/share/eric/placeholders"></label>`;
+  if (action === 'challenge') return `<label class="dlg-check wide"><input type="checkbox" id="p_dl" ${p.downloads ? 'checked' : ''}> Also challenge direct file requests (downloads, embedded images and audio)</label>
+    <div class="wide small hot">Breaks curl, download managers, media players, Range requests and hotlinked images: none of them can solve a puzzle. Leave it off to challenge only people opening a page.</div>`;
   if (action === 'preview') return `<label class="dlg-check wide"><input type="checkbox" id="p_off" ${p.off ? 'checked' : ''}> No link preview (crawlers get the plain file)</label>
     <label class="wide">Title<input id="p_title" class="input" value="${esc(p.title || '')}" placeholder="automatic"></label>
     <label class="wide">Description<input id="p_desc" class="input" value="${esc(p.description || '')}" placeholder="automatic"></label>
@@ -333,6 +337,7 @@ function readRule(id) {
   else if (action === 'cache') params.value = $('#p_cache').value;
   else if (action === 'redirect') { params.to = $('#p_to').value; params.code = $('#p_code').value; }
   else if (action === 'player') params.placeholders = $('#p_bg').value;
+  else if (action === 'challenge') params.downloads = $('#p_dl').checked;
   else if (action === 'preview') {
     if ($('#p_off').checked) params.off = true;
     for (const [k, id] of [['title', 'p_title'], ['description', 'p_desc'], ['color', 'p_color'], ['kind', 'p_kind'], ['image', 'p_image']]) params[k] = $('#' + id).value;
@@ -496,6 +501,8 @@ function vBlacklist() {
     </div>
     <div class="sect"><span class="cap">Auto-ban</span><span class="small ${ab.enabled ? '' : 'hot'}">${ab.enabled ? 'on' : 'off'}</span></div>
     <div style="padding:0 16px 8px" class="small dim">${ab.enabled ? `IPs sending ${ab.probes} probe requests (.env, wp-login…) within ${ab.window_minutes} min are banned for ${ab.ban_hours} h.` : 'Scanners are not banned automatically.'} <button class="link" data-act="pageSheet" data-arg="autoban">change</button></div>
+    <div class="sect"><span class="cap">Challenger</span><span class="small ${D.me?.bots ? '' : 'dim'}">${D.me?.bots ? 'on' : 'off'}</span></div>
+    <div style="padding:0 16px 8px" class="small dim">${D.me?.bots ? 'Browsers on “Bot challenge” rules solve a puzzle first.' : 'Optional: make browsers solve a puzzle before they get your pages.'} ${meOwner() ? '<button class="link" data-act="go" data-arg="challenger">open</button>' : ''}</div>
     <div class="sect"><span class="cap">Top scanners (${esc(rangeLabel())})</span></div>
     <div class="loglines">${scanners.map((s) => `<div class="logline"><span title="${esc(s.agent || '')}">${esc(s.k)} ${esc(s.country || '')} · ${fmt.n(s.scan)} probes</span><span><button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|86400')}">ban 24 h</button> · <button class="link" data-act="blQuick" data-arg="${esc('ip|' + s.k + '|')}">ban</button></span></div>`).join('') || '<div class="logline"><span class="dim">no unbanned scanners</span><span></span></div>'}</div>
   </aside></div>`;
@@ -816,6 +823,77 @@ function autobanRows(row, toggle) {
     ${row('Within', 'Minutes the probes have to fall into.', numIn('ab_win', ab.window_minutes, 60) + ' min')}
     ${row('Ban length', 'The ban expires on its own.', numIn('ab_hours', ab.ban_hours, 60) + ' h')}`;
 }
+// Security › Challenger › Settings (owner): the values behind the set-up on the page. After a change, Restart Anubis there.
+function botRows(row, toggle) {
+  const b = D.bots;
+  return `${row('Address', 'Where Anubis listens on this PC. Another instance of Strata needs its own.', numIn('bt_bind', b.bind, 150))}
+    ${row('Program', 'anubis.exe (anubis on Linux). Filled in by Install; set it by hand to use an Anubis you installed yourself.', numIn('bt_exe', b.exe, 300))}
+    ${row('Difficulty', 'Leading zeros the puzzle needs: 4 is Anubis’ default; each step is about 16 times more work for the visitor.', numIn('bt_diff', b.difficulty, 48))}
+    ${row('Anubis’ own lists', 'Also deny known AI scrapers and let real search engines through.', toggle(b.defaults, 'botDefaults'))}
+    ${row('Cookie domain', 'Optional, e.g. example.com (no port): one pass for all your subdomains.', numIn('bt_cookie', b.cookie_domain, 150))}
+    ${row('Metrics', 'Prometheus metrics: add this address as a scrape target (see the README).', `<code>${esc(b.prometheus)}</code>`)}`;
+}
+
+/* ================================================================== challenger (Anubis set-up and status) */
+
+VIEW_REFRESH.challenger = async () => {
+  try { D.bots = await get('/api/bots'); } catch (e) { note(e.message); }
+  await loadServ(); refreshControl();
+};
+setInterval(() => { if (S.view === 'challenger' && !S.paused && !D.botBusy && !$('#sheet')) VIEW_REFRESH.challenger(); }, 10000);
+function vChallenger() {
+  const b = D.bots;
+  if (!b) return loading('Loading the Challenger…');
+  const busy = D.botBusy, dis = busy || !meOwner() ? 'disabled' : '';
+  const rules = (D.serv?.rules || []).filter((r) => r.action === 'challenge'), live = rules.filter((r) => r.enabled);
+  const run = b.answers ? 'working' : b.reachable ? 'answers, but not as Anubis' : 'not running';
+  const done = b.exe && b.key_exists && b.enabled && (b.dry_run || (b.task_installed && b.answers));
+  const step = (n, title, desc, ctl) => setRow(n + '   ' + title, desc, ctl);
+  const rows = [
+    step(1, 'Program', b.exe ? b.exe : b.asset ? `Anubis ${b.tested} from github.com, about 25 MB. Strata checks the file against the SHA-256 GitHub publishes for it and unpacks only the program and its licence into this instance’s .private folder.`
+      : 'There is no Anubis download for this system. Install it yourself and set its path under Settings.',
+    b.exe ? `<span class="h800 ${b.version ? '' : 'hot'}">${esc(b.version || 'file missing')}</span>`
+      : `<button class="pill on" data-act="botInstall" ${dis || (b.asset ? '' : 'disabled')}>Install Anubis ${esc(b.tested)}</button>`),
+    step(2, 'Key and policy', 'A signing key for the pass cookies (never shown or logged) and the rules Anubis follows. Strata writes both, and rewrites the policy when you change settings.',
+      `<span class="h800 ${b.key_exists && b.policy_exists ? '' : 'dim'}">${b.key_exists && b.policy_exists ? 'ready' : 'made by set-up'}</span>`),
+    step(3, 'Start-up task', b.dry_run ? 'Demo instance: nothing is registered or started here.' : b.task_installed ? `Registered as “${b.task}”. Anubis starts with this PC and again after a failure.`
+      : `Registers “${b.task}” so Anubis starts with this PC, and starts it now.`,
+    `<span class="h800 ${b.task_installed ? '' : 'dim'}">${b.task_installed ? 'registered' : 'not registered'}</span>
+      <button class="pill" data-act="botTask" ${dis || (b.exe && !b.dry_run ? '' : 'disabled')}>${b.task_installed ? 'Register again' : 'Register and start'}</button>
+      <button class="pill danger" data-act="botTaskRemove" ${dis || (b.task_installed ? '' : 'disabled')}>Remove</button>`),
+    step(4, 'Running', `Anubis listens on ${b.bind}, on this PC only.`,
+      `<span class="h800 ${b.enabled && !b.answers && !b.dry_run ? 'hot' : b.answers ? '' : 'dim'}">${esc(run)}</span> <button class="pill" data-act="botCheck" ${busy ? 'disabled' : ''}>Check</button>
+      <button class="pill" data-act="botRestart" ${dis || (b.task_installed ? '' : 'disabled')}>Restart</button>
+      <button class="pill" data-act="botStop" ${dis || (b.task_installed ? '' : 'disabled')}>Stop</button>`),
+    step(5, 'Protection', 'On: “Bot challenge” rules send browsers to the puzzle. Off: Strata behaves as without it. It won’t switch on until Anubis answers, and stopping Anubis needs it off first.',
+      busy ? '' : toggle(b.enabled, 'botToggle')),
+    step(6, 'Rules', live.length ? live.map((r) => r.name + ' (' + (r.patterns || []).join(' ') + ')').join(', ') + (rules.length > live.length ? ' · ' + (rules.length - live.length) + ' switched off' : '')
+      : rules.length ? 'All Bot challenge rules are switched off.' : 'No Bot challenge rule yet, so nothing is challenged. Browsers opening a page are challenged; files are not, unless a rule says so.',
+    `${rules.length ? '' : `<button class="pill" data-act="botRuleAdd" ${dis}>Challenge all pages</button> `}<button class="pill" data-act="go" data-arg="serving">Edit rules</button>`),
+  ].join('');
+  const n = b.counts || {}, total = Object.values(n).reduce((a, x) => a + x, 0);
+  return `<div class="split" style="grid-template-columns:1fr 330px"><section class="aside">
+    <div class="tbar">
+      ${done ? '' : `<button class="pill on" data-act="botSetup" ${dis}>${b.exe ? 'Finish set-up' : 'Set up everything'}</button>`}
+      ${busy ? `<span class="small">${icon('loader-circle', 'spin')} ${esc(busy)}</span>` : ''}
+      <div class="grow"></div>${meOwner() ? sheetBtn('bots') : ''}
+    </div>
+    <div class="px-18 pb-12">${rows}
+      ${D.botLog ? `<div class="sect px-0"><span class="cap">Last set-up</span></div>${D.botLog.map((l) => `<div class="small">${esc(l)}</div>`).join('')}` : ''}</div>
+  </section>
+  <aside class="aside">
+    <div class="pad"><div class="cap red">Anubis</div><h5>${b.enabled ? (b.answers ? 'Protecting' : b.dry_run ? 'On (demo: Anubis isn’t started)' : 'Down: challenged paths answer 502') : 'Off'}</h5></div>
+    <div class="small px-16 pb-10 dim">${b.version ? esc(b.version) + ' · ' : ''}difficulty ${esc(b.difficulty)} · ${b.defaults ? 'with' : 'without'} Anubis’ own lists</div>
+    <div class="sect"><span class="cap">Judged by Anubis</span><span class="small dim">since it started</span></div>
+    <div class="loglines" style="flex:none">${b.counts ? ['CHALLENGE', 'ALLOW', 'DENY'].map((k) => `<div class="logline"><span>${{ CHALLENGE: 'Sent to the puzzle', ALLOW: 'Let through', DENY: 'Denied' }[k]}</span><span>${fmt.n(n[k] || 0)}</span></div>`).join('')
+      + `<div class="logline"><span>All</span><span>${fmt.n(total)}</span></div>`
+      : '<div class="logline"><span class="dim">Anubis is not running</span><span></span></div>'}</div>
+    <div class="sect"><span class="cap">Good to know</span></div>
+    <div class="small dim px-16 pb-10">Challenged files skip Cloudflare’s cache (Strata adds one Cache Rule for them), so more requests reach your server. Link-preview crawlers, signed links and Allow rules are never challenged. This slows scrapers; it is not access control.</div>
+    <div class="sect"><span class="cap">Files</span></div>
+    <div class="small dim px-16 pb-10">Policy <code>${esc(b.policy)}</code><br>Key <code>${esc(b.key)}</code><br>Metrics <code>${esc(b.prometheus)}</code></div>
+  </aside></div>`;
+}
 function linkRows(row, toggle) {
   const lk = D.me.links || {}, ab = lk.abuse || {};
   return `${row('Default lifetime', 'New share links expire after this many days. 0 means never.', numIn('lk_days', lk.default_days ?? 7) + ' days')}
@@ -864,6 +942,7 @@ const PAGE_SHEETS = {
   delivery: ['Alerts', 'Delivery', async () => { D.alertsCfg = (await get('/api/alerts')).config; }, notifyRows, ['nSave'],
     () => `<button class="btn btn-secondary" data-act="nTest" ${D.alertsCfg?.configured || D.alertsCfg?.webhooks?.length ? '' : 'disabled'}>Send test</button>${D.alertsCfg?.key_set && meOwner() ? '<button class="btn btn-secondary" data-act="nClear">Remove key</button>' : ''}${D.alertsCfg?.webhooks?.length && meOwner() ? '<button class="btn btn-secondary" data-act="nClearHooks">Remove webhooks</button>' : ''}`],
   autoban: ['Blocklist', 'Auto-ban', loadMe, autobanRows, ['abSave']],
+  bots: ['Challenger', 'Settings', async () => { D.bots = await get('/api/bots'); }, botRows, ['botSave'], null, true],
   links: ['Links', 'Link settings', loadMe, linkRows, ['lkSave']],
   files: ['Files', 'Upload settings', async () => { await loadMe(); if (!D.drives) await loadDrives(); },
     (row, toggle) => uploadRows(row) + (D.me.smartsort ? smartsortRows(row, toggle) : ''), ['uSave', 'ssSave']],
@@ -958,6 +1037,55 @@ Object.assign(ACT, {
   async nTest() { try { await post('/api/alerts/test', {}); note('Test message sent'); } catch (e) { note(e.message); } },
   async nClearHooks() { try { const r = await post('/api/alerts/config', { webhooks: '' }); D.alertsCfg = r.config; closeSheet(); note('Webhooks removed'); } catch (e) { note(e.message); } },
   async uSave() { try { D.me = await post('/api/settings/upload', { chunk_mb: +$('#u_chunk').value, parallel: +$('#u_par').value, versions_keep: +$('#u_keep').value }); await loadMe(); note('Upload settings saved'); render(true); return true; } catch (e) { note('Couldn’t save the upload settings: ' + e.message); } },
+  async botPost(body, ok) {
+    try { D.bots = await post('/api/settings/bots', body); await loadMe(); note(ok); render(true); return true; } catch (e) { note('Couldn’t save bot protection: ' + e.message); render(true); }
+  },
+  botToggle(on) { return ACT.botPost({ enabled: !!on }, on ? 'Bot protection is on' : 'Bot protection is off'); },
+  botDefaults(on) { return ACT.botPost({ defaults: !!on }, 'Saved'); },
+  async botSave() {
+    const ok = await ACT.botPost({ bind: $('#bt_bind').value, exe: $('#bt_exe').value, difficulty: +$('#bt_diff').value, cookie_domain: $('#bt_cookie').value },
+      D.bots.task_installed ? 'Saved. Restart Anubis (step 4) for the change to take effect' : 'Saved');
+    return ok;
+  },
+  async botCheck() { try { D.bots = await get('/api/bots'); render(true); const b = D.bots; note(b.answers ? 'Anubis answers' : b.reachable ? 'Something answers, but not Anubis' : 'Nothing listens on ' + b.bind); } catch (e) { note(e.message); } },
+  // one long call at a time; the page says what it is doing and reloads the state afterwards, whatever happened
+  async botRun(msg, fn) {
+    if (D.botBusy) return;
+    D.botBusy = msg; render(true);
+    try { await fn(); } catch (e) { note(e.message); } finally {
+      D.botBusy = '';
+      try { D.bots = await get('/api/bots'); await loadMe(); await loadServ(); } catch { /* shown by the next refresh */ }
+      render(true);
+    }
+  },
+  async botSetup() {
+    const b = D.bots;
+    const ok = await ask({ kicker: 'Challenger', title: 'Set up bot protection?', ok: 'Set up', text: (b.exe ? 'Uses ' + b.exe + '. ' : 'Downloads Anubis ' + b.tested + ' (about 25 MB) from github.com and checks it against GitHub’s SHA-256. ')
+      + (b.dry_run ? 'Demo instance: creates the key and policy and switches protection on; registers and starts nothing.'
+        : 'Creates the key and policy, registers “' + b.task + '” to start with this PC, starts it, and switches protection on once Anubis answers. Nothing is challenged until a Bot challenge rule exists.') });
+    if (ok) await ACT.botRun('Setting up: ' + (b.exe ? '' : 'downloading, ') + 'starting, checking…', async () => { const r = await post('/api/bots/setup', {}); D.botLog = r.log; note('Bot protection is on'); });
+  },
+  async botInstall() {
+    await ACT.botRun('Downloading Anubis ' + D.bots.tested + '…', async () => { await post('/api/bots/install', {}); D.botLog = ['Downloaded Anubis ' + D.bots.tested + '; the checksum matched']; note('Anubis installed'); });
+  },
+  async botTask() {
+    const b = D.bots;
+    const ok = await ask({ kicker: 'Challenger', title: (b.task_installed ? 'Register Anubis again?' : 'Register Anubis to start with this PC?'), ok: 'Register and start',
+      text: 'Runs ' + b.exe + ' at boot, as the other Strata services do, and starts it now' + (b.task_installed ? ' (it restarts if it is running)' : '') + '.' });
+    if (ok) await ACT.botRun('Registering and starting Anubis…', async () => { await post('/api/bots/task', {}); note('Start-up task registered'); });
+  },
+  async botTaskRemove() {
+    const ok = await ask({ kicker: 'Challenger', title: 'Remove the start-up task?', danger: true, ok: 'Remove', text: 'Stops Anubis and takes “' + D.bots.task + '” out of the start-up tasks. The program, key and settings stay.' });
+    if (ok) await ACT.botRun('Removing the start-up task…', async () => { await post('/api/bots/task/remove', {}); note('Start-up task removed'); });
+  },
+  botRestart() { return ACT.botRun('Restarting Anubis…', async () => { await post('/api/bots/restart', {}); note('Anubis restarted'); }); },
+  botStop() { return ACT.botRun('Stopping Anubis…', async () => { await post('/api/bots/stop', {}); note('Anubis stopped'); }); },
+  async botRuleAdd() {
+    const ok = await ask({ kicker: 'Challenger', title: 'Challenge every page on all drives?', ok: 'Add the rule',
+      text: 'Adds the rule “Bot challenge” (/*, all drives). Browsers opening a page or a gallery folder solve the puzzle first; direct file requests are not challenged. You can narrow or remove it under Serving › Rules.' });
+    if (!ok) return;
+    try { await mutate('/api/serving/rule', { name: 'Bot challenge', action: 'challenge', patterns: ['/*'], params: { downloads: false } }, 'Rule added'); } catch { /* shown */ }
+  },
   async abToggle(v) { try { await post('/api/settings/autoban', { enabled: v === '1' }); await loadMe(); render(true); } catch (e) { note(e.message); } },
   async abSave() { try { await post('/api/settings/autoban', { probes: +$('#ab_probes').value, window_minutes: +$('#ab_win').value, ban_hours: +$('#ab_hours').value }); await loadMe(); note('Auto-ban saved'); render(true); return true; } catch (e) { note('Couldn’t save auto-ban: ' + e.message); } },
   async cfEdge(v) { try { D.cf = await post('/api/cloudflare/settings', { edge_enabled: v === '1' }); render(true); } catch (e) { note(e.message); } },
@@ -978,5 +1106,6 @@ Object.assign(ACT, {
 
 VIEWFN.serving = vServing;
 VIEWFN.blacklist = vBlacklist;
+VIEWFN.challenger = vChallenger;
 VIEWFN.links = vLinks;
 VIEWFN.alerts = vAlerts;
