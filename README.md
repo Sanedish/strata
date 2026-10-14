@@ -218,11 +218,9 @@ You can run `setup.py` again at any time to change the configuration. Each promp
 
 ### Linux
 
-The installer includes a systemd setup path. Install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`.
+Linux is a supported and tested platform. Install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`; the installer configures systemd.
 
-Linux is a supported and tested platform. The installer configures systemd; install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`.
-
-Restarting the tunnel from the dashboard is supported through systemd. Set `instance.tunnel_restart` to `{"kind": "service", "name": "cloudflared"}` to restart the `cloudflared` service.
+To enable tunnel restarts from the dashboard, set `instance.tunnel_restart` to `{"kind": "service", "name": "cloudflared"}`. Strata will restart the configured `cloudflared` systemd service.
 
 ### E-mail and sign-in codes
 
