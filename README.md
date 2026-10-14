@@ -127,8 +127,6 @@ With a Cloudflare API token configured, Strata also pushes its blocklist to Clou
 
 Security and service alerts appear in the dashboard. These include bans, failed sign-ins, outages, low disk space and error spikes. Alerts can also be sent by e-mail through SMTP or Resend, or to webhooks such as Discord, Slack, ntfy and endpoints that accept JSON.
 
-<<<<<<< HEAD
-=======
 <br clear="right">
 
 ### Bot protection (optional)
@@ -157,7 +155,6 @@ What it costs and what it doesn't cover:
 
 Each instance has its own Anubis: its own port (8923, plus the instance's port offset), signing key (`.private/anubis.key`, created for you, never in `strata.json`, a log or a command line) and policy (`generated/anubis-policy.yaml`, rewritten on every change; it can also load Anubis' shipped lists that deny known AI scrapers and allow real search crawlers). Anubis' Prometheus metrics are on `127.0.0.1:9923` (plus the offset): add `- targets: ['127.0.0.1:9923']` to a `scrape_configs` job next to Caddy's.
 
->>>>>>> nightly
 ### Other features
 
 ![Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity](docs/images/files.png)
