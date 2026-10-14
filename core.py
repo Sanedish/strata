@@ -50,7 +50,7 @@ import urllib.request
 
 import instance
 
-VERSION = "0.3.1"                    # bump on every release; the dashboard compares it with the latest GitHub release
+VERSION = "0.4.0"                    # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")
@@ -138,6 +138,16 @@ DEFAULTS = {
     "links": {"default_days": 7,
               "abuse": {"enabled": True, "per_ip_10m": 60, "clicks_10m": 500, "countries_1h": 25,
                         "bot_min": 30, "bot_share": 0.8}},
+    # Bot protection (anubis.py): off until the operator installs Anubis and switches it on. Nothing is bundled or started.
+    "anubis": {"enabled": False,
+               "bind": "",                    # Anubis' listen address; "" = 127.0.0.1:<8923 + this instance's port offset>
+               "exe": "",                     # anubis.exe / anubis, for the start-up task ("" = the task is not offered)
+               "difficulty": 4,               # leading zero hex digits of the proof of work (each +1 is ~16x the work)
+               "defaults": True,              # also apply Anubis' shipped lists: deny known AI scrapers, allow real search crawlers
+               "cookie_domain": "",           # registrable domain, never with a port; "" = one cookie per host
+               "public_url": "https://",      # Anubis' --public-url: only the scheme. Without one its puzzle page redirects back to
+                                              # itself; "http://" for a site that is not reached over Cloudflare's https
+               "metrics": ""},                # "" = 127.0.0.1:<9923 + offset>
     # Crackdown (rules.py): suspects are left out of error rates, clear cases are banned at origin + Cloudflare.
     "autoban": {"enabled": True, "probes": 10, "window_minutes": 60, "ban_hours": 72,
                 "credential_probes": 2,          # /.env, keys, cloud credentials: nobody legitimate asks twice
@@ -455,6 +465,9 @@ def os_of(ua):
 PRECOMP = {}
 
 
+CHALLENGE_PATH = "/.within.website/"  # Anubis' own URL space (rules.render_challenge routes it to Anubis)
+
+
 def parse_line(line):
     try:
         j = json.loads(line)
@@ -473,6 +486,8 @@ def parse_line(line):
     if ua == PROBE_UA:  # our own origin health checks
         return None
     uri = r.get("uri") or ""
+    if uri.startswith(CHALLENGE_PATH) or ((j.get("resp_headers") or {}).get("Location") or [""])[0].startswith(CHALLENGE_PATH):
+        return None  # Anubis (bot protection): challenge pages, solutions and the redirect to them are not traffic
     path, _, query = uri.partition("?")
     ray = hv("Cf-Ray")
     ref = hv("Referer")

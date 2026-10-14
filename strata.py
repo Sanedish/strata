@@ -32,6 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import alerts
 import analyze
+import anubis
 import backup
 import accounts
 import auth
@@ -351,6 +352,9 @@ ROUTE_CAPS = {
     "/api/settings/links": "system.settings", "/api/settings/smartsort": "system.settings",
     "/api/settings/upload": "system.settings", "/api/compress/run": "system.compression",
     "/api/settings/autoban": "security.autoban",
+    "/api/bots": "security.bots", "/api/settings/bots": "security.bots", "/api/bots/task": "security.bots",  # Anubis: runs a program here
+    "/api/bots/restart": "security.bots", "/api/bots/stop": "security.bots", "/api/bots/task/remove": "security.bots",
+    "/api/bots/install": "security.bots", "/api/bots/setup": "security.bots",  # the last two download from github.com
     "/api/backup": "system.backup", "/api/backup/restore": "system.backup",  # the whole database: owner only
     # own account
     "/api/me": "account.self", "/api/instance": "account.self", "/api/prefs": "account.self", "/api/password": "account.self",
@@ -778,7 +782,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": str(e)}, e.code)
         if isinstance(e, network.NetError):
             return self.json({"error": str(e)}, 400)
-        if isinstance(e, rules.ServeError):
+        if isinstance(e, (rules.ServeError, anubis.BotError)):
             return self.json({"error": str(e)}, 400)
         if isinstance(e, cloudflare.CFError):
             return self.json({"error": "Cloudflare: %s" % e, "status": e.status}, 502)
@@ -1015,6 +1019,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/serving/test": lambda: rules.test_url(q.get("url", ""), q.get("ip", ""), q.get("ua", ""),
                                                         q.get("country", ""), q.get("referer", "")),
             "/api/cloudflare": self.cf_state,
+            "/api/bots": anubis.state,
             "/api/alerts": lambda: alerts.q_alerts(q),
             "/api/me": lambda: self.me(user),
             "/api/instance": instance_info,
@@ -1083,7 +1088,7 @@ class Handler(BaseHTTPRequestHandler):
                 "privacy_accepted": acct.get("privacy_version") == accounts.PRIVACY_VERSION,
                 "totp": bool(a.get("totp_secret")) if acct.get("role") == "root" else False,
                 "recovery_left": len(a.get("recovery") or []) if acct.get("role") == "root" else 0,
-                "sessions": App.sessions.count(), "autoban": CFG["autoban"], "upload": CFG["upload"],
+                "sessions": App.sessions.count(), "autoban": CFG["autoban"], "bots": bool(CFG["anubis"]["enabled"]), "upload": CFG["upload"],
                 "versions_keep": CFG.get("versions_keep"), "links": CFG["links"],
                 "smartsort": dict(CFG["smartsort"], home=smart_home(user))}
 
@@ -2190,6 +2195,43 @@ class Handler(BaseHTTPRequestHandler):
             r = save_branding(b)
             A("branding", ", ".join(sorted(b))[:200])
             return r
+        if path == "/api/settings/bots":
+            old = dict(CFG["anubis"])
+            try:
+                anubis.save(b)
+                rules.mutate(user, "bot protection settings", lambda db: None)  # re-render, check with Caddy, reload
+            except Exception:  # Caddy (or the checks) refused: back to what ran before
+                core.save_config({"anubis": old})
+                anubis.write_policy()
+                raise
+            rules.EDGE_SYNC.set()
+            A("bots-settings", json.dumps({k: v for k, v in b.items() if k != "exe"})[:300])
+            return anubis.state()
+        if path == "/api/bots/task":
+            return anubis.install_task(user)
+        if path == "/api/bots/restart":
+            return anubis.restart(user)
+        if path == "/api/bots/stop":
+            return anubis.stop(user)
+        if path == "/api/bots/task/remove":
+            return anubis.remove_task(user)
+        if path == "/api/bots/install":
+            A("bots-install", anubis.TESTED)
+            anubis.install(user)
+            return anubis.state()
+        if path == "/api/bots/setup":  # program, key, policy, start-up task, start, switch on
+            was_on = anubis.enabled()
+            try:
+                log = anubis.setup_all(user)
+                anubis.save({"enabled": True})
+                rules.mutate(user, "bot protection set up", lambda db: None)
+            except Exception:  # keep what was downloaded, but not a half-working switch
+                core.save_config({"anubis": {"enabled": was_on}})
+                anubis.write_policy()
+                raise
+            rules.EDGE_SYNC.set()
+            A("bots-setup", anubis.TESTED)
+            return dict(anubis.state(), log=log + ["Bot protection is on"])
         if path == "/api/settings/autoban":
             ab = {k: b[k] for k in ("enabled", "probes", "window_minutes", "ban_hours") if k in b}
             for k in ("probes", "window_minutes", "ban_hours"):

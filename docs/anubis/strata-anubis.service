@@ -1,0 +1,26 @@
+# Anubis (bot protection) for one Strata instance. A hardened sample: Strata's "Register" button writes a plainer unit
+# of the same name when it runs as root. To use this one, copy it to /etc/systemd/system/strata-anubis.service, then:
+#     systemctl daemon-reload && systemctl enable --now strata-anubis
+# One unit per Strata instance: change the port, the paths and the host names. Strata writes the policy and the key
+# (Blocklist > Bot protection, or the first Register); Anubis only reads them. --target is a single space on purpose:
+# Anubis answers Caddy's forward_auth check and never proxies your files.
+[Unit]
+Description=Anubis bot protection for Strata
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# the user that runs Strata (the key file is readable by that user only)
+User=strata
+ExecStart=/usr/bin/anubis --bind 127.0.0.1:8923 --target " " \
+    --policy-fname /srv/strata/generated/anubis-policy.yaml \
+    --ed25519-private-key-hex-file /srv/strata/.private/anubis.key \
+    --difficulty 4 --redirect-domains cdn.example.com --slog-level WARN
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

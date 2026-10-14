@@ -214,6 +214,7 @@ def main():
             ("smtp sender", py + [os.path.join(TESTS, "smtp_test.py")]),
             ("security", py + [os.path.join(TESTS, "sec_regress.py"), db]),
             ("caddy config", py + [os.path.join(TESTS, "caddy_test.py"), db]),
+            ("bot protection", py + [os.path.join(TESTS, "anubis_test.py")]),
             ("permissions", py + [os.path.join(TESTS, "granular_regress.py"), db, files]),
             ("team", py + [os.path.join(TESTS, "office_regress.py"), db]),
             ("sign-in", py + [os.path.join(TESTS, "login_test.py")]),

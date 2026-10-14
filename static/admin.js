@@ -26,9 +26,10 @@
     const services = (s.processes || []).map((p) => `<div class="sys-row"><div><b>${esc(p.name)}</b><small>${esc(p.addr || 'no listener configured')}</small></div>${status(!!p.up, 'Online', 'Offline')}</div>`).join('');
     const tables = (s.tables || []).map((t) => `<tr><td>${esc(t.name)}</td><td class="r">${fmt.bytes(t.bytes)}</td></tr>`).join('');
     const counts = Object.entries(c).map(([k, v]) => `<div class="sys-count"><span>${esc(k.replaceAll('_', ' '))}</span><b>${fmt.n(v)}</b></div>`).join('');
+    const big = (k, v, sub, title) => `<div${title ? ` title="${esc(title)}"` : ''}><div class="cap">${esc(k)}</div><div class="val">${esc(v)}</div><div class="small dim ell">${esc(sub)}</div></div>`;
     return `<div class="sys-page">
-      <section class="panel sys-overview"><div class="ph"><h5>${icon('cpu')} ${esc(s.instance?.name || 'Strata')}</h5><button class="pill" data-act="sysRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>
-        <div class="sys-stats">${stat('Database', fmt.bytes(s.db?.size), fmt.n(s.db?.rows) + ' requests')}${stat('Running', fmt.dur(Date.now() / 1000 - s.started), 'PID ' + s.pid + ' · Python ' + s.python)}${stat('Runtime log', fmt.bytes(r.bytes), r.path ? r.path.split(/[\\/]/).pop() : 'not created yet', r.path)}</div></section>
+      <div class="tbar"><span class="small dim">${esc(s.instance?.name || 'Strata')} · PID ${esc(s.pid)} · Python ${esc(s.python)}</span><div class="grow"></div><button class="pill" data-act="sysRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>
+      <div class="kpis">${big('Database', fmt.bytes(s.db?.size), fmt.n(s.db?.rows) + ' requests')}${big('Running', fmt.dur(Date.now() / 1000 - s.started), 'since the last start')}${big('Runtime log', fmt.bytes(r.bytes), r.path ? r.path.split(/[\\/]/).pop() : 'not created yet', r.path)}</div>
       <div class="sys-grid"><section class="panel sys-panel"><div class="ph"><h5>${icon('activity')} Service health</h5><span class="small dim">local listeners</span></div><div class="sys-services">${services || '<div class="empty">No local services are configured.</div>'}</div></section>
         <section class="panel sys-panel"><div class="ph"><h5>${icon('database')} Stored records</h5><span class="small dim">live table counts</span></div><div class="sys-counts">${counts}</div></section>
         ${tables ? `<section class="panel sys-panel"><div class="ph"><h5>${icon('hard-drive')} Largest database tables</h5><span class="small dim">SQLite page allocation</span></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Table</th><th class="r">Allocated</th></tr></thead><tbody>${tables}</tbody></table></div></section>` : ''}
@@ -306,7 +307,7 @@
       ${A.signups.locked_by_env ? '<span class="small dim">locked by the ALLOW_SIGNUPS environment variable</span>' : btn('toggleSignups', A.signups.allowed ? 'Switch to invite only' : 'Allow open registration', { arg: A.signups.allowed ? '0' : '1' })}</div>
       <p class="acct-note">Invite only is recommended: then only the owner can create accounts, here.</p></section>` : '';
     return `<div class="admin-page acct-page">
-      <div class="admin-page-head"><div><div class="cap">Administration · identity &amp; access</div><h3>Accounts</h3><p>Who can sign in, and what they can do.</p></div>
+      <div class="tbar"><span class="grow"></span>
         <div class="acct-actions">${btn('accountLoad', 'Refresh', { icon: 'refresh-cw' })}${btn('accountCreateToggle', A.createOpen ? 'Close form' : 'New account', { primary: !A.createOpen, icon: A.createOpen ? 'x' : 'user-plus' })}</div></div>
       ${link}${createSection()}
       <div class="account-layout">
@@ -403,7 +404,7 @@
     const write = has('code.write'), path = A.ide.path;
     const state = A.ide.error ? `<div class="empty">${esc(A.ide.error)}</div>` : !A.ide.tree ? loading('Indexing source files…') : treeMarkup() || '<div class="empty">No source files are in the IDE scope.</div>';
     const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Edit Strata’s own source files.</p><p>${write ? 'Every save keeps a backup first.' : 'This account can only read the source.'}</p></div>`;
-    return `<div class="admin-page ide-page"><div class="admin-page-head"><div><div class="cap">Administration · source</div><h3>Strata web IDE</h3><p>Source changes apply to every Strata instance using this shared code folder.</p></div><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
+    return `<div class="admin-page ide-page"><div class="tbar"><span class="small dim">Source changes apply to every Strata instance using this shared code folder.</span><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
       <div class="ide-workspace"><aside class="ide-sidebar"><div class="ide-tree-head">${icon('folder-tree', 'sm')} Source files</div><input class="input" id="ide-search" placeholder="Filter files…" value="${esc(A.ide.search)}"><div class="ide-tree">${state}</div></aside><section class="ide-main">${editor}</section></div></div>`;
   }
 
