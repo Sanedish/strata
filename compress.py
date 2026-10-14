@@ -546,6 +546,8 @@ class Compressor(threading.Thread):
                 if upd:
                     with db:
                         for col, val, mid, path in upd:
+                            if col not in ("qhash", "hash"):
+                                raise ValueError("invalid column")
                             db.execute("UPDATE fidx SET %s=? WHERE mount=? AND path=?" % col, [val, mid, path])
         finally:
             with self.lock:

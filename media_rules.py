@@ -440,11 +440,10 @@ def write_media_config(mounts, db=None, path=None):
     reloads on mtime). `mounts` = core.mounts() rows; only enabled files mounts are exported."""
     m = _m()
     conf = copy.deepcopy(m)
+    conf.pop("admin_token", None)   # secrets stay in data/.env: media/config.py reads them from there
     db_path = m.get("db") or "data/media.db"
     conf.update({
         "listen": listen(),
-        "sign_secret": core.CFG.get("sign_secret", ""),
-        "admin_token": m.get("admin_token", ""),
         "db": (db_path if os.path.isabs(db_path) else os.path.join(core.HOME, db_path)).replace("\\", "/"),
         "cache_root": m.get("cache_root"),
         "event_log": m.get("event_log"),

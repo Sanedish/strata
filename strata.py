@@ -48,7 +48,15 @@ import rollup
 import rules
 from core import CFG, log
 
+try:  # dev-only extensions in the git-ignored local/ folder: production has none
+    import local
+except ModuleNotFoundError as e:
+    if e.name != "local":
+        raise
+    local = None
+
 STATIC = os.path.join(core.ROOT, "static")
+LOCAL_STATIC = os.path.join(core.ROOT, "local", "static")  # its .css / .js join index.html (<!--LOCAL-->)
 PUBLIC_STATIC = {"/styles.css", "/favicon.ico", "/login.js", "/boot.js", "/custom.css"}
 BRAND_FILES = ("custom.css", "brand.png")  # Settings › Branding: a copy in the instance home replaces the built-in file
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
@@ -269,22 +277,38 @@ def icon_sprite():
         return f.read().replace('style="display:none"', 'aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"', 1)
 
 
+def local_assets():
+    """<link> / <script> tags for the dev-only files in local/static/ ("" in production)."""
+    if not local or not os.path.isdir(LOCAL_STATIC):
+        return ""
+    names = sorted(os.listdir(LOCAL_STATIC))
+    return "".join(['<link rel="stylesheet" href="/%s">' % n for n in names if n.endswith(".css")] +
+                   ['<script src="/%s"></script>' % n for n in names if n.endswith(".js")])
+
+
 def page_vars():
     """Placeholders filled into the HTML pages (index.html carries the instance info for the scripts)."""
     import html
     info = instance_info()
     return {"{{SITE}}": html.escape(info["name"]), "{{INSTANCE}}": html.escape(json.dumps(info), quote=True),
             "{{ACCENT}}": html.escape(info["accent"] or ""), "{{BRAND}}": html.escape(info["brand"]),
+            "<!--LOCAL-->": local_assets(),
             "<!--LOGIN_TEXT-->": '<p class="foot">%s</p>' % html.escape(info["login_text"]) if info["login_text"] else "",
             "<!--VERSION-->": "Strata %s%s" % (html.escape(info["version"]), ' · <a href="%s" target="_blank" rel="noopener">%s available</a>' % (
                 html.escape(info["update"]["url"]), html.escape(info["update"]["tag"])) if info["update"] else "")}
+
+
+def read_file(path, mode="rb", encoding=None):
+    """Whole file, handle closed at once: an open one makes os.replace() fail on Windows (WinError 32)."""
+    with open(path, mode, encoding=encoding) as f:
+        return f.read()
 
 
 def branding():
     """Settings › Branding: what the editor shows (name and sign-in text live in strata.json, files in the home)."""
     css = core.home_path("custom.css")
     return {"brand": CFG["instance"].get("brand") or "", "login_text": CFG["instance"].get("login_text") or "",
-            "css": open(css, encoding="utf-8").read() if os.path.isfile(css) else "",
+            "css": read_file(css, "r", "utf-8") if os.path.isfile(css) else "",
             "logo": os.path.isfile(core.home_path("brand.png"))}
 
 
@@ -383,6 +407,8 @@ ROUTE_CAPS = {
     "/api/office/seen": "office.view", "/api/office/post/edit": "office.view", "/api/office/post/delete": "office.view",
     "/api/office/post/pin": "office.admin", "/api/office/member": "office.admin",
 }
+if local:
+    ROUTE_CAPS.update(local.CAPS)
 
 
 def route_cap(path, method, q, body):
@@ -499,15 +525,8 @@ class Handler(BaseHTTPRequestHandler):
     def csrf_ok(self, path=""):
         if self.via_key:  # no ambient credential: a browser cannot attach the Authorization header cross-site
             return True
-        if path in ("/privacy/accept", "/enroll") and self.headers.get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
-            origin = self.headers.get("Origin")
-            referer = self.headers.get("Referer")
-            host = (self.headers.get("Host") or "").lower()
-            if origin:
-                return urllib.parse.urlsplit(origin).netloc.lower() == host
-            if referer:
-                return urllib.parse.urlsplit(referer).netloc.lower() == host
-            return False
+        if path in ("/privacy/accept", "/enroll"):  # plain form posts: no X-Strata header, so the origin is the check
+            return self.form_origin_ok()
         if self.headers.get("X-Strata") != "1":
             return False
         origin = self.headers.get("Origin")
@@ -567,10 +586,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def static(self, path):
         name = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
+        if not path.startswith("/api/") and "." not in name.rsplit("/", 1)[-1] and not os.path.isfile(os.path.join(STATIC, name)):
+            name = "index.html"   # a view's address (/truenas/connection): app.js opens that view
         full = os.path.normpath(os.path.join(STATIC, name))
+        if local and not os.path.isfile(full):
+            full = os.path.normpath(os.path.join(LOCAL_STATIC, name))
         if name in BRAND_FILES and os.path.isfile(core.home_path(name)):
             full = core.home_path(name)
-        elif not full.startswith(STATIC + os.sep) or not os.path.isfile(full) or re.match(r"login.*\.html$", name):
+        elif not full.startswith((STATIC + os.sep, LOCAL_STATIC + os.sep)) or not os.path.isfile(full) or re.match(r"login.*\.html$", name):
             return self.json({"error": "not found"}, 404)
         if name == "index.html":
             return self.html_page(name, dict(page_vars(), **{"<!--ICONS-->": icon_sprite()}))
@@ -779,6 +802,8 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(e, network.NetError):
             return self.json({"error": str(e)}, 400)
         if isinstance(e, rules.ServeError):
+            return self.json({"error": str(e)}, 400)
+        if local and isinstance(e, local.ERRORS):
             return self.json({"error": str(e)}, 400)
         if isinstance(e, cloudflare.CFError):
             return self.json({"error": "Cloudflare: %s" % e, "status": e.status}, 502)
@@ -998,7 +1023,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/system": self.system,
             "/api/logs": lambda: self.logs(q),
             "/api/files/search": lambda: files.search(q.get("mount"), q.get("q"), q.get("within", "/")),
-            "/api/files/info": lambda: files.info(q.get("mount"), q.get("path", "")),
+            "/api/files/info": lambda: files.info(q.get("mount"), q.get("path", ""), self.dup_filter(user)),
             "/api/files/versions": lambda: files.versions(q.get("mount"), q.get("path", "")),
             "/api/files/text": lambda: files.read_text(q.get("mount"), q.get("path", "")),
             "/api/files/trash": lambda: dict(files.trash_list(q.get("mount"), sync=True), cdn=cloudflare.purge_status()),
@@ -1027,6 +1052,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/ide/tree": self.ide_tree,
             "/api/ide/read": lambda: self.ide_read(q),
         }
+        if local:
+            routes.update(local.get_routes(q))
         if path in routes:
             return self.json(routes[path]())
         return self.static(path)
@@ -1151,6 +1178,13 @@ class Handler(BaseHTTPRequestHandler):
             return core.q_audit(q)
         return core.q_audit(dict(q, user=user))
 
+    def dup_filter(self, user):
+        """Scoped accounts only learn about duplicates that sit inside their own zones."""
+        if (accounts.get(user) or {}).get("role") in ("root", "admin"):
+            return None
+        zl = accounts.zones(user)
+        return lambda mount, path: bool(accounts.file_caps_at(user, mount, path, z_list=zl))
+
     def scoped_drives(self, user):
         # Employees see assigned file mounts only, with their own grant roots instead of host paths.
         allowed = {}
@@ -1260,7 +1294,7 @@ class Handler(BaseHTTPRequestHandler):
         size = os.path.getsize(full)
         if size > (2 << 20):
             raise files.FileError(413, "web IDE file limit is 2 MiB")
-        raw = open(full, "rb").read()
+        raw = read_file(full)
         if b"\x00" in raw[:8192]:
             raise files.FileError(415, "binary file")
         try:
@@ -1283,7 +1317,7 @@ class Handler(BaseHTTPRequestHandler):
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with IDE_LOCK:
             exists = os.path.isfile(full)
-            old = open(full, "rb").read() if exists else b""
+            old = read_file(full) if exists else b""
             old_hash = hashlib.sha256(old).hexdigest() if exists else ""
             if body.get("expect_sha") != old_hash:
                 raise files.FileError(409, "file changed since it was opened; reload before saving")
@@ -1589,6 +1623,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/media/"):  # Strata Media admin API (validates and audits itself)
             return media_bridge.api_post(user, ip, path, b)
         A = lambda action, target, note="": core.audit(ip, user, action, target, note=note)
+        if local and path in local.POST:
+            return local.POST[path](user, b, A)
         mid = b.get("mount")
         if path == "/api/ide/save":
             return self.ide_save(user, ip, b)
@@ -2496,6 +2532,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def enroll(self):
         ip = self.client_ip()
+        if App.limiter.blocked(ip):
+            return self.redirect("/login?e=locked")
         form = self.body_form(8192)
         tok = form.get("token") or ""
         if not tok and not accounts.signups_allowed():
@@ -2507,6 +2545,7 @@ class Handler(BaseHTTPRequestHandler):
             App.sessions.drop_user(user)  # a reset link signs out every existing session of that account
             return self.redirect("/login?e=enrolled")
         except Exception as e:
+            App.limiter.fail(ip)  # invite tokens are guessable by brute force otherwise
             return self.html_page("enroll.html", dict(page_vars(), **{"{{INVITE}}": urllib.parse.quote(tok),
                                        "<!--ERROR-->": '<div class="err">%s</div>' % __import__("html").escape(str(e))}))
 

@@ -58,6 +58,18 @@ FORMATS = {"webp": ("WEBP", "image/webp"), "avif": ("AVIF", "image/avif"), "jpeg
            "jpg": ("JPEG", "image/jpeg"), "png": ("PNG", "image/png")}
 SEM = threading.Semaphore(2)
 _conf = {"mtime": 0, "v": {}}
+_secret = {"mtime": None, "v": ""}
+
+
+def sign_secret():
+    """STRATA_SIGN_SECRET from the machine environment or data/.env (never transform.json), re-read on change."""
+    try:
+        mt = os.path.getmtime(instance.env_path())
+    except OSError:
+        mt = 0
+    if mt != _secret["mtime"]:
+        _secret.update(mtime=mt, v=instance.env_get("STRATA_SIGN_SECRET")[0])
+    return _secret["v"]
 
 
 def conf():
@@ -434,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             exp = 0
         sig = q.get("sig", "")
-        secret = c.get("sign_secret", "")
+        secret = sign_secret()
         if not secret or not sig or exp < time.time():
             return self.plain(403, "This link has expired or is not valid." if sig else "A signed link is required.")
         if not hmac.compare_digest(sign(secret, u.path, exp), sig):

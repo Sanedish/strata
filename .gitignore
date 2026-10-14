@@ -27,3 +27,9 @@ static/vendor/codemirror/**/*.css
 
 # local sample audio, not part of Strata
 static/media/*.mp3
+
+# dev-only extensions: loaded by strata.py when present (see its "import local"), never published
+# private and unreleased builds live beside the code: never published from this tree
+/internal/
+/nightly/
+/local/

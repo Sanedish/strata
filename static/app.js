@@ -56,6 +56,11 @@ const HUBS = {
 const hubOf = (v) => Object.keys(HUBS).find((h) => HUBS[h].includes(v));
 const hubTabs = (h) => HUBS[h].filter((v) => canSeeView(v));
 const hubTarget = (h) => { const t = hubTabs(h); return t.includes(S.hubLast?.[h]) ? S.hubLast[h] : t[0]; };
+// the address bar names the view: /<hub>/<view> or /<view>, from the labels (/truenas/connection, /health/logs).
+// go() pushes, render() corrects (a fallback view), boot and Back read it.
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const viewPath = (v) => { const h = hubOf(v); return '/' + (h ? slug(VIEWS[h][0]) + '/' : '') + slug(VIEWS[v][0]); };
+const pathView = (p) => { p = p.toLowerCase().replace(/\/+$/, ''); return Object.keys(VIEWS).find((v) => viewPath(v) === p); };
 const navLeaves = (ids) => ids.flatMap((id) => (HUBS[id] ? hubTabs(id) : [id]));
 // grouped by task. Upload is not listed: the header's Upload button opens it from every view.
 const NAV_GROUPS = [
@@ -281,7 +286,7 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
   </svg><div class="axis"><span>${esc(fmtX(x0))}</span><span>max ${esc(fmtY(y1))}</span><span>${esc(fmtX(x1))}</span></div>
   <div class="legend smt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
-const loading = (msg = 'Waiting for the collector…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
+const loading = (msg = 'Collecting, please wait…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
 const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800 fs-15 c-text">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
 
 /* ------------------------------------------------------------------ data */
@@ -1553,9 +1558,10 @@ function render(force) {
   const caret = keepId && typeof ae.selectionStart === 'number' ? [ae.selectionStart, ae.selectionEnd] : null;
 
   const viewChanged = $('#main').dataset.view !== S.view;
+  if (VIEWS[S.view] && location.pathname !== viewPath(S.view)) history.replaceState(null, '', viewPath(S.view) + location.search + location.hash);
   $('#main').dataset.view = S.view;
   let html;
-  try { html = (VIEWFN[S.view] || vSummary)(); } catch (e) { html = `<div class="setup"><h5 class="hot">This view failed to draw</h5><pre class="code">${esc(e.stack || e.message)}</pre></div>`; console.error(e); }
+  try { html = (VIEWFN[S.view] || vSummary)(); } catch (e) { html = `<div class="setup"><h5 class="hot">Failed to render - See console. If persistent, report on git or contact enterprise@boykisser.cloud</h5><pre class="code">${esc(e.stack || e.message)}</pre></div>`; console.error(e); }
 
   if (viewChanged || !$('#main').firstElementChild) {
     $('#main').innerHTML = html;
@@ -1688,6 +1694,7 @@ function go(view) {
   const hub = hubOf(view);
   if (hub) S.hubLast = { ...S.hubLast, [hub]: view };
   S.view = view; S.menu = null; S.palette = false;
+  if (location.pathname !== viewPath(view)) history.pushState(null, '', viewPath(view));
   persist(); renderOverlay(); render(true); refreshForView();
 }
 function setRange(r) {
@@ -2259,7 +2266,10 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   applyAppearance();
+  const linked = pathView(location.pathname);   // every module has registered its views by now
+  if (linked) S.view = HUBS[linked] ? hubTarget(linked) : linked;
   if (!VIEWS[S.view] || !VIEWFN[S.view]) S.view = 'summary';
+  addEventListener('popstate', () => { const v = pathView(location.pathname); if (v) go(v); });
   render(true);
   auditView(S.view);
   pollLive();

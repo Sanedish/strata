@@ -457,14 +457,14 @@ class TestPreviewAndConfig(unittest.TestCase):
         self.assertEqual(path, target)
         with open(target, encoding="utf-8") as f:
             conf = json.load(f)
-        for k in ("listen", "sign_secret", "admin_token", "db", "cache_root", "event_log", "negotiation", "cutover",
-                  "mounts"):
+        for k in ("listen", "db", "cache_root", "event_log", "negotiation", "cutover", "mounts"):
             self.assertIn(k, conf)
-        for k in core.DEFAULTS["media"]:                           # every tunable travels along
+        for k in ("sign_secret", "admin_token"):                    # secrets stay in data/.env
+            self.assertNotIn(k, conf)
+        for k in set(core.DEFAULTS["media"]) - {"admin_token"}:     # every tunable travels along
             self.assertIn(k, conf)
         self.assertEqual(conf["listen"], listen)
         self.assertEqual(conf["negotiation"], "redirect")
-        self.assertEqual(conf["admin_token"], "synthetic-admin-token")
         self.assertTrue(os.path.isabs(conf["db"]))
         files = [m for m in mounts if m["kind"] == "files" and m["enabled"]]
         self.assertEqual(sorted(conf["mounts"]), sorted(str(m["id"]) for m in files))

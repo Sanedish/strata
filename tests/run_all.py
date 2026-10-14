@@ -219,7 +219,11 @@ def main():
             ("sign-in", py + [os.path.join(TESTS, "login_test.py")]),
             ("installer", py + [os.path.join(TESTS, "installer_test.py")]),
             ("auto-ban ranges", py + [os.path.join(TESTS, "autoban_test.py")]),
+            ("secrets in data/.env", py + [os.path.join(TESTS, "secrets_test.py")]),
         ]
+        local = os.path.join(CODE, "local")   # dev-only, git-ignored: absent in production checkouts
+        if os.path.isdir(local):
+            suites += [("local: " + f, py + [os.path.join(local, f)]) for f in sorted(os.listdir(local)) if f.endswith("_test.py")]
         if not offline:
             suites.append(("remote upload SSRF", py + [os.path.join(TESTS, "ssrf_test.py"), home]))
         media = os.path.join(CODE, "media", "tests")

@@ -34,7 +34,7 @@ FEED = urllib.parse.urlsplit(CONF.get("feed_url", "http://127.0.0.1:8081"))
 if FEED.scheme != "http" or FEED.hostname not in ("127.0.0.1", "::1", "localhost"):
     sys.exit("telemetry: feed_url must point at the loopback feed")
 FEED_BASE = "http://%s:%d" % (FEED.hostname, FEED.port or 80)
-TOKEN = CONF["feed_token"]
+TOKEN = instance.env_get(instance.FEED_TOKEN)[0] or CONF.get("feed_token") or sys.exit("telemetry: no feed token in data/.env")
 RANGES = ("24h", "7d", "30d")
 
 # static assets are loaded exactly once. The page and favicon are fixed here; the content-hashed CSS/JS/font files of

@@ -345,7 +345,7 @@ if __name__ == "__main__":
         sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | "
                  "--smtp <host> <port> <user> <from> | --totp [off] | --allow-signups <yes|no>")
     pw = getpass.getpass("Password: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\r\n")
-    pw = pw.lstrip("﻿")  # Windows PowerShell prefixes piped input with a BOM
+    pw = pw.lstrip("\ufeff")  # Windows PowerShell prefixes piped input with a BOM
     if len(pw) < 8:
         sys.exit("password too short")
     save_config({"auth": {"user": sys.argv[1], "password_hash": hash_password(pw)}})

@@ -33,6 +33,7 @@ import urllib.parse
 
 import auth
 import core
+import files
 import gate
 from core import CFG, connect, get_meta, log, rows_of, set_meta
 
@@ -123,6 +124,14 @@ GATE_USER_RE = re.compile(r"^[A-Za-z0-9._@-]{1,40}$")
 
 class ServeError(Exception):
     pass
+
+
+def norm_path(p, msg=None):
+    """A URL/drive path through the file manager's own name rules: no "..", backslashes or odd segments get through."""
+    try:
+        return files.rel_of(files.parts_of(p))
+    except files.FileError as e:
+        raise ServeError(msg or str(e))
 
 
 def bq(s):
@@ -415,6 +424,8 @@ def clean_rule(d, old=None):
         bg = str(p.get("placeholders") or "").strip().rstrip("/")
         if bg and (not bg.startswith("/") or "*" in bg or not PATH_PAT_RE.match(bg) or "/../" in bg + "/"):
             raise ServeError("placeholder folder must be a URL path like /share/placeholders")
+        if bg:
+            bg = norm_path(bg, "placeholder folder must be a URL path like /share/placeholders")
         params = {"placeholders": bg}
     elif action == "preview":
         color = str(p.get("color") or "").strip()
@@ -524,6 +535,7 @@ def clean_link(d, is_new):
             raise ServeError("pick a drive and file for the link target")
         if not path.startswith("/") or re.search(r"[`{}\x00-\x1f]", path):
             raise ServeError("invalid target path")
+        path = norm_path(path)
         mount = int(mount)
     exp, mx = d.get("expires"), d.get("max_clicks")
     days = float((CFG.get("links") or {}).get("default_days") or 0)
@@ -682,6 +694,7 @@ def sign(path, exp):
 
 
 def signed_url(m, path, seconds, mods=None):
+    path = norm_path(path)
     exp = int(now() + seconds)
     prefix = "" if m["prefix"] == "/" else m["prefix"]
     q = dict(mods or {})
@@ -1430,7 +1443,8 @@ def write_transform_config(mounts, db=None):
     finally:
         if own:
             db.close()
-    conf = {"listen": CFG["transform_listen"], "sign_secret": CFG["sign_secret"],
+    # no sign_secret here: transform.py reads it from data/.env (STRATA_SIGN_SECRET), like every secret
+    conf = {"listen": CFG["transform_listen"],
             "cache_dir": os.path.join(core.HOME, "data", "tcache"), "cache_max_mb": 2048, "max_dim": 4096,
             "mounts": {str(m["id"]): {"path": m["path"], "prefix": m["prefix"]} for m in mounts
                        if m["kind"] == "files" and m["enabled"]},
@@ -1441,11 +1455,19 @@ def write_transform_config(mounts, db=None):
     os.replace(tmp, TRANSFORM_CONFIG)
 
 
+def read_gen(missing=None):
+    """The generated Caddy file, handle closed at once: an open one makes os.replace() fail on Windows (WinError 32)."""
+    if not os.path.exists(GEN_FILE):
+        return missing
+    with open(GEN_FILE, encoding="utf-8") as f:
+        return f.read()
+
+
 def apply(db, user="", reason="", force=False):
     """Render -> validate -> swap -> reload. Raises ServeError (and leaves Caddy untouched) on any failure."""
     with APPLY_LOCK:
         text = render(db)
-        cur = open(GEN_FILE, encoding="utf-8").read() if os.path.exists(GEN_FILE) else None
+        cur = read_gen()
         if cur == text and not force:
             write_transform_config(core.mounts(refresh=True), db)  # link-preview rules change Transform, not Caddy
             return {"changed": False}
@@ -1489,7 +1511,7 @@ def mutate(user, reason, fn, preview=False):
                 text = render(db)
             finally:
                 db.rollback()
-            cur = open(GEN_FILE, encoding="utf-8").read() if os.path.exists(GEN_FILE) else ""
+            cur = read_gen("")
             return {"diff": "".join(difflib.unified_diff(cur.splitlines(True), text.splitlines(True), "live", "new", n=2))}
         with db:
             out = fn(db)
@@ -1772,6 +1794,8 @@ def save_site(user, d):
                 v = str(d[k] or "")
                 if v and not PATH_PAT_RE.match(v):
                     raise ServeError("error page must be a path like /404/404.html")
+                if v:
+                    v = norm_path(v, "error page must be a valid path like /404/404.html")
                 s[k] = v
         if "error_mount" in d:
             s["error_mount"] = int(d["error_mount"]) if d["error_mount"] else None
@@ -1788,7 +1812,7 @@ def rollback(user, hid):
             raise ServeError("unknown revision")
         with APPLY_LOCK:
             validate(row[0])
-            cur = open(GEN_FILE, encoding="utf-8").read() if os.path.exists(GEN_FILE) else None
+            cur = read_gen()
             with open(GEN_FILE, "w", encoding="utf-8") as f:
                 f.write(row[0])
             code, msg = caddy("reload", "--config", CFG["caddyfile"], "--adapter", "caddyfile")
@@ -1845,8 +1869,7 @@ def state():
         return {"mounts": D["mounts"], "rules": D["rules"], "blacklist": D["blacklist"], "links": D["links"],
                 "site": D["site"], "history": hist, "serving": get_meta(db, "serving"),
                 "actions": ACTIONS, "bl_kinds": BL_KINDS, "agent_classes": list(AGENT_CLASSES),
-                "browsers": list(BROWSER_RE), "oses": list(OS_RE), "generated": open(GEN_FILE, encoding="utf-8").read()
-                if os.path.exists(GEN_FILE) else "", "edge": get_meta(db, "cf_sync")}
+                "browsers": list(BROWSER_RE), "oses": list(OS_RE), "generated": read_gen(""), "edge": get_meta(db, "cf_sync")}
     finally:
         db.close()
 

@@ -1,13 +1,19 @@
 """A demo instance with a week of made-up traffic, for screenshots and for clicking around.
 
     python tests/demo.py            starts it on http://127.0.0.1:8290, already signed in as alex; Ctrl+C stops it
+    python tests/demo.py --dev      the development build on http://127.0.0.1:8291: also loads the git-ignored
+                                    local/ extensions, and says "development" in the sidebar, tab title and colour.
+                                    Its instance lives in local/demo and is kept between runs: delete that
+                                    folder for a fresh one
+
+The plain demo is what is on GitHub: local/ stays out even when the folder exists. Both can run at once.
 
 Everything lives in a temp folder: sample files (generated images, a site, a zip), a Caddy access log written in
 Caddy's JSON format, and the stub Caddy from run_all.py. Visitors use documentation address ranges (192.0.2.0/24,
 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32), so nothing here points at a real person. Traffic keeps trickling
 in while it runs, so the live views move.
 
-No sign-in: Strata itself listens on 8291 with its sign-in untouched, and a small proxy on 8290 (in this file only,
+No sign-in: Strata itself listens on 8390 (8391 for --dev) with its sign-in untouched, and a small proxy on 8290 (in this file only,
 never in Strata) adds alex's session cookie to every request. Nothing about this reaches a real installation.
 """
 import http.client
@@ -32,8 +38,10 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import run_all as ra  # noqa: E402
 
-PORT = 8290          # the proxy you open: already signed in
-STRATA_PORT = 8291   # Strata itself, sign-in as in production
+DEV = "--dev" in sys.argv
+PORT = 8291 if DEV else 8290   # the proxy you open: already signed in
+STRATA_PORT = PORT + 100       # Strata itself, sign-in as in production
+P = 18490 if DEV else 18480    # its helper ports, P..P+6
 DAYS = 7
 rnd = random.Random(7)
 
@@ -225,7 +233,7 @@ def history(files, now):
     return [line(ts, files, 2400) for ts, _ in out if ts < now]
 
 
-METRICS_PORT = 18486  # 1848x: run_all.py and the media tests use 1818x-1838x, so the demo can run beside them
+METRICS_PORT = P + 6  # 1848x / 1849x: run_all.py and the media tests use 1818x-1838x, so the demo can run beside them
 STARTED = time.time()
 
 
@@ -284,30 +292,42 @@ def sweep():
             shutil.rmtree(old, ignore_errors=True)
 
 
+def merge(base, over):
+    for k, v in over.items():
+        base[k] = merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return base
+
+
 def main():
-    sweep()
-    root = tempfile.mkdtemp(prefix="strata-demo-")
+    if DEV:  # the development build keeps its instance in the git-ignored local/demo: what you set up survives a restart
+        root = os.path.join(ra.CODE, "local", "demo")
+    else:
+        sweep()
+        root = tempfile.mkdtemp(prefix="strata-demo-")
     home = os.path.join(root, "home")
     files_root = os.path.join(home, "files")
-    os.makedirs(os.path.join(home, "generated"))
+    fresh = not os.path.exists(os.path.join(home, "strata.json"))
+    os.makedirs(os.path.join(home, "generated"), exist_ok=True)
     caddyfile = os.path.join(home, "Caddyfile")
     with open(caddyfile, "w") as f:
         f.write("import %s\n" % os.path.join(home, "generated", "cdn.caddy").replace("\\", "/"))
     with open(os.path.join(home, "generated", "cdn.caddy"), "w") as f:
         f.write("# placeholder\n")
-    print("generating files and %d days of traffic ..." % DAYS)
+    print("generating files%s ..." % (" and %d days of traffic" % DAYS if fresh else ""))
     files = make_files(files_root)
     access_log = os.path.join(home, "data", "access.log")
-    os.makedirs(os.path.dirname(access_log))
-    with open(access_log, "w") as f:
-        f.write("\n".join(history(files, time.time())) + "\n")
+    os.makedirs(os.path.dirname(access_log), exist_ok=True)
+    if fresh:
+        with open(access_log, "w") as f:
+            f.write("\n".join(history(files, time.time())) + "\n")
     os.environ["STRATA_HOME"] = home
     sys.path.insert(0, ra.CODE)
     import auth  # noqa: E402
-    cfg = {"instance": {"id": "example", "name": "example.com", "dry_run": True, "cdn_listen": ":18480",
-                        "accent": "#e65a46"},
-           "listen": "127.0.0.1:%d" % STRATA_PORT, "feed_listen": "127.0.0.1:18481", "transform_listen": "127.0.0.1:18483",
-           "gate_listen": "127.0.0.1:18485", "media": {"listen": "127.0.0.1:18484"},
+    cfg = {"instance": {"id": "example", "name": "development" if DEV else "example.com", "dry_run": True,
+                        "cdn_listen": ":%d" % P, "accent": "#c98500" if DEV else "#e65a46",
+                        "login_text": "Development build: includes the local/ extensions" if DEV else ""},
+           "listen": "127.0.0.1:%d" % STRATA_PORT, "feed_listen": "127.0.0.1:%d" % (P + 1), "transform_listen": "127.0.0.1:%d" % (P + 3),
+           "gate_listen": "127.0.0.1:%d" % (P + 5), "media": {"listen": "127.0.0.1:%d" % (P + 4)},
            "caddy_exe": ra.stub_caddy(os.path.join(root, "bin")), "caddyfile": caddyfile, "access_log": access_log,
            "caddy_metrics": "http://127.0.0.1:%d/caddy" % METRICS_PORT,
            "cloudflared_metrics": "http://127.0.0.1:%d/cloudflared" % METRICS_PORT,
@@ -316,11 +336,14 @@ def main():
            "public_base_url": "https://cdn.example.com",
            "auth": {"user": "alex", "password_hash": auth.hash_password(ra.PASSWORD)},
            "alerts": {"to": ["alex@example.com"]}}
+    if not fresh:  # keep what was set in the dashboard; the demo's own keys (ports, paths, sign-in) are reset
+        with open(os.path.join(home, "strata.json"), encoding="utf-8-sig") as f:
+            cfg = merge(json.load(f), cfg)
     with open(os.path.join(home, "strata.json"), "w") as f:
         json.dump(cfg, f, indent=2)
     metrics_server()
-    # a neutral host name on the System tiles instead of this machine's own
-    launch = ("import runpy, socket, sys; socket.gethostname = lambda: 'cdn-01'; "
+    # a neutral host name on the System tiles instead of this machine's own; local/ only in the development build
+    launch = ("import runpy, socket, sys; socket.gethostname = lambda: 'cdn-01'; " + ("" if DEV else "sys.modules['local'] = None; ") +
               "sys.argv = [sys.argv[1]] + sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')")
     proc = subprocess.Popen([sys.executable, "-c", launch, os.path.join(ra.CODE, "strata.py"), "--home", home], cwd=ra.CODE,
                             env=dict(os.environ, STRATA_HOME=home), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -346,8 +369,8 @@ def main():
             with open(access_log, "a") as f:
                 f.write(line(time.time(), files, 2400) + "\n")
     threading.Thread(target=trickle, daemon=True).start()
-    print("demo: http://127.0.0.1:%d   signed in as alex   (instance folder %s)" % (PORT, home))
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # a plain kill also stops the server and removes the folder
+    print("demo%s: http://127.0.0.1:%d   signed in as alex   (instance folder %s)" % (" (development)" if DEV else "", PORT, home))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # a plain kill also stops the server (and removes a plain demo's folder)
     try:
         proc.wait()
     except KeyboardInterrupt:
@@ -357,7 +380,8 @@ def main():
         proxy.shutdown()
         proc.terminate()
         proc.wait(10)
-        shutil.rmtree(root, ignore_errors=True)
+        if not DEV:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

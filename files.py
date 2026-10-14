@@ -82,17 +82,18 @@ def resolve(m, rel, allow_internal=False):
         raise FileError(403, "that folder is managed by Strata")
     root = root_of(m)
     full = os.path.normpath(os.path.join(root, *parts)) if parts else root
-    if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+    try:  # ValueError: different drives on Windows
+        if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+            raise FileError(400, "outside the drive")
+    except ValueError:
         raise FileError(400, "outside the drive")
-    if os.path.exists(full):
-        try:
-            real = os.path.realpath(full)
-            real_root = os.path.realpath(root)
-            if os.path.commonpath([real.lower(), real_root.lower()]) != real_root.lower():
-                raise FileError(403, "symlink escape detected")
-        except Exception as e:
-            if isinstance(e, FileError):
-                raise
+    # realpath resolves symlinks in whatever part of the path already exists, so a new file under a linked folder is caught too
+    real, real_root = os.path.realpath(full), os.path.realpath(root)
+    try:
+        if os.path.commonpath([real.lower(), real_root.lower()]) != real_root.lower():
+            raise FileError(403, "symlink escape detected")
+    except ValueError:
+        raise FileError(403, "symlink escape detected")
     return full, parts
 
 
@@ -962,6 +963,8 @@ def trash_list(mid, sync=False):
     out, total = [], 0
     if os.path.isdir(root):
         for b in sorted(os.listdir(root), reverse=True):
+            if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}", b):
+                continue
             try:
                 with open(os.path.join(root, b, ".manifest.json"), encoding="utf-8") as f:
                     man = json.load(f)
@@ -984,6 +987,8 @@ def restore(mid, batch, rel):
     bdir = os.path.join(root_of(m), TRASH, batch)
     src = os.path.join(bdir, *parts)
     dst, _ = resolve(m, rel)
+    if os.path.islink(src):
+        raise FileError(403, "refusing to restore symlink from trash")
     if not os.path.exists(src):
         raise FileError(404, "not in trash")
     if os.path.exists(dst):
@@ -1141,7 +1146,8 @@ def read_text(mid, rel):
         raise FileError(404, "file not found")
     if os.path.getsize(full) > MAX_TEXT:
         raise FileError(413, "too large to edit here (limit 2 MiB)")
-    raw = open(full, "rb").read()
+    with open(full, "rb") as f:
+        raw = f.read()
     if b"\x00" in raw[:8192]:
         raise FileError(415, "binary file")
     try:
@@ -1185,7 +1191,7 @@ def write_text(user, mid, rel, text, expect_mtime=None, create=False):
 # ---------------------------------------------------------------- info, raw, thumbnails, zip
 
 ACTIVE = {"text/html", "application/xhtml+xml", "text/xml", "application/xml", "text/javascript",
-          "application/javascript", "application/x-javascript", "text/css"}
+          "application/javascript", "application/x-javascript", "text/css", "image/svg+xml"}
 
 
 def raw_info(mid, rel, ver=None):
@@ -1207,7 +1213,8 @@ def raw_info(mid, rel, ver=None):
     return full, os.path.getsize(full), ctype, name
 
 
-def info(mid, rel):
+def info(mid, rel, allow=None):
+    """allow(mount id, path) -> bool hides duplicates the caller may not see (scoped accounts)."""
     import rules
     m = get_mount(mid)
     full, parts = resolve(m, rel)
@@ -1241,8 +1248,8 @@ def info(mid, rel):
         idx = db.execute("SELECT hash, qhash FROM fidx WHERE mount=? AND path=?", [m["id"], r]).fetchone()
         out["sha256"] = idx[0] if idx and idx[0] else None
         if idx and idx[0]:
-            out["duplicates"] = [x[0] for x in db.execute("SELECT path FROM fidx WHERE hash=? AND NOT (mount=? AND path=?) LIMIT 20",
-                                                          [idx[0], m["id"], r])]
+            out["duplicates"] = [p for mt, p in db.execute("SELECT mount, path FROM fidx WHERE hash=? AND NOT (mount=? AND path=?) LIMIT 20",
+                                                           [idx[0], m["id"], r]) if not allow or allow(mt, p)]
     finally:
         db.close()
     return out
@@ -1403,8 +1410,10 @@ def _public_host(host):
     to read LAN services, cloud metadata or this PC's own admin endpoints)."""
     import ipaddress
     import socket
+    clean_host = str(host or "").strip().strip("[]")  # [::1] as it appears in a URL
+    cgnat = ipaddress.ip_network("100.64.0.0/10")  # carrier-grade NAT, which is also where Tailscale lives
     try:
-        infos = socket.getaddrinfo(host, None)
+        infos = socket.getaddrinfo(clean_host, None)
     except OSError as e:
         raise FileError(400, "cannot resolve %s: %s" % (host, e))
     ips = [ipaddress.ip_address(info[4][0].split("%")[0]) for info in infos]
@@ -1413,7 +1422,8 @@ def _public_host(host):
     for ip in ips:  # every answer must be public, else a second record could point at the LAN
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
-        if not ip.is_global or ip.is_multicast:
+        if (not ip.is_global or ip in cgnat or ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+                or ip.is_reserved or ip.is_unspecified):
             raise FileError(400, "%s resolves to a non-public address (%s) - remote uploads only fetch from the internet"
                             % (host, ip))
     return str(ips[0])
@@ -1453,6 +1463,7 @@ def _pinned_opener():
             nu = urllib.parse.urlsplit(newurl)
             if nu.scheme not in ("http", "https") or not nu.hostname:
                 raise FileError(400, "redirect to a non-http URL refused")
+            _public_host(nu.hostname)
             return super().redirect_request(req, fp, code, msg, hdrs, newurl)
 
     return urllib.request.build_opener(urllib.request.ProxyHandler({}), Handler, Redirects)

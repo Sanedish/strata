@@ -410,7 +410,7 @@ Object.assign(ACT, {
     const path = input.value;
     if (!mount) return note('Pick a drive first', { err: true });
     let text;  // the default page from static/errors/, copied to the drive
-    try { const r = await fetch('errors/' + code + '.html', { cache: 'no-cache' }); if (!r.ok) throw new Error(); text = await r.text(); }
+    try { const r = await fetch('/errors/' + code + '.html', { cache: 'no-cache' }); if (!r.ok) throw new Error(); text = await r.text(); }
     catch { return note("Couldn't load the default page. Reload and try again.", { err: true }); }
     try { await post('/api/files/text', { mount, path, text, create: true }); note(`Created ${path}. Save the site settings to use it.`); }
     catch (e) { if (!/exists/.test(e.message)) return note(e.message, { err: true }); }
@@ -833,7 +833,7 @@ function cloudflarePanel(row, toggle) {
   const capRow = (k) => caps[k] ? row({ zone: 'Zone access', lists: 'IP list (edge blocklist)', waf: 'WAF custom rules (edge blocklist)', cache_rules: 'Cache rules (link previews)', purge: 'Cache purge' }[k],
     caps[k].ok ? 'Working.' : caps[k].ok === false ? 'Missing permission: ' + (caps[k].need || '') : 'Not tested yet. Runs with the first purge.',
     `<span class="${caps[k].ok ? '' : 'hot'} h800">${caps[k].ok ? 'ok' : caps[k].ok === false ? 'missing' : '—'}</span>`) : '';
-  return netPanel('Cloudflare', 'Uses the API token in strata.json', `
+  return netPanel('Cloudflare', 'Uses CF_API_TOKEN from data/.env', `
     ${caps ? ['zone', 'lists', 'waf', 'cache_rules', 'purge'].map(capRow).join('') : '<div class="empty">Checking the token…</div>'}
     ${row('Edge blocklist', 'Push the blocklist to Cloudflare.', toggle(cf ? cf.edge_enabled : true, 'cfEdge'))}
     ${row('Automatic purges', 'Purge a file’s URLs, with every ?variant, when it is replaced, renamed, deleted or protected.', toggle(cf ? cf.autopurge : true, 'cfAuto'))}

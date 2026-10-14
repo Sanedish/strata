@@ -95,8 +95,13 @@ def post_hook(url, title, text, severity="warning"):
         data = json.dumps({"text": "*%s*\n%s" % (title, text)}).encode()
     else:  # title + message also suit Gotify, Home Assistant and n8n
         data = json.dumps({"title": title, "message": text, "severity": severity, "source": "strata"}).encode()
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers, method="POST"), timeout=15) as r:
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise RuntimeError("%s webhook: only http(s) URLs" % kind)
+    import files  # here, not at the top: files imports core like we do, and this keeps start-up order untouched
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:  # the pinned opener refuses loopback / private / metadata addresses, also after DNS tricks and redirects
+        with files._pinned_opener().open(req, timeout=15) as r:
             r.read(1024)
     except urllib.error.HTTPError as e:
         raise RuntimeError("%s webhook answered %s" % (kind, e.code))

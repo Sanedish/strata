@@ -257,13 +257,39 @@ def _merge(base, over):
 
 
 def load_config():
+    """DEFAULTS < strata.json < data/.env < the machine environment (secrets only, see instance.SECRETS)."""
     cfg = json.loads(json.dumps(DEFAULTS))
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8-sig") as f:
             _merge(cfg, json.load(f))
-    env = cfg["instance"].get("token_env") or "CF_API_TOKEN"
-    cfg["cloudflare"]["api_token"] = os.environ.get(env) or cfg["cloudflare"].get("api_token", "")
-    return cfg
+    return instance.overlay_secrets(cfg)
+
+
+def _write_json(raw):
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(raw, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CONFIG_PATH)
+
+
+def _move_secrets():
+    """Secrets found in strata.json (an older Strata, setup.py, a hand edit) move to data/.env, overwriting what is
+    there: Strata itself never writes one to strata.json, so a value found there is the newest. Then data/.env is
+    locked down (it may have been created by hand)."""
+    with _cfg_lock:
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, encoding="utf-8-sig") as f:
+                raw = json.load(f)
+            found = instance.split_secrets(raw, raw)
+            if found:
+                keep = {k: v for k, v in found.items() if v}   # an empty value in strata.json never erases one
+                if keep:
+                    instance.env_write(keep)
+                _write_json(raw)
+                log("config: moved %d secret(s) from strata.json to data/.env" % len(keep))
+        if os.path.exists(instance.env_path()):
+            instance.lock_down(instance.env_path())
 
 
 def prefixed(name):
@@ -277,18 +303,20 @@ def home_path(p):
 
 
 def save_config(updates):
-    """Merge `updates` into strata.json on disk (keeps whatever else the user put there)."""
+    """Merge `updates` into the config: secrets go to data/.env ("" / [] removes one), everything else into
+    strata.json on disk (keeps whatever else the user put there). The running config gets all of it."""
     with _cfg_lock:
         raw = {}
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, encoding="utf-8-sig") as f:
                 raw = json.load(f)
-        _merge(raw, updates)
-        tmp = CONFIG_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2)
-            f.write("\n")
-        os.replace(tmp, CONFIG_PATH)
+        plain = json.loads(json.dumps(updates))
+        found = instance.split_secrets(plain, CFG)
+        if found:
+            instance.env_write(found)
+        _merge(raw, plain)
+        instance.split_secrets(raw, CFG)    # never a secret in strata.json
+        _write_json(raw)
         _merge(CFG, updates)
 
 
@@ -326,6 +354,13 @@ def log(*a):
                 f.write(line)
     except OSError:
         pass
+
+
+try:  # on every start: leftovers in strata.json move to data/.env, and data/.env is locked down
+    _move_secrets()
+    instance.overlay_secrets(CFG)   # a value just moved out of strata.json is the newest
+except Exception as e:  # never fatal, never silent
+    log("config: could not secure data/.env: %s" % e)
 
 
 _job = {"h": None}

@@ -136,6 +136,21 @@ def _abs(p):
     return p if not p or os.path.isabs(p) else os.path.normpath(os.path.join(STRATA_ROOT, p))
 
 
+def _env():
+    """<home>/data/.env as {NAME: value} (the same format as instance.env_read; media/ stays standalone)."""
+    out = {}
+    try:
+        with open(os.path.join(STRATA_ROOT, "data", ".env"), encoding="utf-8-sig") as f:
+            for line in f:
+                m = None if line.lstrip().startswith("#") else re.match(r"\s*(?:export\s+)?([A-Za-z_]\w*)\s*=\s*(.*?)\s*$", line)
+                if m:
+                    v = m.group(2)
+                    out[m.group(1)] = v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+    except OSError:
+        pass
+    return out
+
+
 def load(path=None):
     """The merged config. Re-read only when media.json changes (mtime/size), so calling it per request is cheap.
 
@@ -168,6 +183,10 @@ def load(path=None):
                     _cache[path] = (sig, hit[1])
                     return hit[1]
                 conf = copy.deepcopy(DEFAULTS)
+        for k, name in (("sign_secret", "STRATA_SIGN_SECRET"), ("admin_token", "STRATA_MEDIA_ADMIN_TOKEN")):
+            v = os.environ.get(name) or _env().get(name)
+            if v:
+                conf[k] = v
         for k in ("db", "cache_root", "event_log"):
             conf[k] = _abs(conf.get(k) or DEFAULTS[k])
         conf["mounts"] = {str(k): v for k, v in (conf.get("mounts") or {}).items() if isinstance(v, dict)}

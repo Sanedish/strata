@@ -47,6 +47,17 @@ def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else "  -> %s" % (detail,)))
 
 
+def config(home):
+    """strata.json with the secrets of data/.env put back, as Strata reads it - and strata.json itself must hold none."""
+    sys.path.insert(0, ra.CODE)
+    import instance  # here, after the test home exists: it resolves STRATA_HOME when first imported
+    with open(os.path.join(home, "strata.json"), encoding="utf-8") as f:
+        raw = json.load(f)
+    leaked = instance.split_secrets(json.loads(json.dumps(raw)), raw)
+    check("strata.json holds no secrets", not any(leaked.values()), sorted(k for k, v in leaked.items() if v))
+    return instance.overlay_secrets(raw, instance.env_path(home))
+
+
 def fresh():
     """A new instance with no owner and no mail sender, and its server."""
     root = tempfile.mkdtemp(prefix="strata-scratchpad-setup-")
@@ -110,7 +121,7 @@ try:
 
     st, loc, _, _ = call("/setup", good)
     check("valid form creates the owner", st == 303 and loc == "/login?e=owner", (st, loc))
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("strata.json has the owner and mail sender", cfg["auth"]["user"] == "owner" and cfg["alerts"]["from"] ==
           "strata@example.test" and cfg["alerts"]["to"][0] == "owner@example.test", cfg.get("auth", {}).get("user"))
     check("no authenticator app was stored", not cfg["auth"].get("totp_secret"), cfg["auth"].keys())
@@ -121,7 +132,7 @@ try:
     st, loc, _, _ = call("/setup")
     check("/setup is gone afterwards", st == 303 and loc == "/login", (st, loc))
     st, loc, _, _ = call("/setup", dict(good, user="second"))
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("a second POST changes nothing", loc == "/login" and cfg["auth"]["user"] == "owner", (loc, cfg["auth"]["user"]))
     # signing in would e-mail a code through Resend: check the stored hash instead
     check("stored password hash verifies", auth.verify_password(good["password"], cfg["auth"]["password_hash"]))
@@ -141,7 +152,7 @@ try:
     st, loc, body, _ = call("/setup", form)
     codes = re.findall(r"<li>([0-9a-f]{6}-[0-9a-f]{6})</li>", body)
     check("creates the owner and shows ten recovery codes", st == 200 and len(codes) == 10, (st, loc, body[:300]))
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("strata.json has the app key and no mail", cfg["auth"].get("totp_secret") == key and len(cfg["auth"]["recovery"]) == 10
           and not cfg.get("alerts", {}).get("resend_api_key"), cfg.get("alerts"))
 
@@ -172,7 +183,7 @@ try:
     st, loc, _, _ = call("/privacy/accept", {"accept": "yes"}, headers={"Cookie": "dev_strata_session=%s" % session})
     check("the privacy note can be accepted", st == 303 and loc == "/", (st, loc))
     st = api("/api/2fa/disable", {"code": codes[0]})
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("the app can't be turned off without e-mail", st == 400 and cfg["auth"].get("totp_secret") == key, st)
     check("the refused request didn't use up a recovery code", len(cfg["auth"]["recovery"]) == 10, len(cfg["auth"]["recovery"]))
 
@@ -180,7 +191,7 @@ try:
     jar = {"Cookie": "dev_strata_2fa=%s" % cookie(cookies, "dev_strata_2fa")}
     st, loc, _, cookies = call("/login/2fa", {"code": codes[1]}, headers=jar)
     check("a recovery code works instead of the app", st == 303 and cookie(cookies, "dev_strata_session"), (st, loc))
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("and works only once", len(cfg["auth"]["recovery"]) == 9, len(cfg["auth"]["recovery"]))
 
     # "Trust this browser for 30 days": its next sign-ins skip the app code, until the password or the app changes

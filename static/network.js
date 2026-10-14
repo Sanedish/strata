@@ -65,7 +65,7 @@ function netTokenNotice() {
   const s = D.net.status;
   if (s?.token) return '';
   return `<div class="net-callout warn"><div class="row">${icon('key-round')}<b>No Cloudflare API token</b></div>
-    <div class="small">Add one to strata.json to change zone settings and DNS. Tunnel routes work without it.</div></div>`;
+    <div class="small">Set CF_API_TOKEN in data/.env to change zone settings and DNS. Tunnel routes work without it.</div></div>`;
 }
 function netCapState(cap) {
   if (!cap || cap.ok == null) return ['pending', 'Not checked'];
@@ -85,11 +85,9 @@ function netPermissions() {
 function netHeader() {
   const s = D.net.status;
   const zone = s?.zone_name || INST.zone || 'Cloudflare zone';
-  return `<div class="net-heading"><div><div class="net-eyebrow">Network control plane</div><h2>${icon('globe')}${esc(zone)}</h2>
-    <p>DNS, tunnel routes and local services.</p></div>
-    <div class="net-heading-actions">${D.net.loading ? `<span class="small dim row">${icon('loader-circle', 'spin')}Refreshing</span>` : ''}
-      <button class="pill" data-act="netReload" title="Refresh this section">${icon('refresh-cw', 'sm')}Refresh</button></div></div>
-    <div class="net-tabs" role="tablist">${NET_TABS.filter(([k]) => k !== 'cache' || meCan('cdn.manage')).map(([key, label, ic]) => `<button role="tab" aria-selected="${S.netTab === key}" class="${S.netTab === key ? 'on' : ''}" data-act="netTab" data-arg="${key}">${icon(ic, 'sm')}${esc(label)}</button>`).join('')}</div>`;
+  return `<div class="tbar" role="tablist">${NET_TABS.filter(([k]) => k !== 'cache' || meCan('cdn.manage')).map(([key, label, ic]) => `<button role="tab" aria-selected="${S.netTab === key}" class="pill ${S.netTab === key ? 'on' : ''}" data-act="netTab" data-arg="${key}">${icon(ic, 'sm')}${esc(label)}</button>`).join('')}
+    <span class="grow"></span><span class="small dim">${icon('globe', 'sm')} ${esc(zone)}</span>${D.net.loading ? `<span class="small dim row">${icon('loader-circle', 'spin')}Refreshing</span>` : ''}
+    <button class="pill" data-act="netReload" title="Refresh this section">${icon('refresh-cw', 'sm')}Refresh</button></div>`;
 }
 function netStatusCard(title, value, note, ic, state = '') {
   return `<div class="net-stat ${state}"><span class="net-stat-icon">${icon(ic)}</span><div><span class="cap">${esc(title)}</span><b>${esc(value)}</b><small>${esc(note)}</small></div></div>`;
@@ -123,7 +121,7 @@ function netOverview() {
     ${netPanel('Tunnel routing', connInfo, routeBody + `<div class="act-row"><button class="pill" data-act="netTab" data-arg="tunnel">Manage routes</button><button class="pill" data-act="netTab" data-arg="expose">Expose a service</button></div>`, 'cable')}
     ${netPanel('Zone settings', 'HTTPS, cache, security and protocol options', `<p class="small dim">Changes are applied to the edge for this zone. Each value is read from Cloudflare before you edit it.</p><button class="btn btn-secondary" data-act="netTab" data-arg="settings">Review zone settings ${icon('arrow-right', 'sm')}</button>`, 'sliders-horizontal')}
     ${netPanel('DNS records', s?.zone_name ? `Managed zone · ${s.zone_name}` : 'Cloudflare zone records', `<p class="small dim">Review and edit supported A, AAAA, CNAME, TXT and MX records. Tunnel DNS records are identified in the list.</p><button class="btn btn-secondary" data-act="netTab" data-arg="dns">Manage DNS ${icon('arrow-right', 'sm')}</button>`, 'route')}
-  </div><div class="net-footnote">${s?.token ? `Permission status last checked ${esc(netDate(s.caps?.zone?.ts))}.` : 'Read-only until an API token is set in strata.json.'} ${ing ? `Tunnel configuration: <code>${esc(ing.path || 'available')}</code>.` : ''}</div>`;
+  </div><div class="net-footnote">${s?.token ? `Permission status last checked ${esc(netDate(s.caps?.zone?.ts))}.` : 'Read-only until CF_API_TOKEN is set in data/.env.'} ${ing ? `Tunnel configuration: <code>${esc(ing.path || 'available')}</code>.` : ''}</div>`;
 }
 
 function netOptionLabel(s, value) {

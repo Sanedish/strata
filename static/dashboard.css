@@ -1678,3 +1678,13 @@ button.al-banner:hover { background: color-mix(in srgb, var(--color-warn) 24%, t
   .pb-6 { padding-bottom: 6px; }
   .pb-8 { padding-bottom: var(--space-2); }
 }
+
+/* One look in every view: raised surfaces split by hairlines, like the vitals, tables and side panels. Overrides the
+   card style above (page-coloured gutters, rounded borders, shadows) that some views had picked up. */
+main, .admin-page, .sys-page, .upview, .settings, .big, .chip, .strip .rest, .stats2 > div { background: var(--color-raised); }
+:is(.settings, .upview, .grid2, .kpis, .angrid, .antab, .antab .grid2, .admin-page, .sys-page, .sys-grid, .account-layout,
+    .net-content, .net-stats, .net-overview-grid, .net-settings-grid, .net-tunnel-layout, .net-expose-grid) { gap: 1px; padding: 0; margin: 0; background: transparent; }
+:is(.account-layout, .net-overview-grid, .net-settings-grid, .net-tunnel-layout, .net-expose-grid) { align-items: stretch; }
+#main :is(.panel, .kpis > div, .net-stat, .net-panel, .account-list, .ide-workspace) { border: 0; border-radius: 0; box-shadow: 0 0 0 1px var(--color-divider); }
+#main :is(.twrap, .admin-table-wrap, .net-callout, .net-result, .admin-callout, .antab > .tbar) { border-radius: 0; box-shadow: none; }
+.net-footnote { margin: 0; padding: 10px 18px; }

@@ -20,6 +20,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import core
+import instance
 from auth import token_hash
 from core import CFG, connect, log, rows_of
 
@@ -386,24 +387,35 @@ TELEMETRY_CONFIG = os.path.join(core.HOME, "telemetry", "telemetry.json")
 
 
 def ensure_token():
-    """Generate the feed token on first start: hash -> strata.json, token -> telemetry/telemetry.json."""
+    """Generate the feed token on first start: token and its hash -> data/.env (STRATA_FEED_TOKEN,
+    STRATA_FEED_TOKEN_HASH); telemetry/telemetry.json keeps only the feed address. A token left in telemetry.json by
+    an older Strata moves to data/.env."""
     tele = {}
     if os.path.exists(TELEMETRY_CONFIG):
         with open(TELEMETRY_CONFIG, encoding="utf-8-sig") as f:
             tele = json.load(f)
-    tok = tele.get("feed_token")
+    old = tele.pop("feed_token", None)
+    tok = instance.env_get(instance.FEED_TOKEN)[0] or old
     if tok and CFG.get("feed_token_hash") and hmac.compare_digest(token_hash(tok), CFG["feed_token_hash"]):
+        if old:  # move it out of telemetry.json
+            instance.env_write({instance.FEED_TOKEN: tok})
+            _write_tele(tele)
         return
     tok = secrets.token_urlsafe(32)
-    tele.update(feed_token=tok, feed_url="http://%s" % CFG["feed_listen"])
+    instance.env_write({instance.FEED_TOKEN: tok})
+    tele.update(feed_url="http://%s" % CFG["feed_listen"])
     tele.setdefault("listen", "127.0.0.1:8082")
+    _write_tele(tele)
+    core.save_config({"feed_token_hash": token_hash(tok)})
+    log("feed: generated a new telemetry token (stored in data/.env)")
+
+
+def _write_tele(tele):
     os.makedirs(os.path.dirname(TELEMETRY_CONFIG), exist_ok=True)
     tmp = TELEMETRY_CONFIG + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(tele, f, indent=2)
     os.replace(tmp, TELEMETRY_CONFIG)
-    core.save_config({"feed_token_hash": token_hash(tok)})
-    log("feed: generated a new telemetry token (hash stored in strata.json)")
 
 
 class Cache:

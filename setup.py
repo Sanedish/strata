@@ -9,7 +9,7 @@
 
 Steps: Python packages into vendor/, the site (domain, files folder, ports), Caddy (Caddyfile backup + import of the
 config Strata renders), the Cloudflare Tunnel (config backup + ingress rule for the CDN host), API keys and the owner
-account, strata.json (backup first), then the service: a Task Scheduler task on Windows, a systemd unit on Linux.
+account, strata.json (backup first) and data/.env (every secret), then the service: a Task Scheduler task on Windows, a systemd unit on Linux.
 Standard library only, so it runs before anything is installed.
 """
 import argparse
@@ -579,10 +579,29 @@ def owner_app(strata_auth, user):
     return None
 
 
+def secrets_mod():
+    sys.path.insert(0, CODE)
+    import instance  # data/.env helpers, no side effects beyond resolving the home
+    return instance
+
+
 def step_save(cfg, raw, path):
+    """strata.json without secrets (its backup too); every secret goes to <home>/data/.env, locked down."""
+    inst = secrets_mod()
     if os.path.exists(path):
-        say("  backup: %s" % backup(path))
-    write(path, json.dumps(merge(raw, cfg["update"]), indent=2) + "\n")
+        bak = backup(path)
+        with open(bak, encoding="utf-8-sig") as f:
+            old = json.load(f)
+        inst.split_secrets(old, old)  # an older strata.json may still hold secrets: never keep a copy of them
+        write(bak, json.dumps(old, indent=2) + "\n")
+        say("  backup: %s" % bak)
+    merged = merge(raw, cfg["update"])
+    found = inst.split_secrets(merged, merged)
+    if found:
+        env = inst.env_path(os.path.dirname(path))
+        inst.env_write(found, env)
+        say("  wrote %d secret(s) to %s (this account, SYSTEM and Administrators only)" % (sum(1 for v in found.values() if v), env))
+    write(path, json.dumps(merged, indent=2) + "\n")
     say("  wrote %s" % path)
 
 
@@ -613,12 +632,14 @@ def step_service(cfg, raw):
 # ---------------------------------------------------------------- commands
 
 def load(home):
+    """strata.json with the secrets of <home>/data/.env put back in, so every prompt can offer to keep them."""
     path = os.path.join(home, "strata.json")
     raw = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8-sig") as f:
             raw = json.load(f)
-    return path, raw
+    inst = secrets_mod()
+    return path, inst.overlay_secrets(raw, inst.env_path(home))
 
 
 def check(home):

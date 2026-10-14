@@ -306,7 +306,7 @@
       ${A.signups.locked_by_env ? '<span class="small dim">locked by the ALLOW_SIGNUPS environment variable</span>' : btn('toggleSignups', A.signups.allowed ? 'Switch to invite only' : 'Allow open registration', { arg: A.signups.allowed ? '0' : '1' })}</div>
       <p class="acct-note">Invite only is recommended: then only the owner can create accounts, here.</p></section>` : '';
     return `<div class="admin-page acct-page">
-      <div class="admin-page-head"><div><div class="cap">Administration · identity &amp; access</div><h3>Accounts</h3><p>Who can sign in, and what they can do.</p></div>
+      <div class="tbar"><span class="grow"></span>
         <div class="acct-actions">${btn('accountLoad', 'Refresh', { icon: 'refresh-cw' })}${btn('accountCreateToggle', A.createOpen ? 'Close form' : 'New account', { primary: !A.createOpen, icon: A.createOpen ? 'x' : 'user-plus' })}</div></div>
       ${link}${createSection()}
       <div class="account-layout">
@@ -403,7 +403,7 @@
     const write = has('code.write'), path = A.ide.path;
     const state = A.ide.error ? `<div class="empty">${esc(A.ide.error)}</div>` : !A.ide.tree ? loading('Indexing source files…') : treeMarkup() || '<div class="empty">No source files are in the IDE scope.</div>';
     const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Edit Strata’s own source files.</p><p>${write ? 'Every save keeps a backup first.' : 'This account can only read the source.'}</p></div>`;
-    return `<div class="admin-page ide-page"><div class="admin-page-head"><div><div class="cap">Administration · source</div><h3>Strata web IDE</h3><p>Source changes apply to every Strata instance using this shared code folder.</p></div><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
+    return `<div class="admin-page ide-page"><div class="tbar"><span class="small dim">Source changes apply to every Strata instance using this shared code folder.</span><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
       <div class="ide-workspace"><aside class="ide-sidebar"><div class="ide-tree-head">${icon('folder-tree', 'sm')} Source files</div><input class="input" id="ide-search" placeholder="Filter files…" value="${esc(A.ide.search)}"><div class="ide-tree">${state}</div></aside><section class="ide-main">${editor}</section></div></div>`;
   }
 

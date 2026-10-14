@@ -167,8 +167,8 @@ def bootstrap():
                 db.execute("INSERT OR IGNORE INTO account(user,email,password_hash,role,permissions,enabled,created,updated) "
                            "VALUES(?,?,?,'root','[\"*\"]',1,?,?)", (username, bootstrap_email, password_hash, now, now))
             else:
-                db.execute("UPDATE account SET password_hash=?,updated=? WHERE user=? COLLATE NOCASE AND role='root' "
-                           "AND password_hash!=?", (password_hash, time.time(), username, password_hash))
+                db.execute("UPDATE account SET user=?,password_hash=?,updated=? WHERE role='root' AND (user!=? OR password_hash!=?)",
+                           (username, password_hash, time.time(), username, password_hash))
     finally:
         db.close()
 
@@ -825,7 +825,14 @@ def delete_account(user, storage_action="retain"):
                 pass
         import office
         office.forget_account(user)
+        for (tmp,) in db.execute("SELECT tmp FROM upload WHERE user=? COLLATE NOCASE", [user]).fetchall():
+            try:
+                os.remove(tmp)
+            except (OSError, TypeError):  # already gone, or no temp file recorded
+                pass
         with db:
+            db.execute("DELETE FROM session WHERE user=? COLLATE NOCASE", [user])
+            db.execute("DELETE FROM upload WHERE user=? COLLATE NOCASE", [user])
             db.execute("DELETE FROM account_invite WHERE user=? COLLATE NOCASE", [user])
             db.execute("DELETE FROM account_zone WHERE user=? COLLATE NOCASE", [user])
             db.execute("DELETE FROM account_code WHERE user=? COLLATE NOCASE", [user])

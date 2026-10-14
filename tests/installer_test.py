@@ -25,6 +25,17 @@ def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else "  -> %s" % (detail,)))
 
 
+def config(home):
+    """strata.json with the secrets of data/.env put back, as Strata reads it - and strata.json itself must hold none."""
+    sys.path.insert(0, ra.CODE)
+    import instance  # here, after the test home exists: it resolves STRATA_HOME when first imported
+    with open(os.path.join(home, "strata.json"), encoding="utf-8") as f:
+        raw = json.load(f)
+    leaked = instance.split_secrets(json.loads(json.dumps(raw)), raw)
+    check("strata.json holds no secrets", not any(leaked.values()), sorted(k for k, v in leaked.items() if v))
+    return instance.overlay_secrets(raw, instance.env_path(home))
+
+
 # ---- ingress editing on sample configs
 base = "tunnel: abc\ncredentials-file: x.json\n\ningress:\n  - hostname: old.example.org\n    service: http://localhost:1\n  - service: http_status:404\n"
 new = setup.add_ingress(base, "cdn.example.org", 8080)
@@ -87,7 +98,7 @@ try:
     r = install(answers)
     out = r.stdout + r.stderr
     check("setup.py exits cleanly", r.returncode == 0, out[-1500:])
-    cfg = json.load(open(os.path.join(home, "strata.json")))
+    cfg = config(home)
     check("site written", cfg["instance"]["name"] == "example.org" and cfg["public"]["hosts"] == ["cdn.example.org", "example.org"]
           and cfg["public_base_url"] == "https://cdn.example.org", cfg.get("instance"))
     check("caddy paths written", cfg["caddy_exe"] == caddy and cfg["caddyfile"] == caddyfile, (cfg.get("caddy_exe"), cfg.get("caddyfile")))
@@ -107,7 +118,7 @@ try:
 
     # second run: Enter everywhere keeps what is there (caddy found from strata.json this time, so no winget question)
     r2 = install(["", "", "", "", "n", "", "", "", "", "y"])
-    cfg2 = json.load(open(os.path.join(home, "strata.json")))
+    cfg2 = config(home)
     check("re-run exits cleanly", r2.returncode == 0, (r2.stdout + r2.stderr)[-1500:])
     check("re-run keeps owner, ports and site", cfg2["auth"] == cfg["auth"] and cfg2["listen"] == cfg["listen"]
           and cfg2["instance"] == cfg["instance"], (cfg2.get("listen"), cfg2.get("instance")))
@@ -122,7 +133,7 @@ try:
     code, out, key = install_with_app(["example.net", "", "", *WINGET, caddy, caddyfile2, "n", "n", "", "", "", "",
                                        "owner2", "another long passphrase", "another long passphrase", ""], home2)
     check("app setup exits cleanly", code == 0 and key, out[-1500:])
-    cfg3 = json.load(open(os.path.join(home2, "strata.json")))
+    cfg3 = config(home2)
     a3 = cfg3.get("auth", {})
     check("the app's key is stored with recovery codes", a3.get("totp_secret") == key and len(a3.get("recovery") or []) == 10
           and a3.get("totp_last"), {k: v for k, v in a3.items() if k != "password_hash"})

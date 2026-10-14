@@ -1,10 +1,12 @@
+Read "[AI Usage](docs/md/ai_usage.md)" for information on how AI was used in this Projects Development!
+
 # Strata
 
 **A self-hosted, SCADA-inspired dashboard for running a Caddy file server behind a Cloudflare Tunnel.**  
 Drives and access rules, live traffic, scraper-auto-bans, mail alerts, accounts and file management,  
 all in plain python and HTML - No cloud, no AI upselling, no SaaS-DA-9000-Styling.
 
-<img src="docs/images/overview.png" alt="The Summary page: request, bandwidth, visitor, error, latency and tunnel tiles, a seven-day traffic chart, the most requested files, and health of Caddy, the tunnel, storage and the host" width="100%">
+![The Summary page: request, bandwidth, visitor, error, latency and tunnel tiles, a seven-day traffic chart, the most requested files, and health of Caddy, the tunnel, storage and the host](docs/images/overview.png)
 
 [Install](#install) · [How it works](#how-it-works) · [Configuration](#configuration) · [Development](#development) · [Security](SECURITY.md)
 
@@ -40,24 +42,22 @@ Strata can also generate Brotli-compressed copies of files when compression redu
 Since these are important features to me, Strata includes custom error pages, a directory gallery and an audio player. All three are HTML files that can easily be edited inside the dashboard without changing Strata's code.
 
 
-| Feature          | Enable it                                                             | Template                                                              |
-| ---------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **Error pages**  | Site › Serving › Site › Error pages                                   | Copied from `static/errors/` to your preferred drive for reliability  |
-| **Gallery**      | Add an access rule with the **Gallery view** action, e.g. `/photos/*` | `gallery/gallery.html` - include `/*` to list sub-folders too         |
-| **Audio player** | Add an access rule with the **Audio player** action, e.g. `/music/*`  | `player/player.html` - include `/*` to list sub-folders too           |
+| Feature          | Enable it                                                             | Template                                                             |
+| ---------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Error pages**  | Site › Serving › Site › Error pages                                   | Copied from `static/errors/` to your preferred drive for reliability |
+| **Gallery**      | Add an access rule with the **Gallery view** action, e.g. `/photos/`* | `gallery/gallery.html` - include `/`* to list sub-folders too        |
+| **Audio player** | Add an access rule with the **Audio player** action, e.g. `/music/`*  | `player/player.html` - include `/`* to list sub-folders too          |
 
 
 
 
 #### Error pages
 
-<table>
-<tr>
-<td width="33%"><img src="docs/images/error-404.png" alt="The 404 page: Not Found, the requested URL and a link to the home page"></td>
-<td width="33%"><img src="docs/images/error-403.png" alt="The 403 page: Forbidden"></td>
-<td width="33%"><img src="docs/images/error-502.png" alt="The 502 page: Bad Gateway"></td>
-</tr>
-</table>
+
+|                                                                                                      |                                                       |                                                         |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| ![The 404 page: Not Found, the requested URL and a link to the home page](docs/images/error-404.png) | ![The 403 page: Forbidden](docs/images/error-403.png) | ![The 502 page: Bad Gateway](docs/images/error-502.png) |
+
 
 In `Site › Serving › Site`, click **Edit** next to a status code to edit its page. If the page doesn't exist on the selected drive, Strata copies it from `static/errors/` first. **Preview** opens the page in a new tab.
 
@@ -71,12 +71,11 @@ The pages can also display a background photo. Near the end of each HTML file, `
 
 Replace the URLs with your own images or empty the list to use only the embedded backgrounds. This will soon be replaced by a simple json index file set through the Site-settings.
 
-<table>
-<tr>
-<td width="50%"><img src="docs/images/gallery.png" alt="The gallery: a folder of wallpapers and videos as a thumbnail grid, with a filter, sorting by name, date or size, three tile sizes, fit and file names"></td>
-<td width="50%"><img src="docs/images/music.png" alt="The audio player: the album cover on a blurred background, title and artist, playback and volume controls, and a spectrum visualizer along the bottom"></td>
-</tr>
-</table>
+
+|                                                                                                                                                                                    |                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![The gallery: a folder of wallpapers and videos as a thumbnail grid, with a filter, sorting by name, date or size, three tile sizes, fit and file names](docs/images/gallery.png) | ![The audio player: the album cover on a blurred background, title and artist, playback and volume controls, and a spectrum visualizer along the bottom](docs/images/music.png) |
+
 
 **Gallery**
 
@@ -92,15 +91,15 @@ Replace the URLs with your own images or empty the list to use only the embedded
 - If no cover art is found, uses a random image from the placeholder folder configured on the rule.
 - Serves the original audio file to phones, HTML `<audio>` elements, link previews and requests containing `?dl=1` or `?raw=1`.
 
+
+
 #### (Gallery and audio player configs)
 
 Both pages are Caddy templates. Their HTML and CSS can be edited directly; changes take effect on the next request. CSS variables near the top of each file control the appearance. The gallery uses variables such as `--bg` and `--accent`, while the player uses `--ink`, `--red` and `--mono`.
 
-
-
 ### Link previews
 
-<img src="docs/images/previews.jpg" alt="Six link-preview cards: a code file as a repository card, a zip as a terminal listing, a PDF as a document cover, a program with hazard stripes and its SHA-256, a gallery folder of pictures, and a font file with its type and size" width="100%">
+![Six link-preview cards: a code file as a repository card, a zip as a terminal listing, a PDF as a document cover, a program with hazard stripes and its SHA-256, a gallery folder of pictures, and a font file with its type and size](docs/images/previews.jpg)
 
 When someone shares a link to a file in Discord, Slack, Telegram, X, WhatsApp or similar apps, Strata answers the preview request with a card for that file: audio (cover and waveform), code and text (a repository-style card), archives (a terminal listing), PDFs (a document cover), gallery folders (their pictures), programs and scripts (a caution card with the SHA-256) and everything else (type, size and date). Pictures, videos and web pages keep the apps' own embeds.
 
@@ -108,12 +107,11 @@ Hidden, protected and held files never get a preview. The **embed** tab in the F
 
 ### Traffic
 
-<table>
-<tr>
-<td width="50%"><img src="docs/images/requests.png" alt="Requests: a live log with time, status, host, path, size, response time, country, client and agent"></td>
-<td width="50%"><img src="docs/images/visitors.png" alt="Visitors: requests, unique visitors and data sent per country, with the share of people, link previews and bots"></td>
-</tr>
-</table>
+
+|                                                                                                                                 |                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![Requests: a live log with time, status, host, path, size, response time, country, client and agent](docs/images/requests.png) | ![Visitors: requests, unique visitors and data sent per country, with the share of people, link previews and bots](docs/images/visitors.png) |
+
 
 Strata reads Caddy's access log into SQLite. The dashboard includes a live request log with filters and saved views, visitor statistics by country, network and client, the most requested files, and latency percentiles.
 
@@ -121,7 +119,7 @@ Individual requests are retained for 30 days; per-minute, hourly and daily aggre
 
 ### Security
 
-<img align="right" width="50%" src="docs/images/blocklist.png" alt="Blocklist: automatic bans for single addresses and a /24 range, next to the Cloudflare edge sync panel">
+![Blocklist: automatic bans for single addresses and a /24 range, next to the Cloudflare edge sync panel](docs/images/blocklist.png)
 
 Strata tracks requests for common probe targets such as `/.env` and `/wp-login.php`. Addresses that exceed the configured thresholds are banned automatically. If several addresses within the same `/24` subnet are banned within a week, Strata bans the entire range. Repeat offenders receive longer bans.
 
@@ -129,11 +127,9 @@ With a Cloudflare API token configured, Strata also pushes its blocklist to Clou
 
 Security and service alerts appear in the dashboard. These include bans, failed sign-ins, outages, low disk space and error spikes. Alerts can also be sent by e-mail through SMTP or Resend, or to webhooks such as Discord, Slack, ntfy and endpoints that accept JSON.
 
-<br clear="right">
-
 ### Other features
 
-<img align="right" width="50%" src="docs/images/files.png" alt="Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity">
+![Files: folders with size, hits and data sent over 30 days, plus storage use, library breakdown and recent activity](docs/images/files.png)
 
 - **Files:** Browse, upload, rename and move files. Uploads are chunked and resumable, with a default limit of 20 GB per file. Strata keeps file versions that can be restored later. Smart-Sort organizes uploads into folders by file type.
 - **Accounts:** Three roles — owner, administrators and members — with per-permission and per-folder access controls, account expiration dates and IP allowlists. Sign-ins require a second factor: the owner uses an authenticator app, while other accounts receive codes by e-mail. Accounts with permissions beyond file management can only sign in from the local network. API keys and an audit log are also available.
@@ -143,17 +139,15 @@ Security and service alerts appear in the dashboard. These include bans, failed 
 - **Media** (`media/`, disabled by default): Serve AVIF/WebP images and WebM/MP4 video, with `?nocompress` to request the original. Resource-intensive processing pauses when the CPU is busy. The pipeline can also scan new uploads before they become public. Image conversion is running on my own server; video conversion and upload scanning are newer and have seen less use. See [media/DESIGN.md](media/DESIGN.md).
 - **Telemetry** (optional): Publish a statistics page using redacted numerical data.
 
-<br clear="right">
-
-<img align="right" src="docs/images/mobile.png" alt="The Summary page on a phone" width="260">
+![The Summary page on a phone](docs/images/mobile.png)
 
 On mobile, the sidebar becomes a horizontally scrollable row of tabs, and dashboard tiles stack vertically.
 
 A Team page with a directory, presence information and a noticeboard is present in the code but currently hidden.
 
-<br clear="right">
-
 ## Install
+
+
 
 ### Windows
 
@@ -174,7 +168,7 @@ The installer proceeds through these steps:
 3. **Caddy:** Finds `caddy.exe` or offers to install it through winget. Backs up the existing Caddyfile in `backups/`, adds the import directive and optionally configures a LAN-accessible dashboard site. If Caddy rejects the updated configuration, the original file is restored.
 4. **Cloudflare Tunnel:** Finds `cloudflared`, backs up its `config.yml` and adds an ingress rule for the CDN hostname. If no tunnel is configured, the installer can create one through Cloudflare's browser sign-in flow and point the DNS record to it.
 5. **Credentials:** Optionally configures a Cloudflare API token and e-mail delivery, then creates the owner's account. The installer either displays a QR code for an authenticator app or asks for the owner's e-mail address.
-6. **Configuration:** Writes `strata.json` to the instance directory. An existing file is backed up first.
+6. **Configuration:** Writes `strata.json` to the instance directory and every secret to `data/.env` (see [Secrets](#secrets)). An existing `strata.json` is backed up first, without its secrets.
 7. **Service:** Registers a Windows Task Scheduler task that starts Strata at boot as `SYSTEM` and restarts it after a failure.
 
 After installation, open [http://127.0.0.1:8090](http://127.0.0.1:8090). If you skipped owner account creation, this address provides a one-time setup form that only works when accessed from the server itself.
@@ -183,12 +177,16 @@ You can run `setup.py` again at any time to change the configuration. Each promp
 
 #### Installer options
 
-| Command | Purpose |
-|---|---|
-| `python setup.py --check` | Check what's installed and running without changing anything. |
-| `python setup.py --no-service` | Configure Strata without registering a service. Start it manually with `python strata.py`. |
-| `python setup.py --home D:\sites\example.net` | Configure another instance in a separate directory, using the next available ports. |
-| `python setup.py --uninstall` | Remove the service without deleting configuration or data. |
+
+| Command                                       | Purpose                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `python setup.py --check`                     | Check what's installed and running without changing anything.                              |
+| `python setup.py --no-service`                | Configure Strata without registering a service. Start it manually with `python strata.py`. |
+| `python setup.py --home D:\sites\example.net` | Configure another instance in a separate directory, using the next available ports.        |
+| `python setup.py --uninstall`                 | Remove the service without deleting configuration or data.                                 |
+
+
+
 
 ### Linux
 
@@ -234,21 +232,25 @@ flowchart LR
     A[You, on the LAN] --> S
 ```
 
+
+
 Strata manages the serving configuration and dashboard; Caddy handles visitor requests and serves the files. `cloudflared` connects Caddy to Cloudflare's edge.
 
 The dashboard listens on `127.0.0.1` by default. Caddy can optionally expose it on your local network. Public visitors reach the serving site through the Cloudflare Tunnel, not the dashboard directly.
 
 ### Ports
 
-| Port | Process | Purpose |
-|---|---|---|
-| 8090 | `strata.py` | Dashboard and API, bound to loopback |
-| 8091 | Caddy | Optional LAN-accessible dashboard |
-| 8080 | Caddy | Serving site; the tunnel forwards traffic here |
-| 8081 | `strata.py` | Redacted telemetry feed, bound to loopback and protected by a token |
-| 8083 | `transform/transform.py` | Image resizing and signed links, bound to loopback |
-| 8084 | `media/media.py` | Media processing and delivery, when enabled |
-| 8085 | `gate.py` | Sign-in gateway for proxied services, bound to loopback |
+
+| Port | Process                  | Purpose                                                             |
+| ---- | ------------------------ | ------------------------------------------------------------------- |
+| 8090 | `strata.py`              | Dashboard and API, bound to loopback                                |
+| 8091 | Caddy                    | Optional LAN-accessible dashboard                                   |
+| 8080 | Caddy                    | Serving site; the tunnel forwards traffic here                      |
+| 8081 | `strata.py`              | Redacted telemetry feed, bound to loopback and protected by a token |
+| 8083 | `transform/transform.py` | Image resizing and signed links, bound to loopback                  |
+| 8084 | `media/media.py`         | Media processing and delivery, when enabled                         |
+| 8085 | `gate.py`                | Sign-in gateway for proxied services, bound to loopback             |
+
 
 A second instance configured with `--home` uses the same port layout offset by 100, starting at 8190, 8191 and so on.
 
@@ -258,28 +260,44 @@ Each instance has its own directory, referred to as the *instance directory*. By
 
 A single copy of the code can run multiple instances, each started with its own `--home` argument. Most settings are managed through the dashboard. The installer writes the following configuration keys:
 
-| Keys | Purpose |
-|---|---|
-| `instance.name`, `instance.id` | Dashboard name and a unique identifier for each instance |
-| `public.hosts`, `public_base_url` | Served hostnames and the base URL used for share links |
-| `storage_paths` | Directories to serve; the first entry becomes the first drive |
-| `caddy_exe`, `caddyfile`, `access_log` | Caddy executable, configuration file and access log paths |
-| `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | Tunnel executable, configuration file and tunnel restart behavior |
-| `cloudflare.api_token`, `cloudflare.zone_id` | Optional Cloudflare API credentials and zone identifier; `CF_API_TOKEN` overrides the configured token |
-| `alerts.provider`, `alerts.smtp`, `alerts.resend_api_key`, `alerts.from`, `alerts.to` | Mail provider, delivery settings, sender and recipient addresses |
-| `auth.totp_secret`, `auth.recovery` | Owner authenticator secret and hashed recovery codes |
-| `listen`, `feed_listen`, `transform_listen`, `gate_listen` | Listen addresses for Strata's internal services |
 
-Defaults are defined in `DEFAULTS` near the top of [core.py](core.py). The `strata.json` file contains secrets and is excluded from version control through `.gitignore`.
+| Keys                                                               | Purpose                                                                                                 |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `instance.name`, `instance.id`                                     | Dashboard name and a unique identifier for each instance                                                |
+| `public.hosts`, `public_base_url`                                  | Served hostnames and the base URL used for share links                                                  |
+| `storage_paths`                                                    | Directories to serve; the first entry becomes the first drive                                           |
+| `caddy_exe`, `caddyfile`, `access_log`                             | Caddy executable, configuration file and access log paths                                               |
+| `cloudflared_exe`, `cloudflared_config`, `instance.tunnel_restart` | Tunnel executable, configuration file and tunnel restart behavior                                       |
+| `cloudflare.zone_id`, `cloudflare.zone_name`                       | Cloudflare zone; the API token is `CF_API_TOKEN` in `data/.env`                                         |
+| `alerts.provider`, `alerts.smtp`, `alerts.from`, `alerts.to`       | Mail provider, delivery settings, sender and recipient addresses; passwords and keys are in `data/.env` |
+| `listen`, `feed_listen`, `transform_listen`, `gate_listen`         | Listen addresses for Strata's internal services                                                         |
+
+
+Defaults are defined in `DEFAULTS` near the top of [core.py](core.py). `strata.json` is excluded from version control through `.gitignore`, but it holds no secrets.
+
+### Secrets
+
+Every secret of an instance lives in `data/.env` in the instance directory: API keys and tokens, the SMTP password, webhook URLs, the owner's password hash, authenticator secret and recovery codes, and the cookie and link-signing keys. The variable names are listed in `SECRETS` in [instance.py](instance.py), for example `CF_API_TOKEN`, `STRATA_SMTP_PASSWORD` and `STRATA_SIGN_SECRET`.
+
+- Strata writes the file atomically and restricts it to the account Strata runs as, SYSTEM and the Administrators group (mode `0600` on Linux). It does this again on every start, so a file you created by hand is locked down too.
+- A secret found in `strata.json`, for example from an older version or a hand edit, moves to `data/.env` on the next start.
+- The same variable set in the machine's own environment wins over `data/.env`. The dashboard can change what is in `data/.env`, but not what is set on the machine.
+- Secrets never appear in `strata.json`, backups, logs, the JSON files Strata writes for its helper processes, or any dashboard response. The Code editor can't open `data/`.
+
+Anyone with administrator rights on the machine can still read the file, so keep the machine itself secure.
 
 ## Platform support
 
-| Feature | Windows | Linux |
-|---|---|---|
-| Dashboard, traffic, files, serving and accounts | Supported | Test suite passes; no real installation tested |
-| Installer | Windows Task Scheduler | systemd, untested |
-| Restarting the tunnel from the dashboard | Supported | Not yet supported |
-| Drive letters and volume labels in the drive picker | Supported | Not applicable |
+
+| Feature                                             | Windows                | Linux                                          |
+| --------------------------------------------------- | ---------------------- | ---------------------------------------------- |
+| Dashboard, traffic, files, serving and accounts     | Supported              | Test suite passes; no real installation tested |
+| Installer                                           | Windows Task Scheduler | systemd, untested                              |
+| Restarting the tunnel from the dashboard            | Supported              | Not yet supported                              |
+| Drive letters and volume labels in the drive picker | Supported              | Not applicable                                 |
+
+
+
 
 ## Development
 
@@ -334,3 +352,4 @@ Strata is licensed under the [MIT License](LICENSE). You're free to change your 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); `python tests/demo.py` runs the whole dashboard without Caddy or Cloudflare.
 
 The bundled CodeMirror 5.65.21 and Lucide icons retain their respective licenses in `static/vendor/`. Other dependencies are credited under **Settings › About**.
+
