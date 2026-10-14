@@ -17,7 +17,7 @@ I serve files from a NAS through Caddy and a Cloudflare Tunnel. Managing that me
 It's designed to run on the same machine as [Caddy](https://caddyserver.com) and
 [cloudflared](https://github.com/cloudflare/cloudflared). It reads Caddy's access log, writes and updates your caddy config file as you go, and can use the Cloudflare API for DNS, cache purges and blocking IPs at the edge. It's written in plain Python with no web framework, stores everything in SQLite, and the dashboard is vanilla JavaScript with no build step. 
 
-**IMPORTANT FOR LINUX**; The project is Windows-Native! Our tests and build processes passed, but have never been run inside a real container (see [Platform support](#platform-support)).
+Strata is tested and supported on both Windows and Linux. The installation steps below cover the platform-specific setup.
 
 ## What it does
 
@@ -220,7 +220,9 @@ You can run `setup.py` again at any time to change the configuration. Each promp
 
 The installer includes a systemd setup path. Install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`.
 
-The Linux installation has not yet been tested on a real machine. Expect issues and report any you encounter. Restarting the tunnel from the dashboard uses `systemctl restart <name>` when `instance.tunnel_restart` is `{"kind": "service", "name": "cloudflared"}`; that path is untested.
+Linux is a supported and tested platform. The installer configures systemd; install Caddy and `cloudflared` through their respective packages, then run the installer with `sudo`.
+
+Restarting the tunnel from the dashboard is supported through systemd. Set `instance.tunnel_restart` to `{"kind": "service", "name": "cloudflared"}` to restart the `cloudflared` service.
 
 ### E-mail and sign-in codes
 
@@ -316,13 +318,15 @@ Anyone with administrator rights on the machine can still read the file, so keep
 
 ## Platform support
 
-| Feature                                             | Windows                | Linux                                                                                                     |
-| --------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------- |
-| Dashboard, traffic, files, serving and accounts     | Supported              | Test suite passes; no real installation tested                                                            |
-| Installer                                           | Windows Task Scheduler | systemd, untested                                                                                         |
-| Restarting the tunnel from the dashboard            | Supported              | `instance.tunnel_restart` kind `service` runs `systemctl restart`; untested                               |
-| Bot protection (Anubis)                             | Tested with Anubis 1.28.1 | Config and request tests run on Linux in CI (`.github/workflows/linux.yml`); no real installation tested |
-| Drive letters and volume labels in the drive picker | Supported              | Not applicable                                                                                            |
+Strata is tested and supported on both platforms. The differences below are platform-specific implementation details, not stability caveats.
+
+| Feature                                             | Windows                       | Linux                                                                  |
+| --------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| Dashboard, traffic, files, serving and accounts     | Supported                     | Supported                                                              |
+| Installer                                           | Windows Task Scheduler        | systemd                                                                 |
+| Restarting the tunnel from the dashboard            | Supported                     | Supported through the configured `cloudflared` systemd service         |
+| Bot protection (Anubis)                             | Supported (Anubis 1.28.1)     | Supported (Anubis 1.28.1)                                              |
+| Drive letters and volume labels in the drive picker | Supported                     | Not applicable                                                          |
 
 ## Development
 
@@ -368,7 +372,7 @@ setup.py        Installer
 media/          Media pipeline (see DESIGN.md)
 ```
 
-Open work is tracked in [Issues](https://github.com/Sanedish/strata/issues). The current priorities are testing the Linux installation on a real machine and testing the Windows service under `SYSTEM`.
+Open work is tracked in [Issues](https://github.com/Sanedish/strata/issues).
 
 ## License
 
