@@ -105,6 +105,8 @@ try:
     check("the key stays the same on reload", key1 and key1.group(1) in body2, key1)
     st, loc, _, _ = call("/setup", headers={"X-Forwarded-For": "203.0.113.9"})
     check("/setup refuses requests forwarded from outside", st == 303 and loc == "/login?e=setup_local", (st, loc))
+    st, loc, _, _ = call("/setup", headers={"Host": "attacker.example:8190"})
+    check("/setup refuses DNS-rebound hostnames", st == 303 and loc == "/login?e=setup_local", (st, loc))
     st, loc, _, _ = call("/api/me")
     check("API answers 503 until there is an owner", st == 503, st)
 
@@ -118,6 +120,8 @@ try:
     check("POST from outside creates nothing", loc == "/login?e=setup_local", (st, loc))
     st, loc, _, _ = call("/setup", good, headers={"Origin": "https://evil.example"})
     check("cross-site POST refused", st == 403, st)
+    st, loc, _, _ = call("/setup", good, headers={"Host": "attacker.example:8190", "Origin": "http://attacker.example:8190"})
+    check("same-origin DNS rebinding cannot create the owner", st == 303 and loc == "/login?e=setup_local", (st, loc))
 
     st, loc, _, _ = call("/setup", good)
     check("valid form creates the owner", st == 303 and loc == "/login?e=owner", (st, loc))

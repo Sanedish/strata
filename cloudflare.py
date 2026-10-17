@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import anubis  # no cycle: anubis never imports cloudflare
 import core
 import rules
 from core import CFG, connect, get_meta, log, set_meta
@@ -294,7 +295,9 @@ def challenge_expression(pairs):
             paths.append('starts_with(http.request.uri.path, %s)' % cf_str(p[:-1]) if p.endswith("*")
                          else 'ends_with(http.request.uri.path, %s)' % cf_str(p[1:]) if p.startswith("*")
                          else "http.request.uri.path eq %s" % cf_str(p))
-        parts = [host] + (["(%s)" % " or ".join(paths)] if paths else []) + ([] if (r["params"] or {}).get("downloads") else [nav])
+        # Under Attack Mode challenges direct download tools too, regardless of the rule's resting flag
+        parts = [host] + (["(%s)" % " or ".join(paths)] if paths else []) + \
+                ([] if ((r["params"] or {}).get("downloads") or anubis.under_attack()) else [nav])
         out.append("(%s)" % " and ".join(parts))
     return " or ".join(dict.fromkeys(out)) or None
 

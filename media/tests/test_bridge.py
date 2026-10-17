@@ -601,8 +601,12 @@ class Api(Base):
             with self.assertRaises(mb.MediaError) as cm:
                 call()
             self.assertEqual(cm.exception.code, 409)
-        r = mb.api_post("admin", "1.2.3.4", "/api/media/settings", {"hold_threshold": "high"})
+        r = mb.api_post("admin", "1.2.3.4", "/api/media/settings",
+                        {"hold_threshold": "high", "image": {"webp_quality": 80},
+                         "video": {"nvenc_cq": 27}})
         self.assertEqual((r["ok"], r["apply"]), (True, None))
+        self.assertEqual((r["settings"]["image"]["webp_quality"],
+                          r["settings"]["video"]["nvenc_cq"]), (80, 27))
         self.assertEqual(self.applied, [])
         self.assertFalse(os.path.exists(dbp))  # media.db never opened while off
         self.assertIsNone(mb.on_upload(1, "/a.png", __file__))
@@ -683,8 +687,9 @@ class Api(Base):
                 mb.api_post("admin", "ip", "/api/media/settings", body)
         r = mb.api_post("admin", "ip", "/api/media/settings",
                         {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high"})
-        self.assertEqual(r["settings"], {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high",
-                                         "video_format": "webm"})
+        self.assertEqual({k: r["settings"][k] for k in ("negotiation", "gate_legacy", "hold_threshold", "video_format")},
+                         {"negotiation": "redirect", "gate_legacy": False, "hold_threshold": "high",
+                          "video_format": "webm"})
         self.assertEqual(self.saves, [{"media": {"negotiation": "redirect", "gate": {"legacy_while_pending": False},
                                                  "scan": {"hold_threshold": "high"}}}])
         self.assertEqual(self.applied, [("admin", "media settings")])
@@ -697,6 +702,22 @@ class Api(Base):
         mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "mp4"})
         self.assertEqual(self.saves[-1], {"media": {"video": {"format": "mp4"}}})
         self.assertTrue(self.bridge._neg_request)        # the edge video rule switches to _v=mp4
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video": {"nvenc_cq": 900}})
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "webm",
+                                                                "video": {"encoder": "nvenc"}})
+        mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "mp4",
+                                                            "video": {"encoder": "nvenc", "nvenc_cq": 27,
+                                                                      "min_saving": 0.2}})
+        self.assertEqual(self.saves[-1], {"media": {"video": {"format": "mp4", "encoder": "nvenc",
+                                                               "nvenc_cq": 27, "min_saving": 0.2}}})
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"image": {"webp_quality": 200}})
+        mb.api_post("admin", "ip", "/api/media/settings", {"image": {"webp_quality": 80,
+                                                            "prewarm_uploads": True, "min_saving": 0.2}})
+        self.assertEqual(self.saves[-1], {"media": {"image": {"webp_quality": 80,
+                                                               "prewarm_uploads": True, "min_saving": 0.2}}})
 
     def test_breaker(self):
         for body in ({"state": "half"}, {"state": "open"}, {"state": "open", "seconds": 5},

@@ -246,17 +246,45 @@ def service_names(home, iid):
 
 # ---------------------------------------------------------------- steps
 
-def step_packages():
+def package_problems():
+    """Installed modules must meet requirements.txt, including security updates in existing vendor folders."""
+    import importlib.metadata
+    import importlib.util
     vendor = os.path.join(CODE, "vendor")
     sys.path.insert(0, vendor)
-    import importlib.util
-    missing = [m for m in ("brotli", "zstandard", "PIL", "qrcode") if not importlib.util.find_spec(m)]
-    sys.path.remove(vendor)
+    problems = []
+    try:
+        with open(os.path.join(CODE, "requirements.txt"), encoding="utf-8") as f:
+            requirements = [re.fullmatch(r"([A-Za-z0-9_-]+)>=(\d+(?:\.\d+)*)", line.strip()) for line in f]
+        for req in filter(None, requirements):
+            name, minimum = req.groups()
+            module = "PIL" if name.lower() == "pillow" else name
+            if not importlib.util.find_spec(module):
+                problems.append(name + " (missing)")
+                continue
+            try:
+                installed = importlib.metadata.version(name)
+            except importlib.metadata.PackageNotFoundError:
+                problems.append(name + " (version unavailable)")
+                continue
+            actual = re.match(r"\d+(?:\.\d+)*", installed)
+            numbers = lambda v: tuple(int(n) for n in v.split(".")) + (0,) * (4 - len(v.split(".")))
+            if not actual or numbers(actual[0]) < numbers(minimum) or (
+                    numbers(actual[0]) == numbers(minimum) and re.search(r"(?:dev|rc|a|b)\d", installed)):
+                problems.append("%s %s (need >=%s)" % (name, installed, minimum))
+    finally:
+        sys.path.remove(vendor)
+    return problems
+
+
+def step_packages():
+    vendor = os.path.join(CODE, "vendor")
+    missing = package_problems()
     if not missing:
-        say("  brotli, zstandard, Pillow and qrcode are installed")
+        say("  brotli, zstandard, Pillow and qrcode meet the required versions")
         return
-    say("  missing: %s" % ", ".join(missing))
-    if not yes("Install them into %s with pip?" % vendor):
+    say("  packages to install or update: %s" % ", ".join(missing))
+    if not yes("Install or update them in %s with pip?" % vendor):
         say("  skipped. Strata runs without them, but loses Brotli, image previews and 2FA QR codes.")
         return
     if run([sys.executable, "-m", "pip", "--version"])[0] != 0:

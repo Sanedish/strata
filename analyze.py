@@ -251,7 +251,8 @@ def listing(q):
 
 def _num(v, default=None):
     try:
-        return float(v) if v not in (None, "") else default
+        n = float(v) if v not in (None, "") else default
+        return n if n is None or n - n == 0 else default  # inf / nan would crash int() further down
     except (TypeError, ValueError):
         return default
 

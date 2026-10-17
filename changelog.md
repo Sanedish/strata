@@ -1,5 +1,40 @@
 # Changelog
 
+10/17/2026 - From: (v0.4.0.1), To: (v0.4.1).
+
+## Security
+
+- **Drive roots:** only the owner (or an owner-issued API key) can add a drive outside the configured storage roots. Administrators could previously mount Strata's own folder and edit it through Files.
+- **First-run setup** requires a loopback client *and* a localhost Host header, closing a DNS-rebinding path to owner creation.
+- **Filesystem links:** public Transform/Media paths, ZIP downloads, copy jobs and zone permission checks no longer follow symlinks or Windows junctions out of the selected tree.
+- **Request framing:** negative, duplicate or ambiguous `Content-Length` / `Transfer-Encoding` are refused; chunked uploads validate sizes, terminators and trailers.
+- **Uploads:** a failed chunk retry can no longer corrupt an accepted chunk; resumable uploads respect `upload_max_bytes`.
+- **Single-use credentials:** e-mailed codes, invites and reset links are consumed atomically; authenticator and recovery checks are serialized.
+- **Analytics-only accounts** no longer receive visitor IPs, scanners or raw requests without `analytics.visitors`.
+- **Session revocation** is case-insensitive, matching sign-in.
+- **Malformed input hardening:** non-ASCII signed-link signatures, gate CSRF tokens, trust cookies and Unicode digits in 2FA codes are rejected cleanly instead of raising server errors.
+- Pillow minimum raised to 12.3.0; `setup.py` checks installed versions, not just presence.
+
+## Bot protection
+
+- One-switch activation with an automatic challenge rule, an option to challenge direct download tools, and **Under Attack Mode** (harder puzzle for a set time).
+- Under Attack Mode now ends on time even with no dashboard open, and Anubis is restarted so the normal difficulty actually applies again.
+
+## Media
+
+- Video settings in the dashboard: encoder (CPU / NVENC / auto), codec, presets and quality. Changed settings produce new variants instead of reusing stale ones; NVENC failures in auto mode fall back to software.
+
+## Fixes
+
+- A malformed `Referer` no longer drops a whole batch of traffic log lines.
+- Network view shows a clear message when the tunnel config is missing instead of a 500.
+- Upload cancel / retry races, modal focus handling, and the connection indicator.
+- Storage analysis filters ignore `inf` / `nan` instead of failing.
+
+After updating: restart Strata (and its Transform/Media helpers), refresh dashboard tabs, and on older installs re-run `python setup.py` to pick up the new Pillow floor. Full details: `docs/security-audit-2026-10-15.md`.
+
+---
+
 10/14/2026 - From: (v0.3.1), To: (v0.4.0). 
 
 ## Security

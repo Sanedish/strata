@@ -26,7 +26,6 @@ import tempfile
 import threading
 import time
 import urllib.parse
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_all as ra  # noqa: E402
 
@@ -146,8 +145,8 @@ def part1(root):
           "key: not in strata.json, the policy or the Caddy config")
 
     probe = py(on, r'''
-import json, anubis, core, rules
-import os
+import json, os, time
+import anubis, core, rules
 out = {}
 def refused(d):
     try:
@@ -164,6 +163,26 @@ cx = cloudflare.challenge_expression
 out["cf"] = [cx(pair(["/*"])), cx(pair(["/a/*", "*.psd", "/exact.png"], downloads=True)), cx(pair(["re:/x/.*"], downloads=True)),
              cx(pair(["/a*b"], downloads=True)), cx([])]
 out["rule"] = rules.clean_rule({"action": "challenge", "patterns": ["/x/*"], "params": {"downloads": "yes"}})["params"]
+# Under Attack Mode: raised difficulty comes from settings(), the window clears itself, the auto rule is an ordinary row
+out["ua_off"] = [anubis.under_attack(), anubis.under_attack_left()]
+anubis.set_under_attack("t", 0)  # off while protection is off is allowed (no-op)
+core.save_config({"anubis": {"under_attack_until": time.time() + 3600}})
+out["ua_on"] = [anubis.under_attack(), anubis.settings()["difficulty"] >= anubis.UNDER_ATTACK_DIFFICULTY]
+core.save_config({"anubis": {"under_attack_until": time.time() - 10}})
+out["ua_lapsed"] = [anubis.under_attack(), core.CFG["anubis"]["under_attack_until"]]
+out["auto"] = [anubis.ensure_auto_rule("t", downloads=True), anubis.ensure_auto_rule("t"), anubis.ensure_auto_rule("t")]
+dbx = core.connect()
+arow = anubis.auto_rule(dbx)
+out["auto_row"] = [arow["name"], arow["patterns"], arow["params"], arow["mount"]]
+out["rules_before"] = dbx.execute("SELECT count(*) FROM rule").fetchone()[0]
+out["autos_before"] = dbx.execute("SELECT count(*) FROM rule WHERE name=?", (anubis.AUTO_RULE_NAME,)).fetchone()[0]
+dbx.close()
+out["ua_flag_rule"] = anubis.set_under_attack("t", 3600)  # on: downloads is overlaid, the rule row is not touched
+out["ua_overlay"] = [anubis.under_attack(), anubis.set_under_attack("t", 0)["under_attack"]]  # and off again
+dbx = core.connect()
+out["rules_after"] = dbx.execute("SELECT count(*) FROM rule").fetchone()[0]
+out["autos_after"] = dbx.execute("SELECT count(*) FROM rule WHERE name=?", (anubis.AUTO_RULE_NAME,)).fetchone()[0]
+dbx.close()
 line = lambda uri, loc=None: json.dumps({"msg": "handled request", "status": 307 if loc else 200, "request": {"uri": uri, "headers": {}},
                                           "resp_headers": {"Location": [loc]} if loc else {}})
 out["parse"] = [core.parse_line(line("/.within.website/x/cmd/anubis/static/js/main.mjs")) is None,
@@ -181,6 +200,15 @@ print(json.dumps(out))''')
     check(cf[2] == '(http.host in {"cdn.example.com"})' == cf[3] and cf[4] is None,
           "cloudflare: a regex or a * in the middle bypasses the whole host (never a gap); no rule, no expression", cf[2:])
     check(probe.get("rule") == {"downloads": True}, "rule: challenge keeps only its downloads flag", probe.get("rule"))
+    ua = probe.get("ua_off") == [False, 0] and probe.get("ua_on") == [True, True] and probe.get("ua_lapsed") == [False, 0]
+    check(ua, "under attack: off by default, raises difficulty while on, clears itself when the window lapses", {k: probe.get(k) for k in ("ua_off", "ua_on", "ua_lapsed")})
+    check(probe.get("auto") == ["created", "kept", "kept"], "auto rule: created once, then left alone", probe.get("auto"))
+    check(probe.get("auto_row") == ["Automatic bot challenge", ["/*"], {"downloads": True}, None],
+          "auto rule: one global row, the flag the user chose at activation", probe.get("auto_row"))
+    check(probe.get("rules_after") == probe.get("rules_before") and probe.get("autos_after") == probe.get("autos_before") == 1,
+          "auto rule: under attack never duplicates or rewrites the row",
+          {k: probe.get(k) for k in ("rules_before", "rules_after", "autos_before", "autos_after")})
+    check(probe.get("ua_overlay") == [True, False], "under attack: switches on and off again, rule row untouched", probe.get("ua_overlay"))
     check(probe.get("parse") == [True, True, True], "statistics: challenge pages and their redirect are not traffic", probe.get("parse"))
     argv = on["argv"]
     check(argv[argv.index("--public-url") + 1] == "https://" and "--cookie-secure=false" not in argv,

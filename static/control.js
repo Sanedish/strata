@@ -78,18 +78,20 @@ function readExpiry(prefix) {
 
 /* ---- sheets (forms in their own DOM node) */
 
+let sheetTrigger = null;
 function openSheet(kicker, title, body, buttons, wide) {
   closeSheet();
+  sheetTrigger = document.activeElement;
   const el = document.createElement('div');
   el.id = 'sheet';
   el.className = 'palbg';
-  el.innerHTML = `<div class="dlg sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true"><div class="body"><div class="cap">${esc(kicker)}</div><h4>${esc(title)}</h4>${body}</div>
+  el.innerHTML = `<div class="dlg sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="body"><div class="cap">${esc(kicker)}</div><h4>${esc(title)}</h4>${body}</div>
     <div class="acts">${buttons}<div class="grow"></div><button class="btn btn-secondary" data-act="sheetClose">Cancel</button></div></div>`;
   document.body.appendChild(el);
   const first = el.querySelector('input, select, textarea');
   if (first) first.focus();
 }
-function closeSheet() { const el = $('#sheet'); if (el) el.remove(); }
+function closeSheet() { const el = $('#sheet'); if (el) { el.remove(); if (sheetTrigger?.isConnected) sheetTrigger.focus(); sheetTrigger = null; } }
 ACT.sheetClose = closeSheet;
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sheet') && !S.dialog) { e.stopImmediatePropagation(); closeSheet(); } }, true);
 document.addEventListener('change', (e) => {
@@ -772,11 +774,11 @@ SETTINGS_PANELS.push((row) => {
   if (!me) { loadMe().then(() => render(true)); return '<section class="panel span2"><div class="empty">Loading your account…</div></section>'; }
   const owner = meOwner();
   return `<section class="panel">
-    <div class="ph"><h5>${icon('lock')}Sign-in</h5><span class="small dim">${owner ? 'owner account' : 'your account'}</span></div>
+    <div class="ph"><h5>${icon('lock')}Sign-in</h5><span class="small dim">${owner ? '(Owner Account)' : 'your account'}</span></div>
     ${owner ? row('Authenticator app', me.totp ? `Replaces the e-mailed code. ${me.recovery_left} recovery codes left.` : 'Use an app instead of e-mailed codes.',
       me.totp ? '<button class="pill" data-act="tfRecovery">New recovery codes</button> <button class="pill danger" data-act="tfDisable">Turn off</button>' : '<button class="pill on" data-act="tfBegin">Set up</button>') : ''}
-    ${row('Password', 'Changing it signs out every session.', '<button class="pill" data-act="pwChange">Change…</button>')}
-    ${row('Sessions', (owner ? fmt.n(me.sessions) + ' active. ' : '') + 'Kept across restarts' + (me.session_hours ? `, ${esc(me.session_hours)} h at most.` : '.'), `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
+    ${row('Password', '(changing this will sign out all sessions)', '<button class="pill" data-act="pwChange">Change…</button>')}
+    ${row('Sessions', (owner ? fmt.n(me.sessions) + ' active - ' : '') + 'Kept across restarts' + (me.session_hours ? `, ${esc(me.session_hours)} h at most.` : '.'), `<button class="pill" data-act="logout">${icon('log-out', 'sm')}Sign out</button>`)}
   </section>`;
 });
 
@@ -841,59 +843,80 @@ VIEW_REFRESH.challenger = async () => {
   await loadServ(); refreshControl();
 };
 setInterval(() => { if (S.view === 'challenger' && !S.paused && !D.botBusy && !$('#sheet')) VIEW_REFRESH.challenger(); }, 10000);
+// Under Attack Mode counts down live: the state poll above refreshes the numbers, this only re-renders the text
+setInterval(() => { if (S.view === 'challenger' && D.bots?.under_attack && !D.botBusy && !$('#sheet')) render(true); }, 30000);
 function vChallenger() {
   const b = D.bots;
-  if (!b) return loading('Loading the Challenger…');
+  if (!b) return loading();
   const busy = D.botBusy, dis = busy || !meOwner() ? 'disabled' : '';
   const rules = (D.serv?.rules || []).filter((r) => r.action === 'challenge'), live = rules.filter((r) => r.enabled);
   const run = b.answers ? 'working' : b.reachable ? 'answers, but not as Anubis' : 'not running';
   const done = b.exe && b.key_exists && b.enabled && (b.dry_run || (b.task_installed && b.answers));
-  const step = (n, title, desc, ctl) => setRow(n + '   ' + title, desc, ctl);
-  const rows = [
-    step(1, 'Program', b.exe ? b.exe : b.asset ? `Anubis ${b.tested} from github.com, about 25 MB. Strata checks the file against the SHA-256 GitHub publishes for it and unpacks only the program and its licence into this instance’s .private folder.`
+  const uaLeft = b.under_attack_left || 0, ua = b.under_attack;
+  const step = (n, title, desc, ctl) => `<div class="challenger-step"><span class="challenger-step-number">${n}</span>${setRow(title, desc, ctl)}</div>`;
+  const row = setRow; // same local alias vSettings uses
+  // the one switch: set up everything (install, key, task, start) and make sure a global challenge rule exists
+  const status = !b.enabled ? 'Protection off' : b.dry_run ? 'Demo mode' : !b.answers ? 'Needs attention' : ua ? 'Under Attack Mode' : !live.length ? 'No active rules' : 'Protection active';
+  const healthy = b.enabled && b.answers && live.length;
+  const activate = `<section class="panel challenger-activation">
+    <div class="ph"><h5>${icon('shield-check')}Browser protection</h5><span class="challenger-status ${healthy ? 'is-active' : ''}"><i></i>${status}</span>
+      ${meOwner() ? sheetBtn('bots') : ''}</div>
+    ${row('Activate protection', done ? 'Anubis is configured. Your Serving rules decide which pages are challenged.'
+        : 'Installs Anubis, creates its key, starts the service and adds a rule to challenge every page.',
+      busy ? `<span class="small dim" style="margin-right:10px">${esc(busy)}</span>${icon('loader-circle', 'spin')}
+              <label class="sw" style="opacity:.45;cursor:default;margin-left:10px"><input type="checkbox" ${b.enabled ? 'checked' : ''} disabled><b></b></label>`
+           : toggle(b.enabled && (b.dry_run || b.answers), 'botActivate', dis))}
+    ${row('Challenge download tools', 'Include cURL, wget and other direct connections. Also applies during Under Attack Mode.',
+      toggle(b.auto_downloads, 'botDownloads', dis || !b.enabled))}
+  </section>`;
+  const uaBtn = `<button class="btn danger challenger-emergency-button" data-act="botUnderAttack" ${dis || !b.enabled ? 'disabled' : ''}>${icon('triangle-alert', 'sm')}Activate emergency protection</button>`;
+  const underAttack = `<section class="panel challenger-emergency ${ua ? 'is-active' : ''}">
+    <div class="ph"><h5>${icon('triangle-alert')}Under Attack Mode</h5><span class="challenger-emergency-badge">${ua ? 'Emergency active' : 'Emergency control'}</span></div>
+    <div class="challenger-emergency-copy"><span class="challenger-duration">${ua ? esc(fmt.dur(uaLeft)) : '1 hour'}</span><p>Increase Anubis challenge difficulty and complexity across all hosts for 60 minutes. Normal settings are automatically restored when the timer ends.</p></div>
+    ${ua ? row('Stronger challenges are active', 'Difficulty ' + b.difficulty + ' (normal: ' + b.rest_difficulty + '). Direct download tools are challenged across every host.',
+      `<button class="pill" data-act="botUaStretch" data-arg="3600" ${dis}>+1 h</button>
+       <button class="pill" data-act="botUaStretch" data-arg="-900" ${dis}>−15 min</button>
+       <button class="pill danger" data-act="botUaEnd" ${dis}>Reduce now</button>`)
+      : row('Applies to every host', 'Raises puzzle difficulty to ' + anubisDifficulty(b) + ' and challenges direct download tools.' + (!b.enabled ? ' Activate protection first to use this mode.' : ''), uaBtn)}
+  </section>`;
+  // what the switch used to be: the individual steps, still there for the odd case (no download for this system,
+  // Anubis not answering, a path you installed yourself). The rule row links to Serving › Rules.
+  const advanced = `<section class="panel challenger-advanced">
+    <div class="ph"><h5>${icon('settings')}Setup &amp; diagnostics</h5><span class="small dim">Service details and manual controls</span></div>
+    ${step(1, 'Program', b.exe ? b.exe : b.asset ? `Anubis ${b.tested} from github.com, about 25 MB. Strata checks the file against the SHA-256 GitHub publishes for it and unpacks only the program and its licence into this instance’s .private folder.`
       : 'There is no Anubis download for this system. Install it yourself and set its path under Settings.',
     b.exe ? `<span class="h800 ${b.version ? '' : 'hot'}">${esc(b.version || 'file missing')}</span>`
-      : `<button class="pill on" data-act="botInstall" ${dis || (b.asset ? '' : 'disabled')}>Install Anubis ${esc(b.tested)}</button>`),
-    step(2, 'Key and policy', 'A signing key for the pass cookies (never shown or logged) and the rules Anubis follows. Strata writes both, and rewrites the policy when you change settings.',
-      `<span class="h800 ${b.key_exists && b.policy_exists ? '' : 'dim'}">${b.key_exists && b.policy_exists ? 'ready' : 'made by set-up'}</span>`),
-    step(3, 'Start-up task', b.dry_run ? 'Demo instance: nothing is registered or started here.' : b.task_installed ? `Registered as “${b.task}”. Anubis starts with this PC and again after a failure.`
+      : `<button class="pill on" data-act="botInstall" ${dis || (b.asset ? '' : 'disabled')}>Install Anubis ${esc(b.tested)}</button>`)}
+    ${step(2, 'Key and policy', 'A signing key for the pass cookies (never shown or logged) and the rules Anubis follows. Strata writes both, and rewrites the policy when you change settings.',
+      `<span class="h800 ${b.key_exists && b.policy_exists ? '' : 'dim'}">${b.key_exists && b.policy_exists ? 'ready' : 'made by activation'}</span>`)}
+    ${step(3, 'Start-up task', b.dry_run ? 'Demo instance: nothing is registered or started here.' : b.task_installed ? `Registered as “${b.task}”. Anubis starts with this PC and again after a failure.`
       : `Registers “${b.task}” so Anubis starts with this PC, and starts it now.`,
     `<span class="h800 ${b.task_installed ? '' : 'dim'}">${b.task_installed ? 'registered' : 'not registered'}</span>
       <button class="pill" data-act="botTask" ${dis || (b.exe && !b.dry_run ? '' : 'disabled')}>${b.task_installed ? 'Register again' : 'Register and start'}</button>
-      <button class="pill danger" data-act="botTaskRemove" ${dis || (b.task_installed ? '' : 'disabled')}>Remove</button>`),
-    step(4, 'Running', `Anubis listens on ${b.bind}, on this PC only.`,
+      <button class="pill danger" data-act="botTaskRemove" ${dis || (b.task_installed ? '' : 'disabled')}>Remove</button>`)}
+    ${step(4, 'Running', `Anubis listens on ${b.bind}, on this PC only.`,
       `<span class="h800 ${b.enabled && !b.answers && !b.dry_run ? 'hot' : b.answers ? '' : 'dim'}">${esc(run)}</span> <button class="pill" data-act="botCheck" ${busy ? 'disabled' : ''}>Check</button>
       <button class="pill" data-act="botRestart" ${dis || (b.task_installed ? '' : 'disabled')}>Restart</button>
-      <button class="pill" data-act="botStop" ${dis || (b.task_installed ? '' : 'disabled')}>Stop</button>`),
-    step(5, 'Protection', 'On: “Bot challenge” rules send browsers to the puzzle. Off: Strata behaves as without it. It won’t switch on until Anubis answers, and stopping Anubis needs it off first.',
-      busy ? '' : toggle(b.enabled, 'botToggle')),
-    step(6, 'Rules', live.length ? live.map((r) => r.name + ' (' + (r.patterns || []).join(' ') + ')').join(', ') + (rules.length > live.length ? ' · ' + (rules.length - live.length) + ' switched off' : '')
-      : rules.length ? 'All Bot challenge rules are switched off.' : 'No Bot challenge rule yet, so nothing is challenged. Browsers opening a page are challenged; files are not, unless a rule says so.',
-    `${rules.length ? '' : `<button class="pill" data-act="botRuleAdd" ${dis}>Challenge all pages</button> `}<button class="pill" data-act="go" data-arg="serving">Edit rules</button>`),
-  ].join('');
+      <button class="pill" data-act="botStop" ${dis || (b.task_installed ? '' : 'disabled')}>Stop</button>`)}
+    ${step(5, 'Rules', live.length ? live.map((r) => (r.name === 'Automatic bot challenge' ? '' : r.name + ' (' + (r.patterns || []).join(' ') + ')')).filter(Boolean).join(', ') + (rules.length > live.length ? ' · ' + (rules.length - live.length) + ' switched off' : '')
+      || 'The automatic rule challenges every page.'
+      : rules.length ? 'All Bot challenge rules are switched off.' : 'No challenge rule yet.',
+    `<button class="pill" data-act="botRuleAdd" ${dis}>Challenge all pages</button> <button class="pill" data-act="go" data-arg="serving">Edit rules</button>`)}
+  </section>`;
   const n = b.counts || {}, total = Object.values(n).reduce((a, x) => a + x, 0);
-  return `<div class="split" style="grid-template-columns:1fr 330px"><section class="aside">
-    <div class="tbar">
-      ${done ? '' : `<button class="pill on" data-act="botSetup" ${dis}>${b.exe ? 'Finish set-up' : 'Set up everything'}</button>`}
-      ${busy ? `<span class="small">${icon('loader-circle', 'spin')} ${esc(busy)}</span>` : ''}
-      <div class="grow"></div>${meOwner() ? sheetBtn('bots') : ''}
-    </div>
-    <div class="px-18 pb-12">${rows}
-      ${D.botLog ? `<div class="sect px-0"><span class="cap">Last set-up</span></div>${D.botLog.map((l) => `<div class="small">${esc(l)}</div>`).join('')}` : ''}</div>
-  </section>
-  <aside class="aside">
-    <div class="pad"><div class="cap red">Anubis</div><h5>${b.enabled ? (b.answers ? 'Protecting' : b.dry_run ? 'On (demo: Anubis isn’t started)' : 'Down: challenged paths answer 502') : 'Off'}</h5></div>
-    <div class="small px-16 pb-10 dim">${b.version ? esc(b.version) + ' · ' : ''}difficulty ${esc(b.difficulty)} · ${b.defaults ? 'with' : 'without'} Anubis’ own lists</div>
-    <div class="sect"><span class="cap">Judged by Anubis</span><span class="small dim">since it started</span></div>
-    <div class="loglines" style="flex:none">${b.counts ? ['CHALLENGE', 'ALLOW', 'DENY'].map((k) => `<div class="logline"><span>${{ CHALLENGE: 'Sent to the puzzle', ALLOW: 'Let through', DENY: 'Denied' }[k]}</span><span>${fmt.n(n[k] || 0)}</span></div>`).join('')
-      + `<div class="logline"><span>All</span><span>${fmt.n(total)}</span></div>`
-      : '<div class="logline"><span class="dim">Anubis is not running</span><span></span></div>'}</div>
-    <div class="sect"><span class="cap">Good to know</span></div>
-    <div class="small dim px-16 pb-10">Challenged files skip Cloudflare’s cache (Strata adds one Cache Rule for them), so more requests reach your server. Link-preview crawlers, signed links and Allow rules are never challenged. This slows scrapers; it is not access control.</div>
-    <div class="sect"><span class="cap">Files</span></div>
-    <div class="small dim px-16 pb-10">Policy <code>${esc(b.policy)}</code><br>Key <code>${esc(b.key)}</code><br>Metrics <code>${esc(b.prometheus)}</code></div>
-  </aside></div>`;
+  return `<div class="challenger-page">
+    <div class="challenger-top">${activate}${underAttack}</div>
+    <section class="panel challenger-traffic">
+      <div class="ph"><h5>${icon('activity')}Challenge activity</h5><span class="small dim">${b.counts ? 'Reported by Anubis' : b.dry_run ? 'Metrics unavailable in demo mode' : 'Waiting for Anubis metrics'}</span></div>
+      <div class="challenger-metrics">${['CHALLENGE', 'ALLOW', 'DENY', 'TOTAL'].map((k) => `<div><span class="cap">${{ CHALLENGE: 'Challenged', ALLOW: 'Allowed', DENY: 'Denied', TOTAL: 'Total decisions' }[k]}</span><strong>${b.counts ? fmt.n(k === 'TOTAL' ? total : n[k] || 0) : '—'}</strong></div>`).join('')}</div>
+    </section>
+    ${b.enabled && !b.answers && !b.dry_run ? '<div class="challenger-warning">Anubis is not responding. Challenged pages currently return a 502 error. Check the service below.</div>' : ''}
+    ${advanced}
+    ${D.botLog?.length ? `<section class="panel challenger-log"><div class="ph"><h5>Last setup</h5></div><pre>${D.botLog.map(esc).join('\n')}</pre></section>` : ''}
+    <div class="challenger-note">${icon('info')}<p>Challenged files bypass Cloudflare’s cache, so more requests reach your server. Link previews, signed links and Allow rules are exempt. Challenges slow scrapers; they do not restrict access.</p></div>
+  </div>`;
 }
+const anubisDifficulty = (b) => Math.max(b.rest_difficulty ?? b.difficulty ?? 4, 6);
 function linkRows(row, toggle) {
   const lk = D.me.links || {}, ab = lk.abuse || {};
   return `${row('Default lifetime', 'New share links expire after this many days. 0 means never.', numIn('lk_days', lk.default_days ?? 7) + ' days')}
@@ -986,9 +1009,9 @@ Object.assign(ACT, {
   async tfBegin() {
     try {
       const r = await post('/api/2fa/begin', {});
-      openSheet('Authenticator app', 'Scan with your authenticator app', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
-        <div><p class="small">Or enter this key in the app:</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
-        <label class="wide d-grid gap-5 mt-12">Code from the app<input id="tf_code" class="input fs-22 ls-code w-170" inputmode="numeric" autocomplete="one-time-code"></label></div></div>`,
+      openSheet('Authenticator app', 'To proceed, scan this QR code with your authenticator app.', `<div class="twofa">${r.qr ? `<img alt="QR code" src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(r.qr)))}">` : ''}
+        <div><p class="small">...or enter this key:</p><div class="code">${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
+        <label class="wide d-grid gap-5 mt-12">Apps Security Code:<input id="tf_code" class="input fs-22 ls-code w-170" inputmode="numeric" autocomplete="one-time-code"></label></div></div>`,
       '<button class="btn btn-primary" data-act="tfEnable">Turn on</button>');
     } catch (e) { note(e.message); }
   },
@@ -1041,6 +1064,37 @@ Object.assign(ACT, {
     try { D.bots = await post('/api/settings/bots', body); await loadMe(); note(ok); render(true); return true; } catch (e) { note('Couldn’t save bot protection: ' + e.message); render(true); }
   },
   botToggle(on) { return ACT.botPost({ enabled: !!on }, on ? 'Bot protection is on' : 'Bot protection is off'); },
+  // the one switch: everything from download to a global challenge rule, whatever is missing
+  async botActivate(on) {
+    if (!on) { const r = await ACT.botPost({ enabled: false }, 'Bot protection is off'); return r; }
+    const b = D.bots;
+    const ok = await ask({ kicker: 'Challenger', title: 'Activate Anubis?', ok: 'Activate', text: (b.exe ? 'Uses ' + b.exe + '. ' : 'Downloads Anubis ' + b.tested + ' (about 25 MB) from github.com and checks it against GitHub’s SHA-256. ')
+      + (b.dry_run ? 'Demo instance: creates the key and policy and switches protection on; registers and starts nothing.'
+        : 'Creates the key and policy, registers “' + b.task + '” to start with this PC, starts it, and challenges every page once it answers. Your existing rules stay.') });
+    if (!ok) { render(true); return; }
+    await ACT.botRun('Activating: ' + (b.exe ? '' : 'downloading, ') + 'starting, checking…', async () => {
+      const r = await post('/api/bots/setup', { downloads: !!document.querySelector('[data-change="botDownloads"]')?.checked });
+      D.botLog = r.log; note('Anubis is protecting your sites');
+    });
+  },
+  async botDownloads(on) {
+    try { D.bots = await post('/api/bots/auto-downloads', { downloads: !!on }); note(on ? 'Direct connections are challenged too' : 'Only browsers are challenged'); render(true); }
+    catch (e) { note('Couldn’t save: ' + e.message); render(true); }
+  },
+  async botUnderAttack() {
+    const ok = await ask({ kicker: 'Challenger', title: 'Under Attack Mode for one hour?', danger: true, ok: 'Activate',
+      text: 'The hardest puzzle and challenges for direct download tools (cURL, wget, …) on every site of this instance. Real search engines are still let through. It ends by itself; you can stretch or reduce it any time.' });
+    if (!ok) return;
+    await ACT.botRun('Activating Under Attack Mode…', async () => { D.bots = await post('/api/bots/under-attack', { seconds: 3600 }); note('Under Attack Mode is on for one hour'); });
+  },
+  async botUaStretch(seconds) {
+    try { D.bots = await post('/api/bots/under-attack', { seconds: Math.max(0, (D.bots.under_attack_left || 0) + +seconds) }); note(+seconds > 0 ? 'Under Attack Mode extended' : 'Under Attack Mode shortened'); render(true); }
+    catch (e) { note('Couldn’t save: ' + e.message); render(true); }
+  },
+  async botUaEnd() {
+    try { D.bots = await post('/api/bots/under-attack', { seconds: 0 }); note('Under Attack Mode is off — the checkbox is back in charge'); render(true); }
+    catch (e) { note('Couldn’t save: ' + e.message); render(true); }
+  },
   botDefaults(on) { return ACT.botPost({ defaults: !!on }, 'Saved'); },
   async botSave() {
     const ok = await ACT.botPost({ bind: $('#bt_bind').value, exe: $('#bt_exe').value, difficulty: +$('#bt_diff').value, cookie_domain: $('#bt_cookie').value },

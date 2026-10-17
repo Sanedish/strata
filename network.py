@@ -325,14 +325,17 @@ def cloudflared(*args, timeout=60):
 
 def read_config():
     path = CFG["cloudflared_config"]
-    with open(path, encoding="utf-8-sig") as f:
-        return path, f.read()
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            return path, f.read()
+    except OSError as e:
+        raise NetError("Could not read the tunnel configuration at %s. Check the cloudflared_config path and file permissions." % path) from e
 
 
 def tunnel_id():
     try:
         _, text = read_config()
-    except OSError:
+    except (OSError, NetError):
         return ""
     m = re.search(r"^tunnel:\s*([0-9a-f-]{36})\s*$", text, re.M)
     return m.group(1) if m else ""
@@ -388,8 +391,11 @@ SERVICE_RE = re.compile(r"^(https?|tcp|ssh|rdp|unix|http_status):\S+$|^hello_wor
 
 
 def ingress():
-    path, text = read_config()
-    _, items, _ = parse_ingress(text)
+    try:
+        path, text = read_config()
+        _, items, _ = parse_ingress(text)
+    except NetError as e:
+        return {"available": False, "error": str(e), "path": CFG["cloudflared_config"], "rules": []}
     return {"path": path, "tunnel_id": tunnel_id(), "cdn": cdn_service(),
             "rules": [{"i": i, "hostname": it["hostname"] or "*", "service": it["service"], "path": it["path"],
                        "extra": it["extra"], "catchall": not it["hostname"]} for i, it in enumerate(items)],

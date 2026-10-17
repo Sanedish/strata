@@ -1,4 +1,4 @@
 brotli>=1.1
 zstandard>=0.23
-Pillow>=11.0
+Pillow>=12.3.0
 qrcode>=8.0

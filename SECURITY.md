@@ -34,8 +34,11 @@ Worth knowing before you report:
 
 ## Running Strata safely
 
-- Keep `strata.json` private. It holds the Cloudflare token, the mail credentials (SMTP password or Resend key) and the signing secrets, and it is
-  listed in `.gitignore`.
+- Keep `strata.json`, `data/.env` and the database private. Secrets are moved to `data/.env`; the database contains
+  password hashes, sessions and share links. These paths are listed in `.gitignore`.
+- Install the versions in `requirements.txt`, and rerun `python setup.py` when upgrading: it checks existing packages
+  for the required security updates. Administrators can add file drives inside configured storage roots; only the owner
+  can expand access to a new filesystem root.
 - Give the Cloudflare API token only the permissions the installer lists, scoped to your zone.
 - If you use bot protection, keep `.private/anubis.key` (the signing key) as private as `strata.json`, and run Anubis on
   loopback only: the settings accept nothing else. Only the owner can change them, because they download and register a

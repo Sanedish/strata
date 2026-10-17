@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MEDIA = os.path.dirname(HERE)
@@ -30,6 +31,7 @@ import breaker  # noqa: E402
 import config  # noqa: E402
 import imaging  # noqa: E402
 import worker  # noqa: E402
+import video  # noqa: E402
 
 try:
     from PIL import Image
@@ -79,6 +81,10 @@ def photo(path, size=(640, 480)):
 class MediaServiceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls._env_patch = mock.patch.object(config, "_env", return_value={})
+        cls._secret_patch = mock.patch.dict(os.environ, {"STRATA_SIGN_SECRET": ""})
+        cls._env_patch.start()
+        cls._secret_patch.start()
         cls.tmp = tempfile.mkdtemp(prefix="strata-media-svc-")
         cls.mnt = os.path.join(cls.tmp, "mount")
         os.makedirs(os.path.join(cls.mnt, "sub"))
@@ -133,6 +139,8 @@ class MediaServiceTest(unittest.TestCase):
             except OSError:
                 time.sleep(0.3)
         shutil.rmtree(cls.tmp, ignore_errors=True)
+        cls._secret_patch.stop()
+        cls._env_patch.stop()
 
     @classmethod
     def write_conf(cls, **over):
@@ -497,10 +505,11 @@ class MediaServiceTest(unittest.TestCase):
         self.assertEqual((st, h["location"]), (302, "/clip4.mp4?_v=orig"))
         self.assertEqual([(j["priority"], j["params"]) for j in self.job("video", "/clip4.mp4")], [(40, '{"want":"mp4"}')])
         s = os.stat(os.path.join(self.mnt, "clip4.mp4"))
-        key = self.svc.cache.key(1, "/clip4.mp4", s.st_size, s.st_mtime, worker.AUTO_SPEC % "mp4")
+        spec = video.spec("mp4", self.svc.conf())
+        key = self.svc.cache.key(1, "/clip4.mp4", s.st_size, s.st_mtime, spec)
         f = self.svc.cache.write_bytes(key, "mp4", "vid", b"fake mp4 bytes")
         self.svc.store.put_variant(key, mount=1, path="/clip4.mp4", src_size=s.st_size, src_mtime=s.st_mtime, kind="vid",
-                                   fmt="mp4", spec=worker.AUTO_SPEC % "mp4", file=f, bytes=14, src_bytes=s.st_size,
+                                   fmt="mp4", spec=spec, file=f, bytes=14, src_bytes=s.st_size,
                                    secs=1.0, beneficial=1)
         st, h, _ = self.req("/clip4.mp4?_v=mp4")
         self.assertEqual((st, h["x-strata-media"], h["x-strata-disposition"]), (200, "hit", "inline; filename*=UTF-8''clip4.mp4"))

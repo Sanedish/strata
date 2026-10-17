@@ -83,7 +83,7 @@ def _totp(secret, step):
 
 def totp_verify(secret, code, last_step=0, window=1):
     """Returns the matched time step (store it to stop replays) or None."""
-    code = "".join(ch for ch in str(code) if ch.isdigit())
+    code = "".join(ch for ch in str(code) if ch in "0123456789")  # isdigit() admits non-ASCII digits: compare_digest raises on them
     if len(code) != 6 or not secret:
         return None
     now = int(time.time() // 30)
@@ -160,8 +160,8 @@ def trust_ok(key, token, user, bind):
         exp = int(exp)
         if exp < time.time():
             return False
-        return hmac.compare_digest(mac, _trust_mac(key, user, exp, bind))
-    except (ValueError, AttributeError):
+        return hmac.compare_digest(mac.encode(), _trust_mac(key, user, exp, bind).encode())
+    except (ValueError, AttributeError, TypeError):
         return False
 
 
@@ -208,7 +208,7 @@ class Sessions:
 
     def drop_user(self, user):
         with self.lock:
-            for h in [h for h, s in self.by_hash.items() if s["user"] == user]:
+            for h in [h for h, s in self.by_hash.items() if s["user"].lower() == user.lower()]:
                 del self.by_hash[h]
 
     def count(self):

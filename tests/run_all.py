@@ -213,6 +213,7 @@ def main():
         suites = [
             ("smtp sender", py + [os.path.join(TESTS, "smtp_test.py")]),
             ("security", py + [os.path.join(TESTS, "sec_regress.py"), db]),
+            ("audit regressions", py + [os.path.join(TESTS, "audit_test.py")]),
             ("caddy config", py + [os.path.join(TESTS, "caddy_test.py"), db]),
             ("bot protection", py + [os.path.join(TESTS, "anubis_test.py")]),
             ("permissions", py + [os.path.join(TESTS, "granular_regress.py"), db, files]),
@@ -236,7 +237,7 @@ def main():
             results.append((name, p.returncode == 0, time.time() - t))
             print("\n== %s: %s (%.1f s)" % (name, "ok" if p.returncode == 0 else "FAILED", time.time() - t))
             lines = out.strip().splitlines()
-            shown = [l for l in lines if l.startswith("FAIL")] if p.returncode == 0 else lines
+            shown = [l for l in lines if l.startswith("FAIL") or l.lower().startswith("skipped")] if p.returncode == 0 else lines
             print("\n".join(shown[-60:]) or "   (no output)")
     finally:
         if keep:

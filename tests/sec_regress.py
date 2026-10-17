@@ -150,6 +150,9 @@ st, r, _ = call("POST", "/api/accounts/status", a, {"user": emp, "enabled": Fals
 check("admin cannot disable accounts", st == 403, (st, r))
 st, r, _ = call("POST", "/api/ide/save", a, {"path": "x.py", "text": "print(1)", "expect_sha": ""})
 check("admin cannot write code through the web IDE", st == 403, (st, r))
+st, r, _ = call("POST", "/api/serving/mount", a, {"name": "Source takeover", "kind": "files",
+                "path": os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hosts": ["source.audit.test"], "preview": True})
+check("admin cannot mount the source tree to bypass code.write", st == 403, (st, r))
 st, r, _ = call("POST", "/api/alerts/config", a, {"resend_api_key": "re_attackerattacker1"})
 check("admin cannot swap the OTP e-mail sender key", st == 403, (st, r))
 st, r, _ = call("POST", "/api/alerts/config", a, {"smtp": {"host": "smtp.attacker.example", "user": "x", "password": "y"}})

@@ -35,6 +35,34 @@
   const FILTER_OF = { flagged: 'flagged', held: 'held', error: 'error', pending: 'pending', released: 'released' };
   const SINCE = [['3600', '1 h'], ['21600', '6 h'], ['86400', '24 h'], ['604800', '7 d']];
   const NEG_MODES = [['auto', 'Auto'], ['edge', 'Edge'], ['redirect', 'Redirect'], ['off', 'Off']];
+  const VIDEO_NUMBERS = [
+    ['crf_av1', 'AV1 quality (CRF)', 0, 63, 1, 'Lower is higher quality and usually uses more bandwidth.'],
+    ['preset_av1', 'AV1 speed preset', 0, 13, 1, 'Lower uses more CPU to seek smaller files.'],
+    ['crf_vp9', 'VP9 quality (CRF)', 0, 63, 1, 'Lower is higher quality.'],
+    ['crf_h264', 'H.264 quality (CRF)', 0, 51, 1, 'Software H.264 only; lower is higher quality.'],
+    ['nvenc_cq', 'NVENC quality (CQ)', 0, 51, 1, 'GPU H.264 only; lower is higher quality.'],
+    ['audio_kbps', 'Audio bitrate (kbps)', 32, 320, 1, 'Per stereo pair; audio already in the target codec is copied.'],
+    ['threads', 'Encoder CPU threads', 1, 32, 1, 'Caps software encoding and decode threads.'],
+    ['cpu_pct', 'Video CPU cap (%)', 10, 100, 1, 'Limits CPU spent by each video job.'],
+    ['max_seconds', 'Longest video (seconds)', 60, 86400, 1, 'Longer sources keep the original.'],
+    ['max_gb', 'Largest source (GiB)', 1, 64, 1, 'Larger sources keep the original.'],
+    ['min_saving', 'Minimum size saving (%)', 0, 75, 1, 'Reject a variant that saves less than this.'],
+    ['timeout_factor', 'Encode time limit (× duration)', 1, 60, 1, 'Stops jobs that run too long.'],
+  ];
+  const IMAGE_NUMBERS = [
+    ['avif_quality_lossy', 'AVIF photo quality', 1, 100, 1, 'Higher quality uses more bandwidth.'],
+    ['avif_quality_lossless', 'AVIF graphic quality', 1, 100, 1, 'For lossless-like sources and graphics.'],
+    ['avif_alpha_quality', 'AVIF transparency quality', 1, 100, 1, 'Higher retains cleaner transparent edges.'],
+    ['webp_quality', 'WebP quality', 1, 100, 1, 'Higher quality uses more bandwidth.'],
+    ['jpeg_quality', 'JPEG quality', 1, 100, 1, 'Used for explicit JPEG transforms.'],
+    ['speed_sync', 'Immediate AVIF speed', 0, 10, 1, 'Higher is faster, usually with larger output.'],
+    ['speed_bg', 'Background AVIF speed', 0, 10, 1, 'Lower spends more CPU to save bandwidth.'],
+    ['min_saving', 'Minimum image saving (%)', 0, 75, 1, 'Keep the original if a variant saves less.'],
+    ['sync_budget_s', 'Immediate encode budget (s)', 0.1, 10, 0.1, 'Larger images exceed this and move to the worker.'],
+    ['min_bytes', 'Small image cutoff (bytes)', 0, 1048576, 1, 'Tiny sources below this remain unchanged.'],
+    ['threads', 'Image encoder threads', 1, 16, 1, 'Limits CPU use per image encode.'],
+    ['prewarm_popular', 'Popular prewarm threshold', 0, 100000, 1, 'Zero disables popularity prewarming.'],
+  ];
   const NEG_HELP = {
     auto: 'Edge rules if the Cloudflare token allows them, otherwise redirects.',
     edge: 'Cloudflare picks the format: no extra round trip.',
@@ -89,7 +117,31 @@
 .mdv .kpis { border-bottom: 0; }
 .ins.mdv > .panel { max-height: none; }
 .ins .panel.md-short { min-height: 0; }
-.ins.mdv > .panel.md-set { container-type: inline-size; }
+.ins.mdv > .panel.md-set { container-type: inline-size; grid-column: 1 / -1; }
+.md-set { padding: 0; }
+.md-set > .ph { padding: 16px 18px; margin: 0; border-bottom: 1px solid var(--color-divider); }
+.md-settings { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 420px; }
+.md-settings-menu { padding: 16px 12px; border-right: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 2%, var(--color-bg)); }
+.md-settings-menu .cap { margin: 0 10px 10px; }
+.md-settings-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 12px; margin: 2px 0; border: 0; border-radius: 7px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font: 800 13px var(--font-heading); }
+.md-settings-menu button:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.md-settings-menu button.on { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent-700); box-shadow: inset 3px 0 0 var(--color-accent); }
+.md-settings-menu small { color: var(--color-accent-700); font-size: 11px; }
+.md-settings-main { min-width: 0; padding: 22px clamp(18px, 3vw, 42px) 24px; }
+.md-settings-main > * { max-width: 980px; }
+.md-settings-intro { margin-bottom: 16px; }
+.md-settings-intro h4 { margin: 0 0 5px; font-size: 19px; }
+.md-settings-intro p { margin: 0; color: var(--color-neutral-500); font-size: 13px; line-height: 1.5; }
+.md-settings-main .set-row { padding: 17px 0; }
+.md-settings-intro + .set-row { border-top: 1px solid var(--color-divider); }
+.md-settings-main .set-ctl { max-width: 100%; }
+.md-settings-main .seg-row { flex-wrap: wrap; }
+.md-settings-main input[type="number"] { width: 116px; }
+.md-settings-note { padding: 14px 18px; margin: 18px 0 4px; border: 1px solid var(--color-divider); border-radius: 8px; background: color-mix(in srgb, var(--color-text) 3%, var(--color-bg)); }
+.md-settings-note .cap { margin-bottom: 8px; }
+.md-settings-note .kv { padding-top: 0 !important; }
+.md-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 22px; margin-top: 22px; border-top: 1px solid var(--color-divider); }
+.md-settings-actions .small { margin-left: auto; }
 .tbar #md_q { flex: 1 1 130px; max-width: 240px; }
 .md-list { max-height: max(220px, calc(38 * var(--vh))); overflow-y: auto; }
 .md-list .logline span:last-child { max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
@@ -118,6 +170,11 @@
 @media (max-width: 1100px) {
   .md-tall { height: auto; }
   .md-cols, .md-adv { grid-template-columns: 1fr; }
+  .md-settings { grid-template-columns: 1fr; }
+  .md-settings-menu { display: flex; align-items: center; gap: 5px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-divider); }
+  .md-settings-menu .cap { display: none; }
+  .md-settings-menu button { width: auto; flex: none; white-space: nowrap; }
+  .md-settings-menu button.on { box-shadow: inset 0 -3px 0 var(--color-accent); }
 }`;
 
   /* ------------------------------------------------------------------ state */
@@ -126,7 +183,7 @@
   S.md = {
     hf: HOLD_FILTERS.some((f) => f[0] === ui.hf) ? ui.hf : 'review', q: '', qRaw: '', off: 0, sel: null,
     ekind: typeof ui.ekind === 'string' && ui.ekind.length < 100 ? ui.ekind : '',
-    since: SINCE.some((s) => s[0] === String(ui.since)) ? String(ui.since) : '86400', draft: {},
+    since: SINCE.some((s) => s[0] === String(ui.since)) ? String(ui.since) : '86400', draft: {}, section: 'general',
   };
   // st = last /api/media/status; skew = local clock - server clock, so server timestamps show correct ages
   // deploy = null (running) | 'disabled' (media.enabled false) | 'missing' (strata.py does not dispatch /api/media/* yet)
@@ -329,10 +386,26 @@
   }
   function settingsNow() { // current values as the settings form compares them ('1'/'0' for the toggle)
     const s = ST(), c = asObj(s.settings), g = asObj(first(s.gate, conf('gate'))), sc = asObj(first(s.scan, conf('scan')));
+    const v = asObj(first(c.video, conf('video'))), img = asObj(first(c.image, conf('image')));
     const leg = first(c.gate_legacy, c.legacy_while_pending, g.legacy_while_pending);
-    return { negotiation: first(c.negotiation, negotiation().configured),
+    const out = { negotiation: first(c.negotiation, negotiation().configured),
       gate_legacy: leg === undefined ? undefined : yes(leg) ? '1' : '0', hold_threshold: first(c.hold_threshold, sc.hold_threshold),
-      video_format: first(c.video_format, asObj(conf('video')).format, 'webm') };
+      video_format: first(c.video_format, v.format, 'webm'),
+      video_enabled: v.enabled === false ? '0' : '1', video_codec: v.codec || 'av1',
+      video_encoder: v.encoder || 'cpu', video_preset_h264: v.preset_h264 || 'medium',
+      video_nvenc_preset: v.nvenc_preset || 'p5', image_prewarm_uploads: img.prewarm_uploads ? '1' : '0' };
+    for (const [key] of VIDEO_NUMBERS) {
+      const raw = num(key === 'max_gb' ? v.max_bytes : v[key]);
+      const n = raw === null ? null : key === 'max_gb' ? raw / (1024 ** 3) :
+        key === 'min_saving' ? raw * 100 : raw;
+      out['video_' + key] = Number.isFinite(n) ? String(Math.round(n * 100) / 100) : '';
+    }
+    for (const [key] of IMAGE_NUMBERS) {
+      const raw = num(img[key]);
+      const n = raw === null ? null : key === 'min_saving' ? raw * 100 : raw;
+      out['image_' + key] = Number.isFinite(n) ? String(Math.round(n * 100) / 100) : '';
+    }
+    return out;
   }
   function edgeWord(N) {
     const e = N.edge, t = asObj(N.caps.transform);
@@ -720,7 +793,7 @@
     return rows + (noAv ? '<p class="small hot mx-0 mt-10 mb-0">No antivirus engine: archives, PDFs, documents, executables and SVGs are held as unscannable.</p>' : '');
   }
   function toolsPanel() {
-    return panelH('Tools', 'install missing ones with media/install.ps1',
+    return panelH('Tools', 'available on this server',
       toolRows() || '<div class="small dim">Not reported yet.</div>');
   }
 
@@ -769,19 +842,42 @@
 
   function settingsPanel() {
     const cur = settingsNow(), d = S.md.draft, val = (k) => (k in d ? d[k] : cur[k]);
+    const inactive = D.md.deploy === 'disabled';
     const seg = (key, items) => `<div class="seg-row">${items.map(([v, l]) => `<button class="${String(val(key)) === v ? 'on' : ''}${key in d && d[key] === v ? ' md-draft' : ''}"
       data-act="mdSet" data-arg="${esc(key + ':' + v)}">${esc(l)}</button>`).join('')}</div>`;
     const dirty = Object.keys(d).length > 0, leg = val('gate_legacy');
-    const body = setRow('Format negotiation', NEG_HELP[val('negotiation')] || 'How image links get AVIF or WebP.', seg('negotiation', NEG_MODES)) +
+    const section = ['general', 'images', 'video'].includes(S.md.section) ? S.md.section : 'general';
+    const numRows = VIDEO_NUMBERS.map(([key, title, min, max, step, desc]) =>
+      setRow(title, desc, `<input type="number" data-md-num="${key}" min="${min}" max="${max}" step="${step}"
+        value="${esc(val('video_' + key) ?? '')}" aria-label="${esc(title)}">`)).join('');
+    const imageNumRows = IMAGE_NUMBERS.map(([key, title, min, max, step, desc]) =>
+      setRow(title, desc, `<input type="number" data-md-num="image:${key}" min="${min}" max="${max}" step="${step}"
+        value="${esc(val('image_' + key) ?? '')}" aria-label="${esc(title)}">`)).join('');
+    const general = setRow('Format negotiation', NEG_HELP[val('negotiation')] || 'How image links get AVIF or WebP.', seg('negotiation', NEG_MODES)) +
       setRow('Legacy files while pending', leg === '1' ? 'Older files stay online until their first scan.'
         : leg === '0' ? 'Older files answer 503 until scanned. Safest, but old links fail for a while.' : 'Serve older files before their first scan?',
       seg('gate_legacy', [['1', 'Serve'], ['0', 'Block']])) +
-      setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
-      setRow('Video compression', 'Convert videos on the fly to WebM or to MP4. ?nocompress always gets the original.', seg('video_format', VIDEO_FORMATS)) +
-      kvHtml(VIDEO_HELP[val('video_format')] || VIDEO_HELP.webm, 'padding:0 0 8px') +
-      `<div class="act-row"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>Save & apply</button>
-        ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot self-center">unsaved changes</span>' : ''}</div>`;
-    return panelH('Settings', 'saved to strata.json', body, 'md-set');
+      setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS));
+    const images = setRow('Prewarm uploads', 'Encode when a new image arrives, before the first viewer.', seg('image_prewarm_uploads', [['0', 'Off'], ['1', 'On']])) + imageNumRows;
+    const video = setRow('Video jobs', 'Enable or disable video conversion.', seg('video_enabled', [['1', 'On'], ['0', 'Off']])) +
+      setRow('Output format', 'Convert videos to WebM or MP4. ?nocompress always gets the original.', seg('video_format', VIDEO_FORMATS)) +
+      `<div class="md-settings-note"><div class="cap">${esc(val('video_format') === 'mp4' ? 'About MP4' : 'About WebM')}</div>${kvHtml(VIDEO_HELP[val('video_format')] || VIDEO_HELP.webm)}</div>` +
+      setRow('Encoder', 'CPU is predictable; Auto prefers NVENC for MP4 and falls back to CPU.', seg('video_encoder', [['cpu', 'CPU'], ['auto', 'Auto'], ['nvenc', 'NVENC']])) +
+      setRow('WebM codec', 'AV1 usually saves more bandwidth; VP9 encodes faster.', seg('video_codec', [['av1', 'AV1'], ['vp9', 'VP9']])) +
+      setRow('H.264 preset', 'Slower software presets generally make smaller files.', seg('video_preset_h264', [['fast', 'Fast'], ['medium', 'Medium'], ['slow', 'Slow'], ['slower', 'Slower']])) +
+      setRow('NVENC preset', 'p7 favors compression; p1 favors speed.', seg('video_nvenc_preset', [['p3', 'p3'], ['p5', 'p5'], ['p7', 'p7']])) + numRows;
+    const sections = {
+      general: ['General', 'Choose how formats are served and when files are held for review.', general],
+      images: ['Images', 'Tune image quality, encoding speed, and background prewarming.', images],
+      video: ['Video', 'Choose the output format and tune video encoding limits.', video],
+    };
+    const menu = `<nav class="md-settings-menu" aria-label="Compression settings"><div class="cap">Settings</div>${Object.entries(sections).map(([key, [label]]) =>
+      `<button class="${section === key ? 'on' : ''}" data-act="mdSection" data-arg="${key}" aria-current="${section === key ? 'page' : 'false'}">${label}${Object.keys(d).some((k) => key === 'images' ? k.startsWith('image_') : key === 'video' ? k.startsWith('video_') : ['negotiation', 'gate_legacy', 'hold_threshold'].includes(k)) ? '<small>●</small>' : ''}</button>`).join('')}</nav>`;
+    const [title, description, controls] = sections[section];
+    const actions = `<div class="md-settings-actions"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>${inactive ? 'Save settings' : 'Save & apply'}</button>
+      ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot">Unsaved changes</span>' : '<span class="small dim">All changes saved</span>'}</div>`;
+    const body = `<div class="md-settings">${menu}<div class="md-settings-main"><div class="md-settings-intro"><h4>${title}</h4><p>${description}</p></div>${controls}${actions}</div></div>`;
+    return panelH('Compression settings', inactive ? 'Saved now; used when Strata Media is enabled' : 'Saved to strata.json', body, 'md-set');
   }
 
   function jobsPanel() {
@@ -902,13 +998,10 @@
       : `<p>This Strata doesn’t serve <code>/api/media/*</code> yet. Serving is unchanged.</p>`;
     return `<div class="md-off" data-scroll="md-off"><div class="setup">
       <div class="cap">Strata Media</div><h5>Not deployed</h5>${lead}
-      <p>Once it’s on, this page shows its health, its savings and the files it holds back.</p>
-      <ol>
-        <li>Run <code>media\\install.ps1</code> (ffmpeg, 7-Zip, Tesseract, pypdfium2). Missing ones only limit what it can do.</li>
-        <li>Switch it on with <code>media.enabled = true</code> (see <code>media\\README.md</code>). Strata then starts the media service
-          and its worker.</li>
-        <li>The switch-on time becomes the <i>cutover</i>: older files stay online while their first scan runs.</li>
-      </ol>
+      ${disabled ? '<p>You can set compression preferences now. They are saved but inactive until Strata Media is enabled.</p>' : ''}
+    </div>${disabled ? `<div class="ins mdv">${settingsPanel()}</div>` : ''}<div class="setup">
+      <p>When enabled, this page shows media health, savings and any files held back.</p>
+      ${disabled ? '<p>To activate the pipeline, set <code>media.enabled = true</code> in your instance’s <code>strata.json</code>. Review scanning and tool availability before activation.</p>' : ''}
       ${tools ? `<div class="cap smt-3">Tools on this machine</div>${tools}` : ''}
       <div class="act-row"><button class="btn btn-secondary" data-act="mdRefresh">Check again</button>
         ${disabled ? `<button class="btn btn-secondary" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>Preview the file policy</button>` : ''}
@@ -1034,10 +1127,23 @@
     },
     mdSet(arg) {
       const s = String(arg || ''), i = s.indexOf(':'), k = s.slice(0, i), v = s.slice(i + 1);
-      const allowed = { negotiation: NEG_MODES, gate_legacy: [['1'], ['0']], hold_threshold: THRESHOLDS, video_format: VIDEO_FORMATS }[k];
+      const allowed = { negotiation: NEG_MODES, gate_legacy: [['1'], ['0']], hold_threshold: THRESHOLDS,
+        video_format: VIDEO_FORMATS, video_enabled: [['1'], ['0']], video_encoder: [['cpu'], ['auto'], ['nvenc']],
+        video_codec: [['av1'], ['vp9']], video_preset_h264: [['fast'], ['medium'], ['slow'], ['slower']],
+        video_nvenc_preset: [['p3'], ['p5'], ['p7']], image_prewarm_uploads: [['0'], ['1']] }[k];
       if (!allowed || !allowed.some((a) => a[0] === v)) return;
       if (String(settingsNow()[k]) === v) delete S.md.draft[k]; else S.md.draft[k] = v;
       render(true);
+    },
+    mdSection(section) {
+      if (!['general', 'images', 'video'].includes(section)) return;
+      S.md.section = section;
+      render(true);
+    },
+    mdOpenSettings(section) {
+      S.md.section = ['general', 'images', 'video'].includes(section) ? section : 'general';
+      go('media');
+      requestAnimationFrame(() => document.querySelector('.md-set')?.scrollIntoView({ block: 'start' }));
     },
     mdDiscard() { S.md.draft = {}; render(true); },
     async mdSave() {
@@ -1060,8 +1166,30 @@
         body.video_format = d.video_format;
         lines.push(`video compression ${cur.video_format || 'webm'} → ${d.video_format} (videos are converted again as they are requested)`);
       }
-      const ok = await ask({ kicker: 'Media settings', title: 'Save and apply?', ok: 'Save & apply', danger: warn.length > 0,
-        text: lines.join(' · ') + '. Caddy checks the new config before using it.' +
+      for (const [k, raw] of Object.entries(d)) {
+        if (!k.startsWith('video_') || k === 'video_format') continue;
+        const field = k.slice(6);
+        body.video ||= {};
+        body.video[field] = field === 'enabled' ? raw === '1' :
+          field === 'max_gb' ? Math.round(Number(raw) * 1024 ** 3) :
+          field === 'min_saving' ? Number(raw) / 100 :
+          VIDEO_NUMBERS.some(([n]) => n === field) ? Number(raw) : raw;
+        if (field === 'max_gb') { body.video.max_bytes = body.video[field]; delete body.video[field]; }
+        lines.push(`${field.replaceAll('_', ' ')} ${cur[k] ?? '?'} → ${raw}`);
+      }
+      for (const [k, raw] of Object.entries(d)) {
+        if (!k.startsWith('image_')) continue;
+        const field = k.slice(6);
+        body.image ||= {};
+        body.image[field] = field === 'prewarm_uploads' ? raw === '1' :
+          field === 'min_saving' ? Number(raw) / 100 : Number(raw);
+        lines.push(`image ${field.replaceAll('_', ' ')} ${cur[k] ?? '?'} → ${raw}`);
+      }
+      const inactive = D.md.deploy === 'disabled';
+      const ok = await ask({ kicker: 'Media settings', title: inactive ? 'Save compression settings?' : 'Save and apply?',
+        ok: inactive ? 'Save settings' : 'Save & apply', danger: warn.length > 0,
+        text: lines.join(' · ') + (inactive ? '. These settings remain inactive until Strata Media is enabled.'
+          : '. Caddy checks the new config before using it.') +
           (warn.length ? ' Note: ' + warn.join('; ') + '.' : '') });
       if (!ok) return;
       try {
@@ -1115,6 +1243,22 @@
     S.md.off = 0;
     clearTimeout(qTimer);
     qTimer = setTimeout(() => reloadList('holdsBusy', loadHolds), 300);
+  });
+  document.addEventListener('change', (e) => {
+    const ref = e.target?.dataset?.mdNum;
+    if (!ref || S.view !== 'media') return;
+    const image = ref.startsWith('image:'), key = image ? ref.slice(6) : ref;
+    const row = (image ? IMAGE_NUMBERS : VIDEO_NUMBERS).find(([name]) => name === key);
+    if (!row) return;
+    const n = Number(e.target.value);
+    if (!Number.isFinite(n) || n < row[2] || n > row[3] ||
+        Math.abs(n / row[4] - Math.round(n / row[4])) > 1e-6) {
+      note(`${row[1]} must be from ${row[2]} to ${row[3]}`);
+      return;
+    }
+    const field = (image ? 'image_' : 'video_') + key, value = String(n);
+    if (String(settingsNow()[field]) === value) delete S.md.draft[field]; else S.md.draft[field] = value;
+    render(true);
   });
   document.addEventListener('pointerup', () => { if (D.md.dirty) setTimeout(draw, 0); });
   // Escape closes the hold details (capture phase: an open menu, palette, dialog or sheet gets the key first)

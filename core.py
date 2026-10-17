@@ -50,7 +50,7 @@ import urllib.request
 
 import instance
 
-VERSION = "0.4.0.1"                  # bump on every release; the dashboard compares it with the latest GitHub release
+VERSION = "0.4.1"                    # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")
@@ -147,7 +147,9 @@ DEFAULTS = {
                "cookie_domain": "",           # registrable domain, never with a port; "" = one cookie per host
                "public_url": "https://",      # Anubis' --public-url: only the scheme. Without one its puzzle page redirects back to
                                               # itself; "http://" for a site that is not reached over Cloudflare's https
-               "metrics": ""},                # "" = 127.0.0.1:<9923 + offset>
+               "metrics": "",                 # "" = 127.0.0.1:<9923 + offset>
+               "under_attack_until": 0},      # Under Attack Mode: while now() < this, difficulty is raised and the auto rule
+                                              # challenges direct downloads too; 0 = off (anubis.py reverts it on its own)
     # Crackdown (rules.py): suspects are left out of error rates, clear cases are banned at origin + Cloudflare.
     "autoban": {"enabled": True, "probes": 10, "window_minutes": 60, "ban_hours": 72,
                 "credential_probes": 2,          # /.env, keys, cloud credentials: nobody legitimate asks twice
@@ -204,7 +206,9 @@ DEFAULTS = {
                             "cpu_mb_per_s": 4, "demote_rate_per_day": 0.2, "demote_idle_days": 21,
                             "persistent_max_gb": 100, "ephemeral_max_age_days": 30, "tombstone_days": 30,
                             "failure_retry_h": 24, "upgrade_on_promote": True}},
-        "video": {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+        "video": {"enabled": True, "format": "webm", "codec": "av1", "encoder": "cpu",
+                  "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32, "crf_h264": 23,
+                  "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5",
                   "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
                   "min_saving": 0.10, "timeout_factor": 15},
         "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed
@@ -527,7 +531,10 @@ def parse_line(line):
     ray = hv("Cf-Ray")
     ref = hv("Referer")
     if ref:
-        ref = urllib.parse.urlsplit(ref).hostname or ref[:80]
+        try:
+            ref = urllib.parse.urlsplit(ref).hostname or ref[:80]
+        except ValueError:
+            ref = ""  # a malformed, client-supplied header must not discard the whole log batch
     kind, agent, osname = classify_ua(ua)
     status = int(j.get("status") or 0)
     size = int(j.get("size") or 0)
@@ -1125,7 +1132,16 @@ class Tailer(threading.Thread):
     def ingest(self, db, chunk, final=False):
         lines = (self.buf + chunk).split(b"\n")
         self.buf = b"" if final else lines.pop()
-        rows = [r for r in (parse_line(l) for l in lines if l.strip()) if r]
+        rows = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                r = parse_line(line)
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                continue
+            if r:
+                rows.append(r)
         for hook in ROW_HOOKS:
             try:
                 hook(rows)

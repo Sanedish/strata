@@ -18,7 +18,7 @@ Job params (job.params, written by media.py / the bridge):
   image  JSON {"want": "avif"|"webp", "spec": <cache spec, default "auto:<want>:v1">,
                "tf": {w, h, fit, fm, q} for a deferred explicit transform (then pass the hot path's "spec")};
          a bare "avif" / "webp" or "want=webp" works too.
-  video  optional JSON {"want": "webm"|"mp4", "spec"} (default: video.format, spec "auto:<want>:v1").
+  video  optional JSON {"want": "webm"|"mp4", "spec"} (default: video.format, policy-versioned spec).
   scan   none.
 Meta written: worker_heartbeat (every 5 s), tools (every 10 min), cost_model (CostModel.to_dict after every automatic
 encode, read back at start), worker_prune (last prune).
@@ -735,13 +735,14 @@ class Worker:
             return
         jp = _job_params(j.get("params"))
         fmt = jp.get("want") if jp.get("want") in video.FORMATS else video.video_conf(conf)["format"]
-        spec = jp.get("spec") or AUTO_SPEC % fmt
+        spec = jp.get("spec") or video.spec(fmt, conf)
         key = self.cache.key(j["mount"], j["path"], st.st_size, st.st_mtime, spec)
         if self._cached(key):
             self._finish(run, {"cached": True})
             return
         t0 = time.monotonic()
         tmp = None
+        plan = None
         try:
             avail = video.available(conf, fmt)
             if not avail.get("ok"):
@@ -756,6 +757,14 @@ class Worker:
             tmp = self.cache.tmp_path("." + fmt)
             r = video.transcode(full, tmp, plan, conf)
             kind = video.result_kind(r)
+            if (kind == "encode_error" and plan.get("codec") == "h264_nvenc"
+                    and video.video_conf(conf).get("encoder") == "auto" and avail.get("h264")):
+                # A build may list NVENC even when the driver/GPU is unavailable at runtime.
+                # Auto mode falls back to software instead of permanently failing the variant.
+                cpu_avail = dict(avail, codec="h264")
+                plan = video.plan(info, conf, cpu_avail, fmt)
+                r = video.transcode(full, tmp, plan, conf)
+                kind = video.result_kind(r)
             if kind:
                 raise video.VideoError(kind, ((r.err or "").strip() if r is not None else "")[-300:])
             if not os.path.isfile(tmp):
@@ -779,7 +788,10 @@ class Worker:
             if e.kind == "tool_missing":   # no retry until the tools change (store.NO_RETRY / retry_failed)
                 self.events.emit_every(TOOLS_EVERY, "tool.missing", "warning", key="ffmpeg", tool="ffmpeg",
                                        needed_for="video transcodes (%s variants)" % fmt.upper(), detail=e.detail[:200])
-            if self._fail(run, str(e), e.kind) == "failed" and e.kind in ("probe_error", "encode_error"):
+            # A driver/GPU can become available later. Do not record a permanent original-only
+            # decision for a hardware initialization failure; retry_failed should be able to recover.
+            hardware_failure = e.kind == "encode_error" and plan is not None and plan.get("codec") == "h264_nvenc"
+            if self._fail(run, str(e), e.kind) == "failed" and e.kind in ("probe_error", "encode_error") and not hardware_failure:
                 self._not_beneficial(key, j, st, spec, "vid", secs=time.monotonic() - t0)
         finally:
             if tmp:
@@ -878,7 +890,8 @@ class Worker:
         vid = None
         if vc["enabled"] and found.get("ffmpeg") and found.get("ffprobe"):
             v = video.available(conf)
-            vid = {k: v.get(k) for k in ("ok", "codec", "av1", "vp9", "opus", "error")}
+            vid = {k: v.get(k) for k in ("ok", "codec", "av1", "vp9", "opus", "h264", "h264_nvenc",
+                                         "aac", "error")}
         sc, oc = conf.get("scan") or {}, conf.get("ocr") or {}
         engines = {"defender": ("mpcmdrun",), "clamav": ("clamscan", "clamdscan")}
         av = [e for e in sc.get("av_engines") or () if any(found.get(t) for t in engines.get(e, ()))]

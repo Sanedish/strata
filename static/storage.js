@@ -1215,8 +1215,11 @@ async function startUpload(u) {
   inflight++;
   try {
     const s = await post('/api/upload/init', { mount: u.mount, path: u.dest, size: u.size, mtime: u.file.lastModified, name: u.file.name, policy: u.policy, chunk_mb: UPCFG.chunk / MiB });
-    inflight--;
-    if (s.skipped) { u.status = 'skipped'; upPump(); return; }
+    if (u.status === 'cancelled' || u.status === 'skipped') {
+      if (s.id) await post(`/api/upload/${s.id}/abort`, {}).catch(() => {});
+      return;
+    }
+    if (s.skipped) { u.status = 'skipped'; return; }
     u.sess = s; u.dest = s.path; u.chunk = s.chunk;
     const got = new Set(s.received);
     u.pending = [];
@@ -1226,12 +1229,11 @@ async function startUpload(u) {
     if (s.resumed && got.size) note(`Resuming ${u.file.name} at ${fmt.pct(share(u.sent, u.size))}`);
     if (!u.pending.length) finishUpload(u);
   } catch (e) {
-    inflight--;
+    if (u.status === 'cancelled' || u.status === 'skipped') return;
     if (e.message === 'exists') u.status = 'exists';
     else if (/login/.test(e.message)) return;
     else { u.status = 'error'; u.err = e.message; }
-  }
-  upPump();
+  } finally { inflight--; upPump(); }
 }
 function xhrPut(url, body, onprog, done) {
   const x = new XMLHttpRequest();
@@ -1247,16 +1249,20 @@ function xhrPut(url, body, onprog, done) {
 }
 function sendChunk(u, i) {
   inflight++;
+  const session = u.sess;
   const start = i * u.chunk, end = Math.min(u.size, start + u.chunk);
   u.xhrs[i] = xhrPut(`/api/upload/${u.sess.id}/${i}`, u.file.slice(start, end), (n) => { u.prog[i] = n; liveSoon(); }, (st, j) => {
-    inflight--; delete u.xhrs[i]; delete u.prog[i];
+    inflight--;
+    if (u.sess !== session) { upPump(); return; }
+    delete u.xhrs[i]; delete u.prog[i];
+    if (u.status === 'cancelled' || u.status === 'skipped') { upPump(); return; }
     if (st === 200) { u.done++; u.sent += end - start; if (u.done === u.sess.chunks) finishUpload(u); }
     else if (st === 401) { location.href = '/login'; return; }
     else if (st === -1) { if (u.status === 'uploading' || u.paused) u.pending.unshift(i); }
     else if (st === 404) { u.sess = null; u.status = 'queued'; u.sent = 0; u.done = 0; Object.values(u.xhrs).forEach((x) => x.abort()); }
     else if (TRANSIENT.has(st) && (u.tries[i] = (u.tries[i] || 0) + 1) <= 6) {
       u.err = `Chunk ${i + 1} failed (${j.error || 'HTTP ' + st}). Retrying…`;
-      setTimeout(() => { u.pending.unshift(i); upPump(); }, backoff(u.tries[i]));
+      setTimeout(() => { if (u.status === 'uploading' && u.sess === session) { u.pending.unshift(i); upPump(); } }, backoff(u.tries[i]));
     } else { u.status = 'error'; u.err = j.error || 'HTTP ' + st; Object.values(u.xhrs).forEach((x) => x.abort()); }
     upPump();
   });
@@ -1266,6 +1272,7 @@ function singlePut(u) {
   u.sent = 0;
   u.xhrs.single = xhrPut(`/api/files/upload?mount=${u.mount}&path=${enc(u.dest)}&policy=${u.policy}`, u.file, (n) => { u.prog.single = n; liveSoon(); }, (st, j) => {
     inflight--; delete u.xhrs.single; delete u.prog.single;
+    if (u.status === 'cancelled' || u.status === 'skipped') { upPump(); return; }
     if (st === 200) { u.sent = u.size; uploadDone(u, j); }
     else if (st === 401) { location.href = '/login'; return; }
     else if (st === -1) { if (!u.paused) u.status = 'cancelled'; }
@@ -1280,9 +1287,9 @@ function singlePut(u) {
 async function finishUpload(u) {
   inflight++;
   u.status = 'finishing';
-  try { const r = await post(`/api/upload/${u.sess.id}/complete`, {}); inflight--; uploadDone(u, r); }
-  catch (e) { inflight--; u.status = 'error'; u.err = e.message; }
-  upPump();
+  try { const r = await post(`/api/upload/${u.sess.id}/complete`, {}); if (u.status === 'finishing') uploadDone(u, r); }
+  catch (e) { if (u.status === 'finishing') { u.status = 'error'; u.err = e.message; } }
+  finally { inflight--; upPump(); }
 }
 let refreshT;
 function uploadDone(u, r) {

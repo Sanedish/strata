@@ -35,7 +35,7 @@ async function netRefresh(keys = netKeys(), force = false) {
     listening: '/api/network/listening',
   };
   await Promise.all(keys.map(async (key) => {
-    try { n[key] = await get(routes[key]); n.errors[key] = ''; }
+    try { const result = await get(routes[key]); n[key] = result.available === false ? null : result; n.errors[key] = result.error || ''; }
     catch (e) { n.errors[key] = e.message || 'Could not load this section'; }
   }));
   if (seq !== n.seq) return;

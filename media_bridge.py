@@ -1034,10 +1034,20 @@ class Bridge(threading.Thread):
 
     def settings(self):
         c = self.conf
+        v = c.get("video") or {}
+        img = c.get("image") or {}
         return {"negotiation": c.get("negotiation") or "auto",
                 "gate_legacy": bool((c.get("gate") or {}).get("legacy_while_pending", True)),
                 "hold_threshold": (c.get("scan") or {}).get("hold_threshold") or "medium",
-                "video_format": "mp4" if (c.get("video") or {}).get("format") == "mp4" else "webm"}
+                "video_format": "mp4" if v.get("format") == "mp4" else "webm",
+                "image": {k: img.get(k) for k in ("avif_quality_lossy", "avif_quality_lossless",
+                                                  "avif_alpha_quality", "webp_quality", "jpeg_quality",
+                                                  "speed_sync", "speed_bg", "min_saving", "sync_budget_s",
+                                                  "min_bytes", "threads", "prewarm_uploads", "prewarm_popular")},
+                "video": {k: v.get(k) for k in ("enabled", "codec", "encoder", "crf_av1", "preset_av1",
+                                                "crf_vp9", "crf_h264", "preset_h264", "nvenc_cq",
+                                                "nvenc_preset", "audio_kbps", "threads", "cpu_pct",
+                                                "max_seconds", "max_bytes", "min_saving", "timeout_factor")}}
 
     def config_summary(self):
         """What the UI may show - never the admin token or anything secret."""
@@ -1051,7 +1061,10 @@ class Bridge(threading.Thread):
                          "legacy_while_pending": g.get("legacy_while_pending", True)},
                 "lane": dict(c.get("lane") or {}),
                 "image": {k: img.get(k) for k in ("sync_budget_s", "sync_max_mp", "prewarm_uploads", "prewarm_popular")},
-                "video": {k: v.get(k) for k in ("enabled", "codec", "format")},
+                "video": {k: v.get(k) for k in ("enabled", "codec", "format", "encoder", "crf_av1",
+                                                 "preset_av1", "crf_vp9", "crf_h264", "preset_h264",
+                                                 "nvenc_cq", "nvenc_preset", "audio_kbps", "threads",
+                                                 "cpu_pct", "max_seconds", "max_bytes", "min_saving")},
                 "file_policy": {"enabled": bool((c.get("file_policy") or {}).get("enabled"))}}
 
     def tools(self):
@@ -1371,10 +1384,73 @@ def _post_settings(b, user, body, A):
     if "video_format" in body:
         if body["video_format"] not in ("webm", "mp4"):
             raise ValueError("video_format must be webm or mp4")
-        media["video"] = {"format": body["video_format"]}
+        media.setdefault("video", {})["format"] = body["video_format"]
         upd["video_format"] = body["video_format"]
+    if "image" in body:
+        raw = body["image"]
+        if not isinstance(raw, dict) or not raw:
+            raise ValueError("image must be a non-empty object")
+        ints = {"avif_quality_lossy": (1, 100), "avif_quality_lossless": (1, 100),
+                "avif_alpha_quality": (1, 100), "webp_quality": (1, 100), "jpeg_quality": (1, 100),
+                "speed_sync": (0, 10), "speed_bg": (0, 10), "min_bytes": (0, 1 << 20),
+                "threads": (1, 16), "prewarm_popular": (0, 100000)}
+        checked = {}
+        for k, val in raw.items():
+            if k == "prewarm_uploads":
+                if not isinstance(val, bool):
+                    raise ValueError("image.prewarm_uploads must be true or false")
+            elif k in ints:
+                lo, hi = ints[k]
+                if isinstance(val, bool) or not isinstance(val, int) or not lo <= val <= hi:
+                    raise ValueError("image.%s must be an integer from %s to %s" % (k, lo, hi))
+            elif k == "min_saving":
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or not 0 <= val <= 0.75:
+                    raise ValueError("image.min_saving must be between 0 and 0.75")
+            elif k == "sync_budget_s":
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or not 0.1 <= val <= 10:
+                    raise ValueError("image.sync_budget_s must be between 0.1 and 10")
+            else:
+                raise ValueError("unsupported image setting: %s" % k)
+            checked[k] = val
+        media["image"] = checked
+        upd["image"] = checked
+    if "video" in body:
+        raw = body["video"]
+        if not isinstance(raw, dict) or not raw:
+            raise ValueError("video must be a non-empty object")
+        enums = {"codec": ("av1", "vp9"), "encoder": ("cpu", "auto", "nvenc"),
+                 "preset_h264": ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium",
+                                 "slow", "slower", "veryslow"),
+                 "nvenc_preset": tuple("p%d" % n for n in range(1, 8))}
+        ints = {"crf_av1": (0, 63), "preset_av1": (0, 13), "crf_vp9": (0, 63),
+                "crf_h264": (0, 51), "nvenc_cq": (0, 51), "audio_kbps": (32, 320),
+                "threads": (1, 32), "cpu_pct": (10, 100), "max_seconds": (60, 86400),
+                "max_bytes": (1 << 20, 64 << 30), "timeout_factor": (1, 60)}
+        checked = {}
+        for k, val in raw.items():
+            if k == "enabled":
+                if not isinstance(val, bool):
+                    raise ValueError("video.enabled must be true or false")
+            elif k in enums:
+                if val not in enums[k]:
+                    raise ValueError("video.%s must be one of %s" % (k, ", ".join(enums[k])))
+            elif k in ints:
+                lo, hi = ints[k]
+                if isinstance(val, bool) or not isinstance(val, int) or not lo <= val <= hi:
+                    raise ValueError("video.%s must be an integer from %s to %s" % (k, lo, hi))
+            elif k == "min_saving":
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or not 0 <= val <= 0.75:
+                    raise ValueError("video.min_saving must be between 0 and 0.75")
+            else:
+                raise ValueError("unsupported video setting: %s" % k)
+            checked[k] = val
+        media.setdefault("video", {}).update(checked)
+        upd["video"] = checked
+    effective_video = dict((b.conf.get("video") or {}), **media.get("video", {}))
+    if effective_video.get("format") == "webm" and effective_video.get("encoder") == "nvenc":
+        raise ValueError("NVENC requires MP4; choose CPU or Auto for WebM")
     if not media:
-        raise ValueError("nothing to change (negotiation, gate_legacy, hold_threshold, video_format)")
+        raise ValueError("nothing to change")
     core.save_config({"media": media})
     A("media-settings", ", ".join("%s=%s" % kv for kv in sorted(upd.items())))
     res = None
@@ -1384,6 +1460,6 @@ def _post_settings(b, user, body, A):
         except Exception as e:
             res = {"error": str(e)[:300]}
             b.apply_soon()
-        if "negotiation" in upd or "video_format" in upd:   # the edge video rule rewrites to _v=webm or _v=mp4
+        if "negotiation" in upd or "video_format" in upd or "video" in upd:
             b.request_negotiation()
     return {"ok": True, "settings": b.settings(), "apply": res}

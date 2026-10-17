@@ -42,6 +42,7 @@ ENC_HEAD = """Encoders:
  A....D libopus              libopus Opus (codec opus)
 """
 ENC_AV1 = ENC_HEAD + " V....D libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)\n"
+ENC_NVENC = ENC_AV1 + " V....D h264_nvenc          NVIDIA NVENC H.264 encoder (codec h264)\n"
 AVAIL_AV1 = {"codec": "av1", "ok": True, "av1": True, "vp9": True, "opus": True}
 AVAIL_VP9 = {"codec": "vp9", "ok": True, "av1": False, "vp9": True, "opus": True}
 AVAIL_MP4 = {"codec": "h264", "ok": True, "h264": True, "aac": True, "format": "mp4"}
@@ -160,6 +161,20 @@ class TestAvailable(Base):
         self.assertEqual((a["ok"], a["error"]), (False, "ffmpeg missing"))
         with mock.patch.object(video, "sandbox", None):
             self.assertFalse(video.available(CONF)["ok"])
+
+    def test_nvenc_selection_and_policy_key(self):
+        self.fake(encoders=ENC_NVENC)
+        gpu = {"video": dict(video.VIDEO_DEFAULTS, format="mp4", encoder="nvenc", nvenc_cq=27)}
+        a = video.available(gpu)
+        self.assertEqual((a["codec"], a["ok"], a["h264_nvenc"]), ("h264_nvenc", True, True))
+        p = video.plan(self.info(), gpu, a)
+        self.assertEqual(p["video_args"][:10], ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr",
+                                                 "-cq", "27", "-b:v", "0"])
+        self.assertEqual(video.spec("webm", CONF), "auto:webm:v1")
+        self.assertNotEqual(video.spec("mp4", gpu), video.spec("mp4", MP4))
+        self.fake(encoders=ENC_AV1)
+        video.reset_cache()
+        self.assertEqual(video.available(gpu)["error"], "no h264_nvenc encoder")
 
 
 class TestProbe(Base):

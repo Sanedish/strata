@@ -202,8 +202,10 @@ class Handler(BaseHTTPRequestHandler):
         return origin != "null"
 
     def form(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > 4096 or "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+        import files
+        try:
+            n = files.content_length(self.headers, 4096)
+        except files.FileError:
             self.close_connection = True
             return None
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
@@ -281,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(413, b"Request too large", ctype="text/plain; charset=utf-8")
         nxt = f.get("next", "")
         want = self.cookie(csrf_cookie(m["id"])) or ""
-        if not (want and auth.hmac.compare_digest(want, f.get("csrf", "")) and self.same_origin(host)):
+        if not (want and auth.hmac.compare_digest(want.encode(), f.get("csrf", "").encode()) and self.same_origin(host)):
             return self.login_form(m, host, "The form expired - please sign in again.", 400, nxt)
         user = f.get("user", "").strip()[:40]
         key = "%d:%s" % (m["id"], user.lower())
@@ -340,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
     def logout(self, m, host, ip):
         f = self.form() or {}
         want = self.cookie(csrf_cookie(m["id"])) or ""
-        if not (want and auth.hmac.compare_digest(want, f.get("csrf", "")) and self.same_origin(host)):
+        if not (want and auth.hmac.compare_digest(want.encode(), f.get("csrf", "").encode()) and self.same_origin(host)):
             return self.logout_form(m)
         tok = self.cookie(session_cookie(m["id"]))
         if tok:

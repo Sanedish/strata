@@ -1082,7 +1082,8 @@ def render_challenge(o, rules, mounts, allows):
                 '!({http.request.header.Authorization}.startsWith("Bearer ") && {http.request.uri.path}.startsWith("/api/"))']
         if pre:
             expr.append('({http.request.uri.path} == %s || {http.request.uri.path}.startsWith(%s))' % (cel(pre), cel(pre + "/")))
-        if not (r["params"] or {}).get("downloads"):
+        # Under Attack Mode challenges direct download tools too, regardless of the rule's resting flag
+        if not ((r["params"] or {}).get("downloads") or anubis.under_attack()):
             expr.append("(%s || {http.request.uri.path}.matches(%s))" % (NAV_EXPR, cel("(/|/[^./]+)$")))
         conds = [host_cond(m["hosts"])] + path_conds(r["patterns"], o, "ch") + exception_conds(mine, o) + [
             "not path /.well-known/* /robots.txt /favicon.ico /favicon.png /sitemap.xml", "expression `%s`" % " && ".join(expr)]
@@ -1642,6 +1643,22 @@ def gate_users(mid, g, old):
 
 def save_mount(user, d):
     c = clean_mount(d)
+    if c["kind"] != "proxy":
+        import accounts
+        if not accounts.has(user, "code.write"):
+            # Choosing an arbitrary filesystem root would bypass the owner's code/secrets permissions:
+            # an administrator could mount Strata itself, then edit it through the ordinary Files API.
+            roots = list(CFG.get("storage_paths") or []) + [m["path"] for m in core.file_mounts(enabled_only=False)]
+            target = os.path.normcase(os.path.realpath(c["path"]))
+            approved = False
+            for root in roots:
+                base = os.path.normcase(os.path.realpath(root))
+                try:
+                    approved = approved or os.path.commonpath([base, target]) == base
+                except ValueError:
+                    continue
+            if not approved:
+                raise files.FileError(403, "Only the owner can add folders outside the configured storage roots. Ask the owner to add this drive first.")
     mid0 = int(d["id"]) if d.get("id") else None
     db0 = connect()
     try:

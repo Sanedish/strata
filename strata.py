@@ -66,7 +66,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' 
 RAW_CSP = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png",
-         ".webp": "image/webp", ".jpg": "image/jpeg"}
+         ".webp": "image/webp", ".jpg": "image/jpeg", ".json": "application/json"}
 DUMMY_HASH = auth.hash_password(secrets.token_urlsafe(24))  # login timing for accounts without a password
 IDE_LOCK = threading.RLock()
 IDE_EXTS = {".py", ".js", ".mjs", ".cjs", ".css", ".html", ".htm", ".json", ".md", ".svg", ".txt", ".xml"}
@@ -203,7 +203,7 @@ class DBSessions(auth.Sessions):
 
     def drop_user(self, user):
         super().drop_user(user)
-        self._write("DELETE FROM session WHERE user=?", [user])
+        self._write("DELETE FROM session WHERE user=? COLLATE NOCASE", [user])
 
 
 class App:
@@ -379,6 +379,7 @@ ROUTE_CAPS = {
     "/api/bots": "security.bots", "/api/settings/bots": "security.bots", "/api/bots/task": "security.bots",  # Anubis: runs a program here
     "/api/bots/restart": "security.bots", "/api/bots/stop": "security.bots", "/api/bots/task/remove": "security.bots",
     "/api/bots/install": "security.bots", "/api/bots/setup": "security.bots",  # the last two download from github.com
+    "/api/bots/under-attack": "security.bots", "/api/bots/auto-downloads": "security.bots",
     "/api/backup": "system.backup", "/api/backup/restore": "system.backup",  # the whole database: owner only
     # own account
     "/api/me": "account.self", "/api/instance": "account.self", "/api/prefs": "account.self", "/api/password": "account.self",
@@ -487,6 +488,10 @@ def num(b, key, lo, hi, cast=int, default=None):
 class Handler(BaseHTTPRequestHandler):
     server_version = "Strata"
     sys_version = ""
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(60)
 
     def log_message(self, *a):
         pass
@@ -617,15 +622,14 @@ class Handler(BaseHTTPRequestHandler):
         return u.path, {k: v[-1] for k, v in urllib.parse.parse_qs(u.query).items()}
 
     def body_json(self, limit=4 << 20):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > limit:
-            raise files.FileError(413, "request too large")
-        return json.loads(self.rfile.read(n) or b"{}")
+        n = files.content_length(self.headers, limit)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        if not isinstance(body, dict):
+            raise files.FileError(400, "request body must be a JSON object")
+        return body
 
     def body_form(self, limit=8192):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > limit:
-            raise files.FileError(413, "form is too large")
+        n = files.content_length(self.headers, limit)
         values = urllib.parse.parse_qs(self.rfile.read(n).decode("utf-8", "replace"), keep_blank_values=True)
         return {k: v[-1] for k, v in values.items()}
 
@@ -633,7 +637,11 @@ class Handler(BaseHTTPRequestHandler):
         """Read (and discard) whatever is left of the request body before answering early.
         Otherwise the socket closes with unread data, the OS sends a RST, and Caddy turns our 401/403/409
         into a 502 (reported by the stats-page session)."""
-        total = int(self.headers.get("Content-Length") or 0)
+        try:
+            total = files.content_length(self.headers)
+        except files.FileError:
+            self.close_connection = True
+            return
         done = getattr(self.rfile, "count", 0)
         left = total - done
         if left <= 0:
@@ -758,7 +766,12 @@ class Handler(BaseHTTPRequestHandler):
             if mount is None or str(mount) in ("", "all"):
                 return False
             rel = files.rel_of(files.parts_of(str(rel or "/")))
-            return need in accounts.file_caps_at(user, mount, rel, acct, z_list)
+            if need not in accounts.file_caps_at(user, mount, rel, acct, z_list):
+                return False
+            m = files.get_mount(mount)
+            full, _ = files.resolve(m, rel)
+            actual = files.rel_of(os.path.relpath(os.path.realpath(full), os.path.realpath(files.root_of(m))).split(os.sep))
+            return need in accounts.file_caps_at(user, mount, actual, acct, z_list)
 
         def whole_drive(mount, need):  # trash, recent files and analysis span a whole drive
             return ok(mount, "/", need) and any(str(z["mount"]) == str(mount) and z["path"].rstrip("/") == ""
@@ -840,7 +853,11 @@ class Handler(BaseHTTPRequestHandler):
     # -- GET
     def loopback(self):
         try:
-            return ipaddress.ip_address(self.client_ip()).is_loopback
+            host = urllib.parse.urlsplit("//" + (self.headers.get("Host") or ""))
+            if host.username or host.password or host.path or host.query or host.fragment:
+                return False
+            local_host = host.hostname == "localhost" or ipaddress.ip_address(host.hostname or "").is_loopback
+            return local_host and ipaddress.ip_address(self.client_ip()).is_loopback
         except ValueError:
             return False
 
@@ -951,7 +968,7 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 db.close()
             snap.update(now=time.time(), series=App.live.series(300), win=App.live.window(60),
-                        win5=App.live.window(300), recent=App.live.tail(40), db=core.db_info(),
+                        win5=App.live.window(300), recent=App.live.tail(40) if accounts.has(user, "analytics.visitors") else [], db=core.db_info(),
                         compress=App.compressor.status(), user=user, sessions=App.sessions.count(),
                         alerts=open_alerts, blacklist=bl, totp=bool(CFG["auth"].get("totp_secret")))
             return self.json(snap)
@@ -1002,8 +1019,8 @@ class Handler(BaseHTTPRequestHandler):
                 db.close()
             return self.json({"content": row[0] if row else ""})
         routes = {
-            "/api/stats": lambda: core.q_stats(q),
-            "/api/insights": lambda: core.q_insights(q),
+            "/api/stats": lambda: self.analytics(user, core.q_stats(q)),
+            "/api/insights": lambda: self.analytics(user, core.q_insights(q)),
             "/api/requests": lambda: core.q_requests(q),
             "/api/ip": lambda: core.q_ip(q),
             "/api/history": lambda: core.q_history(q),
@@ -1062,6 +1079,13 @@ class Handler(BaseHTTPRequestHandler):
         if path in routes:
             return self.json(routes[path]())
         return self.static(path)
+
+    def analytics(self, user, data):
+        if not accounts.has(user, "analytics.visitors"):
+            for key in ("ips", "scanners", "clients"):
+                if key in data:
+                    data[key] = []
+        return data
 
     def cf_state(self):
         db = core.connect()
@@ -1463,6 +1487,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- POST
     def do_POST(self):
+        try:
+            return self._do_POST()
+        except Exception as e:
+            self.drain()
+            return self.fail(e)
+
+    def _do_POST(self):
+        self.rfile = CountingReader(self.rfile)
         path, q = self.query()
         if path in ("/login", "/login/otp", "/enroll", "/login/2fa", "/setup") and not self.form_origin_ok():
             self.drain()
@@ -1477,7 +1509,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.enroll()
         if path == "/login/2fa":
             return self.login_2fa()
-        self.rfile = CountingReader(self.rfile)
         user = self.guard(path)
         if not user:
             return
@@ -1495,9 +1526,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             if path == "/api/account/avatar":  # raw image body; decoded and re-encoded by accounts.set_avatar
-                n = int(self.headers.get("Content-Length") or 0)
-                if n > accounts.AVATAR_MAX_BYTES:
-                    raise files.FileError(413, "choose an image up to 8 MB")
+                n = files.content_length(self.headers, accounts.AVATAR_MAX_BYTES)
                 if user.startswith("api:"):
                     raise files.FileError(400, "API keys have no profile")
                 try:
@@ -1510,7 +1539,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.authorize(user, path, "POST", q):
                     self.drain()
                     return self.json({"error": "only the owner can restore a backup"}, 403)
-                left = int(self.headers.get("Content-Length") or 0)
+                left = files.content_length(self.headers)
                 if not left:
                     raise files.FileError(400, "choose a backup zip")
                 fd, tmp = tempfile.mkstemp(prefix=".strata-upload-", suffix=".zip", dir=os.path.dirname(core.DB_PATH))
@@ -2255,10 +2284,11 @@ class Handler(BaseHTTPRequestHandler):
             A("bots-install", anubis.TESTED)
             anubis.install(user)
             return anubis.state()
-        if path == "/api/bots/setup":  # program, key, policy, start-up task, start, switch on
+        if path == "/api/bots/setup":  # program, key, policy, start-up task, start, switch on - and the auto challenge rule
             was_on = anubis.enabled()
             try:
                 log = anubis.setup_all(user)
+                anubis.ensure_auto_rule(user, downloads=bool(b.get("downloads")))
                 anubis.save({"enabled": True})
                 rules.mutate(user, "bot protection set up", lambda db: None)
             except Exception:  # keep what was downloaded, but not a half-working switch
@@ -2268,6 +2298,25 @@ class Handler(BaseHTTPRequestHandler):
             rules.EDGE_SYNC.set()
             A("bots-setup", anubis.TESTED)
             return dict(anubis.state(), log=log + ["Bot protection is on"])
+        if path == "/api/bots/auto-downloads":  # the checkbox under Activate: direct download tools challenged too
+            rule = anubis.auto_rule(core.connect())
+            if rule:
+                rules.save_rule(user, dict(rule, params={"downloads": bool(b.get("downloads"))}))
+            rules.mutate(user, "bot challenge covers direct downloads" if b.get("downloads") else "bot challenge browsers only",
+                         lambda db: None)
+            A("bots-downloads", "1" if b.get("downloads") else "0")
+            return anubis.state()
+        if path == "/api/bots/under-attack":  # red button: hardest puzzle + downloads challenged, for a while
+            seconds = max(0, min(7 * 24 * 3600, int(b.get("seconds") or 0)))
+            st = anubis.set_under_attack(user, seconds)
+            rules.mutate(user, "under attack mode %s" % ("on" if seconds else "off"), lambda db: None)  # overlay + policy in the Caddy config
+            rules.EDGE_SYNC.set()
+            if anubis.enabled() and anubis.task_installed() and not CFG["instance"].get("dry_run"):
+                try:
+                    anubis.restart(user)  # Anubis reads the policy (difficulty) only at start
+                except anubis.BotError as e:
+                    return dict(st, note=str(e))
+            return st
         if path == "/api/settings/autoban":
             ab = {k: b[k] for k in ("enabled", "probes", "window_minutes", "ban_hours") if k in b}
             for k in ("probes", "window_minutes", "ban_hours"):
@@ -2346,6 +2395,10 @@ class Handler(BaseHTTPRequestHandler):
         cloudflare.purge_async(urls[:6000])
 
     def second_factor_ok(self, code):
+        with SETUP_LOCK:
+            return self._second_factor_ok(code)
+
+    def _second_factor_ok(self, code):
         a = CFG["auth"]
         step = auth.totp_verify(a.get("totp_secret"), code, a.get("totp_last") or 0)
         if step:
@@ -2466,6 +2519,7 @@ class Handler(BaseHTTPRequestHandler):
             App.alerts.login_failed(ip, username)
             time.sleep(0.5)
             return self.redirect("/login?e=1")
+        username = acct["user"]  # account and session identities use the same spelling
         if self.administrative_account(acct) and not self.local_network():
             App.limiter.fail(ip)
             core.audit(ip, username, "admin-network-denied", "login", ok=False)
@@ -2601,6 +2655,7 @@ class Housekeeping(threading.Thread):
             try:
                 files.up_gc()
                 files.sync_all_bins()  # trash edited by hand, expired 404 tombstones
+                anubis.under_attack_left()  # lapsed Under Attack Mode (e.g. across a restart) goes back to rest
             except Exception:
                 log("housekeeping error:\n" + traceback.format_exc())
             if hours % 24 == 0:

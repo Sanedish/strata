@@ -19,6 +19,8 @@ import os
 import re
 import secrets
 import shutil
+import stat
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -83,17 +85,20 @@ def resolve(m, rel, allow_internal=False):
     root = root_of(m)
     full = os.path.normpath(os.path.join(root, *parts)) if parts else root
     try:  # ValueError: different drives on Windows
-        if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+        if os.path.commonpath([os.path.normcase(full), os.path.normcase(root)]) != os.path.normcase(root):
             raise FileError(400, "outside the drive")
     except ValueError:
         raise FileError(400, "outside the drive")
     # realpath resolves symlinks in whatever part of the path already exists, so a new file under a linked folder is caught too
     real, real_root = os.path.realpath(full), os.path.realpath(root)
     try:
-        if os.path.commonpath([real.lower(), real_root.lower()]) != real_root.lower():
+        if os.path.commonpath([os.path.normcase(real), os.path.normcase(real_root)]) != os.path.normcase(real_root):
             raise FileError(403, "symlink escape detected")
     except ValueError:
         raise FileError(403, "symlink escape detected")
+    real_parts = os.path.relpath(real, real_root).split(os.sep)
+    if not allow_internal and real_parts[0].lower() in (TRASH, VERS):
+        raise FileError(403, "that folder is managed by Strata")
     return full, parts
 
 
@@ -530,41 +535,67 @@ def max_chunk():
     return int(min(95, max(1, CFG["upload"].get("max_chunk_mb", 95)))) * MiB
 
 
+def content_length(headers, limit=None, required=False, allow_chunked=False):
+    """Validate framing before any read: negative lengths otherwise mean 'read to EOF'."""
+    lengths = headers.get_all("Content-Length", []) if hasattr(headers, "get_all") else (
+        [headers["Content-Length"]] if headers.get("Content-Length") is not None else [])
+    transfer = headers.get("Transfer-Encoding")
+    if transfer:
+        if not allow_chunked or transfer.strip().lower() != "chunked" or lengths:
+            raise FileError(400, "unsupported or ambiguous request framing")
+        return None
+    if len(lengths) > 1 or lengths and not re.fullmatch(r"[0-9]{1,20}", str(lengths[0]).strip()):
+        raise FileError(400, "invalid Content-Length")
+    if not lengths:
+        if required:
+            raise FileError(411, "Content-Length required")
+        return 0
+    n = int(lengths[0])
+    if limit is not None and n > limit:
+        raise FileError(413, "request body too large")
+    return n
+
+
 def read_into(rfile, headers, f, limit, sha=None):
     """Stream a request body (Content-Length or chunked) into file f. Returns bytes written."""
     written = 0
 
     def put(buf):
         nonlocal written
+        if written + len(buf) > limit:
+            raise FileError(413, "request body too large (limit %d MiB per request)" % (limit // MiB))
         f.write(buf)
         if sha:
             sha.update(buf)
         written += len(buf)
-        if written > limit:
-            raise FileError(413, "request body too large (limit %d MiB per request)" % (limit // MiB))
-    if "chunked" in (headers.get("Transfer-Encoding") or "").lower():
+    length = content_length(headers, limit, required=True, allow_chunked=True)
+    if length is None:
         while True:
             line = rfile.readline(1024)
-            if not line:
-                raise FileError(400, "upload interrupted")
-            n = int(line.split(b";")[0].strip() or b"0", 16)
+            size = line.split(b";", 1)[0].strip()
+            if not line.endswith(b"\r\n") or not re.fullmatch(rb"[0-9A-Fa-f]{1,16}", size):
+                raise FileError(400, "invalid upload chunk")
+            n = int(size, 16)
+            if n > limit - written:
+                raise FileError(413, "request body too large")
             if n == 0:
-                while rfile.readline(1024) not in (b"\r\n", b"\n", b""):
-                    pass
-                return written
+                trailers = 0
+                while True:
+                    trailer = rfile.readline(8193)
+                    trailers += len(trailer)
+                    if not trailer.endswith(b"\r\n") or trailers > 8192:
+                        raise FileError(400, "invalid upload trailers")
+                    if trailer == b"\r\n":
+                        return written
             left = n
             while left:
                 buf = rfile.read(min(left, MiB))
                 if not buf:
                     raise FileError(400, "upload interrupted")
                 put(buf); left -= len(buf)
-            rfile.readline(8)
-    length = headers.get("Content-Length")
-    if length is None:
-        raise FileError(411, "Content-Length required")
-    left = int(length)
-    if left > limit:
-        raise FileError(413, "request body too large (limit %d MiB per request - larger files upload in chunks)" % (limit // MiB))
+            if rfile.read(2) != b"\r\n":
+                raise FileError(400, "invalid upload chunk ending")
+    left = length
     while left:
         buf = rfile.read(min(left, MiB))
         if not buf:
@@ -603,8 +634,12 @@ def check_space(m, size):
 
 def finalize(user, m, parts, tmp, policy):
     """Move a completed upload into place; an existing file becomes a version first."""
-    full = os.path.join(root_of(m), *parts)
     rel = rel_of(parts)
+    full, parts = resolve(m, rel)  # the destination may have changed while the upload was in flight
+    if not parts or parts[-1].lower().startswith(".strata"):
+        raise FileError(400, "reserved or missing file name")
+    if os.path.isdir(full):
+        raise FileError(409, "a folder with that name exists")
     replaced = False
     db = connect()
     try:
@@ -632,14 +667,14 @@ def upload_single(user, mid, rel, rfile, headers, policy):
     full, parts = target_for(m, rel, policy)
     if full is None:
         return {"skipped": True, "path": rel_of(parts)}
-    length = int(headers.get("Content-Length") or 0)
-    check_space(m, length)
+    length = content_length(headers, min(max_chunk(), upload_limit()), required=True, allow_chunked=True)
+    check_space(m, length or 0)
     parent = os.path.dirname(full)
     os.makedirs(parent, exist_ok=True)
     tmp = os.path.join(parent, PART_PREFIX + secrets.token_hex(6) + ".part")
     try:
         with open(tmp, "wb") as f:
-            read_into(rfile, headers, f, max_chunk())
+            read_into(rfile, headers, f, min(max_chunk(), upload_limit()))
         return finalize(user, m, parts, tmp, policy)
     except BaseException:
         try:
@@ -649,12 +684,18 @@ def upload_single(user, mid, rel, rfile, headers, policy):
         raise
 
 
+def upload_limit():
+    return int(CFG.get("upload_max_bytes") or (20 << 30))
+
+
 def up_init(user, d):
     m = get_mount(d.get("mount"))
     policy = d.get("policy") if d.get("policy") in ("ask", "replace", "skip", "rename") else "ask"
     size = int(d.get("size") or 0)
     if size < 0 or size > 16 * 1024 ** 4:
         raise FileError(400, "bad size")
+    if size > upload_limit():
+        raise FileError(413, "file is larger than the upload limit")
     full, parts = target_for(m, d.get("path", ""), policy)
     if full is None:
         return {"skipped": True, "path": rel_of(parts)}
@@ -704,37 +745,62 @@ def up_chunk(user, uid, index, rfile, headers):
     if not 0 <= i < r["chunks"]:
         raise FileError(400, "chunk index out of range")
     want = min(r["chunk"], r["size"] - i * r["chunk"])
-    if int(headers.get("Content-Length") or -1) != want:
+    if content_length(headers, required=True) != want:
         raise FileError(400, "chunk %d must be exactly %d bytes" % (i, want))
     sha = hashlib.sha256()
-    with open(r["tmp"], "r+b") as f:
-        f.seek(i * r["chunk"])
-        read_into(rfile, headers, f, max_chunk(), sha)
-    given = (headers.get("X-Chunk-SHA256") or "").lower()
-    if given and given != sha.hexdigest():
-        raise FileError(422, "chunk %d arrived corrupted (checksum mismatch) - it will be resent" % i)
-    with UPLOCKS[uid]:
-        db = connect()
-        try:
-            with db:
-                cur = set(json.loads(db.execute("SELECT received FROM upload WHERE id=?", [uid]).fetchone()[0]))
+    # Validate the entire retry before touching an already accepted chunk. Bodies can arrive in parallel;
+    # committing bytes and the receipt is serialized with completion and cancellation for this upload.
+    with tempfile.TemporaryFile() as staged:
+        read_into(rfile, headers, staged, want, sha)
+        given = (headers.get("X-Chunk-SHA256") or "").lower()
+        if given and given != sha.hexdigest():
+            raise FileError(422, "chunk %d arrived corrupted (checksum mismatch) - it will be resent" % i)
+        with UPLOCKS[uid]:
+            r = up_row(uid, user)
+            tmp = upload_tmp(r)
+            db = connect()
+            try:
+                cur = set(json.loads(r["received"]))
+                cur.discard(i)
+                with db:
+                    db.execute("UPDATE upload SET received=? WHERE id=?", [json.dumps(sorted(cur)), uid])
+                staged.seek(0)
+                with open(tmp, "r+b") as f:
+                    f.seek(i * r["chunk"])
+                    shutil.copyfileobj(staged, f, MiB)
                 cur.add(i)
-                db.execute("UPDATE upload SET received=?, updated=? WHERE id=?", [json.dumps(sorted(cur)), time.time(), uid])
-        finally:
-            db.close()
+                with db:
+                    db.execute("UPDATE upload SET received=?, updated=? WHERE id=?", [json.dumps(sorted(cur)), time.time(), uid])
+            finally:
+                db.close()
     return {"received": len(cur), "chunks": r["chunks"], "sha256": sha.hexdigest()}
 
 
+def upload_tmp(r):
+    m = get_mount(r["mount"])
+    _, parts = resolve(m, r["path"])
+    tmp, _ = resolve(m, rel_of(parts[:-1] + [os.path.basename(r["tmp"])]))
+    if os.path.normcase(os.path.abspath(tmp)) != os.path.normcase(os.path.abspath(r["tmp"])):
+        raise FileError(409, "the upload destination changed - start it again")
+    return tmp
+
+
 def up_complete(user, uid):
+    with UPLOCKS[uid]:
+        return _up_complete(user, uid)
+
+
+def _up_complete(user, uid):
     r = up_row(uid, user)
     got = set(json.loads(r["received"]))
     missing = [i for i in range(r["chunks"]) if i not in got]
     if missing and r["size"] > 0:
         raise FileError(409, "missing chunks: %s" % missing[:20])
-    if os.path.getsize(r["tmp"]) != r["size"]:
+    tmp = upload_tmp(r)
+    if os.path.getsize(tmp) != r["size"]:
         raise FileError(500, "assembled size mismatch")
     m = get_mount(r["mount"])
-    res = finalize(user, m, parts_of(r["path"]), r["tmp"], r["policy"] if r["policy"] != "ask" else "ask")
+    res = finalize(user, m, parts_of(r["path"]), tmp, r["policy"])
     db = connect()
     try:
         with db:
@@ -746,9 +812,14 @@ def up_complete(user, uid):
 
 
 def up_abort(user, uid):
+    with UPLOCKS[uid]:
+        return _up_abort(user, uid)
+
+
+def _up_abort(user, uid):
     r = up_row(uid, user)
     try:
-        os.remove(r["tmp"])
+        os.remove(upload_tmp(r))
     except OSError:
         pass
     db = connect()
@@ -757,6 +828,7 @@ def up_abort(user, uid):
             db.execute("DELETE FROM upload WHERE id=?", [uid])
     finally:
         db.close()
+    UPLOCKS.pop(uid, None)
     return {"aborted": uid}
 
 
@@ -1099,8 +1171,7 @@ def copy_items(user, smid, paths, dmid, ddir, move=False):
         plan = []
         for full, parts in items:
             if os.path.isdir(full):
-                for dp, dn, fn in os.walk(full):
-                    dn[:] = [d for d in dn if not d.startswith(".strata")]
+                for dp, dn, fn in safe_walk(full):
                     for n in fn:
                         if n.startswith(".strata") or os.path.splitext(n)[1] in SIDE and os.path.exists(os.path.join(dp, os.path.splitext(n)[0])):
                             continue
@@ -1112,10 +1183,11 @@ def copy_items(user, smid, paths, dmid, ddir, move=False):
         check_space(dm, job["bytes_total"])
         roots = {}
         for src, relname, size in plan:
+            src, _ = resolve(sm, rel_of(os.path.relpath(src, root_of(sm)).split(os.sep)))
             top = relname.split(os.sep)[0]
             if top not in roots:
                 roots[top] = os.path.basename(unique_name(os.path.join(dfull, top)))
-            target = os.path.join(dfull, roots[top], *relname.split(os.sep)[1:])
+            target, _ = resolve(dm, rel_of(dparts + [roots[top]] + relname.split(os.sep)[1:]))
             os.makedirs(os.path.dirname(target), exist_ok=True)
             job["current"] = relname
             with open(src, "rb") as fi, open(target + ".strata-copy", "wb") as fo:
@@ -1334,20 +1406,34 @@ def zip_take(tok):
 def zip_write(z, out):
     """Write a ZIP of the prepared selection to the (unseekable) response stream."""
     import zipfile
+    m = get_mount(z["mount"])
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
         for full, parts in z["items"]:
+            full, _ = resolve(m, rel_of(parts))
             if os.path.isdir(full):
-                for dp, dn, fn in os.walk(full):
-                    dn[:] = [d for d in dn if not d.startswith(".strata")]
+                for dp, dn, fn in safe_walk(full):
                     for n in fn:
                         if n.startswith(".strata"):
                             continue
-                        p = os.path.join(dp, n)
+                        p, _ = resolve(m, rel_of(os.path.relpath(os.path.join(dp, n), root_of(m)).split(os.sep)))
                         if os.path.splitext(n)[1] in SIDE and os.path.exists(os.path.join(dp, os.path.splitext(n)[0])):
                             continue
                         zf.write(p, os.path.join(parts[-1], os.path.relpath(p, full)))
             else:
                 zf.write(full, parts[-1])
+
+
+def safe_walk(full):
+    """Recursive exports never follow links or Windows junctions into unselected folders."""
+    def allowed(p):
+        if os.path.basename(p).lower().startswith(".strata"):
+            return False
+        s = os.lstat(p)
+        return not (stat.S_ISLNK(s.st_mode) or getattr(s, "st_file_attributes", 0) & 0x400)
+
+    for dp, dn, fn in os.walk(full):
+        dn[:] = [d for d in dn if allowed(os.path.join(dp, d))]
+        yield dp, dn, [n for n in fn if allowed(os.path.join(dp, n))]
 
 
 # ---------------------------------------------------------------- drives on this machine
@@ -1485,7 +1571,7 @@ def fetch_url(user, mid, dest_dir, url, name=None, policy="rename"):
     parts_of(fname)
     if policy not in ("rename", "replace", "skip", "ask"):
         policy = "rename"
-    limit = int(CFG.get("upload_max_bytes") or 20 << 30)
+    limit = upload_limit()
 
     def work(job):
         req = urllib.request.Request(urllib.parse.urlunsplit(u), headers={"User-Agent": "Strata remote upload"})

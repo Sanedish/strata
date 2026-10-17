@@ -12,6 +12,7 @@ The suites, in the order run_all.py runs them:
                         authenticator app and no e-mail signs in with it
   smtp_test.py          SMTP mail delivery against a recorder (no mail server needed)
   sec_regress.py        takeover paths, zones, SSRF, CSRF, headers
+  audit_test.py         isolated upload, request-framing, storage-link, credential-race and log-ingestion regressions
   caddy_test.py         the generated Caddy config through a real `caddy validate` (skipped without Caddy)
   anubis_test.py        bot protection: config off/on, policy and key files, settings checks, the download (fake archives),
                         then real requests through a real Caddy and a stub Anubis (skipped without Caddy); with STRATA_ANUBIS set (or anubis on the PATH)
@@ -24,5 +25,8 @@ The suites, in the order run_all.py runs them:
   media/tests/          unit tests for Strata Media (python -m unittest)
 
 anubis_demo.py is not a suite: a small site behind a real Caddy and a real Anubis, to open in a browser (see its docstring).
+browser_smoke.mjs checks every accessible demo view at desktop and phone sizes, keyboard focus, upload cancellation
+and network failures; run node tests/browser_smoke.mjs http://127.0.0.1:8290 [screenshot-directory] against a running
+throwaway demo. It uses a separate headless browser profile; set STRATA_BROWSER if Microsoft Edge is not installed.
 seed_granular.py and devsession.py are helpers: the first seeds the example employee 'mara', the second mints a
 session cookie for a dev database. The HTTP suites refuse any database outside a folder named *scratchpad*.

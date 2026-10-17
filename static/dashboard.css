@@ -482,6 +482,8 @@ pre.code { flex: 1; min-height: 0; overflow: auto; margin: 0; white-space: pre; 
 .settings .form { margin-top: 12px; }
 .settings .form .input { height: var(--ctl); min-height: var(--ctl); padding: 4px 10px; margin-bottom: 0; }
 @container (max-width: 400px) { .set-row { flex-direction: column; align-items: stretch; } .set-row > :first-child { flex: none; } .set-ctl { margin-left: 0; justify-content: flex-start; } }
+.set-cat { padding: 13px 0 5px; border-bottom: 2px solid var(--color-divider); }
+.set-cat + .set-row { padding-top: 10px; }
 .scale-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin: 4px 0 14px; flex-wrap: wrap; }
 .scale-hero .big-num { font-size: 48px; }
 .scale-demo { font-family: var(--font-heading); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.03em; text-align: right; }
@@ -1327,16 +1329,18 @@ main { background: var(--color-bg); }
 .profile-pic { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 6px 0 14px; }
 .profile-pic p { margin: 4px 0 8px; max-width: 52ch; }
 .profile-pic label.btn { cursor: pointer; }
-/* Settings › About: author card on a blurred, darkened photo; light text in both themes */
-.about-banner { position: relative; overflow: hidden; isolation: isolate; display: flex; align-items: center; gap: 20px; margin: 6px 0 4px; padding: 22px 24px; border-radius: var(--radius-sm); color: #f2f4f7; }
-.about-banner::before { content: ''; position: absolute; inset: -20px; z-index: -1; background: url(/media/b_fallback.webp) center / cover; filter: blur(8px) brightness(.6) saturate(1.3); }
-/* dark card around picture and text, rounded like the picture: its 18px corner + the 12px padding beside it */
-.about-card { display: flex; align-items: center; gap: 18px; padding: 12px 20px 12px 12px; background: rgb(0 0 0 / .45); border-radius: 30px; }
-.about-banner .cap { color: rgb(255 255 255 / .7); }
+/* Settings › About: author card, Discord-profile style — photo banner, ring avatar overlapping its edge.
+   The overlap is a negative margin, not absolute positioning: this panel scrolls and the UI scales through CSS
+   zoom, which misplaces absolutely-positioned children of scrolled containers. */
+.about-banner { position: relative; isolation: isolate; display: flex; flex-direction: column; margin: 6px 0 4px; border: 1px solid var(--color-divider); border-radius: var(--radius-sm); background: var(--color-raised); }
+.about-photo { height: 96px; background: url(/media/b_fallback.webp) center / cover; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.about-banner .about-av { margin: -44px 0 0 20px; border: 5px solid var(--color-raised); border-radius: 50%; background: var(--color-raised); }
+.about-body { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 24px 20px; }
+.about-banner .cap { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 .about-banner b { display: block; font-family: var(--font-heading); font-size: 22px; line-height: 1.2; margin-top: 2px; }
-.about-banner p { margin: 6px 0 10px; max-width: 60ch; font-size: 13px; line-height: 1.5; color: rgb(255 255 255 / .85); }
-.about-banner .btn { background: rgb(0 0 0 / .35); border-color: rgb(255 255 255 / .35); color: #fff; }
-.about-banner .btn:hover { background: rgb(0 0 0 / .5); }
+.about-banner p { margin: 6px 0 10px; max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--color-text); }
+.about-banner .btn { background: transparent; }
+.about-banner .btn:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
 .acct-ident { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .acct-ident > div { display: grid; gap: 4px; justify-items: start; min-width: 0; }
 
@@ -1683,6 +1687,64 @@ main, .admin-page, .sys-page, .upview, .settings, .big, .chip, .strip .rest, .st
 #main :is(.twrap, .admin-table-wrap, .net-callout, .net-result, .admin-callout, .antab > .tbar) { border-radius: 0; box-shadow: none; }
 .net-footnote { margin: 0; padding: 10px 18px; }
 .sys-page .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Challenger: protection first, activity next, service controls last. */
+.challenger-page { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; overflow-y: auto; }
+.challenger-page > * { flex-shrink: 0; }
+.challenger-top { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 1px; }
+#main .challenger-page .panel { padding: 22px 26px; }
+.challenger-page .ph { flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.challenger-page .ph h5 { margin-right: auto; }
+.challenger-status { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid var(--color-divider); border-radius: 20px; font-size: 11px; font-weight: 700; }
+.challenger-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.challenger-status.is-active { color: var(--color-ok); }
+.challenger-page p { margin: 0; font-size: 12px; line-height: 1.65; color: color-mix(in srgb, var(--color-text) 65%, transparent); max-width: 62ch; }
+.challenger-page .set-row { padding: 15px 0; gap: 18px; }
+.challenger-page .set-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.challenger-page .set-ctl { flex-wrap: wrap; gap: 7px; }
+.challenger-activation > .set-row { border-top: 1px solid var(--color-divider); }
+#main .challenger-emergency { position: relative; background: color-mix(in srgb, #e5483b 10%, var(--color-bg)); box-shadow: inset 0 4px #e5483b, 0 0 0 1px var(--color-divider); }
+#main .challenger-emergency.is-active { background: color-mix(in srgb, #e5483b 19%, var(--color-bg)); box-shadow: inset 0 5px #e5483b, inset 0 0 0 1px #e5483b; }
+.challenger-emergency .ph .ic { color: var(--color-accent-700); }
+.challenger-emergency-badge { padding: 5px 8px; border: 1px solid color-mix(in srgb, #e5483b 55%, transparent); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; }
+.challenger-emergency.is-active .challenger-emergency-badge { background: #b42318; border-color: #b42318; color: #fff; }
+.challenger-emergency .challenger-emergency-button { white-space: normal; text-align: left; background: #b42318; border-color: #b42318; color: #fff; }
+.challenger-emergency .challenger-emergency-button:hover:not(:disabled) { background: #921c13; border-color: #921c13; }
+.challenger-emergency-copy { padding: 10px 0 22px; }
+.challenger-duration { display: block; margin-bottom: 18px; font-family: var(--font-heading); font-size: 38px; line-height: 1.1; font-weight: 800; letter-spacing: -.035em; }
+.challenger-duration small { display: block; margin-top: 7px; font-family: var(--font-body); font-size: 11px; font-weight: 400; letter-spacing: 0; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.challenger-emergency > .set-row { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; border-top: 1px solid var(--color-divider); }
+.challenger-emergency .set-ctl { justify-content: flex-start; }
+.challenger-emergency > .set-row > :first-child { flex: none; }
+.challenger-emergency > .set-row > .set-ctl { margin-left: 0; }
+.challenger-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.challenger-metrics > div { padding: 4px 24px; border-left: 1px solid var(--color-divider); }
+.challenger-metrics > div:first-child { padding-left: 0; border-left: 0; }
+.challenger-metrics strong { display: block; margin-top: 10px; font-family: var(--font-heading); font-size: 30px; line-height: 1.1; letter-spacing: -.03em; }
+.challenger-step { display: flex; gap: 14px; align-items: flex-start; border-top: 1px solid var(--color-divider); }
+.challenger-step-number { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 16px; border: 1px solid var(--color-divider); border-radius: var(--radius-sm); font-size: 10px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.challenger-step .set-row { flex: 1; border: 0; min-width: 0; }
+.challenger-note { display: flex; align-items: flex-start; gap: 10px; padding: 18px 26px; }
+.challenger-note .ic { flex: none; margin-top: 2px; opacity: .55; }
+.challenger-note p { max-width: 110ch; font-size: 11px; }
+.challenger-warning { padding: 14px 26px; color: var(--color-accent-700); background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg)); font-size: 12px; }
+.challenger-log pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.7; }
+@media (max-width: 1050px) {
+  .challenger-top { grid-template-columns: minmax(0, 1fr); }
+  .challenger-step .set-row { flex-wrap: wrap; }
+}
+@media (max-width: 600px) {
+  #main .challenger-page .panel { padding: 18px 16px; }
+  .challenger-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 0; }
+  .challenger-metrics > div { padding: 0 16px; }
+  .challenger-metrics > div:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .challenger-metrics .cap { white-space: normal; }
+  .challenger-step .set-row { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  .challenger-step .set-ctl { justify-content: flex-start; }
+  .challenger-step .set-row > :first-child { flex: none; }
+  .challenger-step .set-ctl { margin-left: 0; }
+  .challenger-note { padding: 18px 16px; }
+}
 
 /* charts (storage.js: donut, columns, stackCols): inline SVG and flat boxes, one palette, a legend with values */
 .dv-donut { display: block; width: 168px; height: 168px; margin: 8px auto 10px; }

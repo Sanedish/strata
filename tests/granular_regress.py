@@ -151,6 +151,14 @@ make(ana, "analyst")
 a = session(ana)
 check("analyst sees statistics", call("GET", "/api/stats?range=24h", a)[0] == 200)
 check("analyst cannot see visitor IPs", call("GET", "/api/requests", a)[0] == 403)
+for route, fields in (("/api/stats?range=24h", ("ips", "scanners")),
+                      ("/api/stats?range=90d", ("ips", "scanners")),
+                      ("/api/insights?range=24h", ("clients",)),
+                      ("/api/insights?range=90d", ("clients",)),
+                      ("/api/live", ("recent",))):
+    st, r, _ = call("GET", route, a)
+    check("analyst gets no visitor details from " + route, st == 200 and all(r.get(k) == [] for k in fields), r)
+check("owner still gets visitor detail fields", isinstance(call("GET", "/api/stats", root)[1].get("ips"), list))
 check("analyst cannot read the raw request log", call("GET", "/api/logs?source=access", a)[0] == 403)
 check("analyst cannot read the process log", call("GET", "/api/logs?source=runtime", a)[0] == 403)
 check("analyst sees serving config read-only", call("GET", "/api/serving", a)[0] == 200)

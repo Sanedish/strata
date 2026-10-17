@@ -567,6 +567,7 @@ def send_code(user, email, sender, ip="", purpose="login"):
 def verify_code(user, code, purpose):
     db = core.connect()
     try:
+        db.execute("BEGIN IMMEDIATE")  # checking, counting attempts, and consuming the code are one operation
         row = db.execute("SELECT email,digest,expires,attempts,purpose FROM account_code WHERE user=? COLLATE NOCASE", [user]).fetchone()
         if not row or row[4] != purpose or row[2] < time.time() or row[3] >= 5:
             return None
@@ -757,10 +758,15 @@ def use_invite(token, password, privacy_accepted, ip):
         if not acct or acct[0] == "root":
             raise ValueError("This invite is invalid or expired")
         reset = bool(acct[1])  # an account that already had a password: a reset keeps its enabled / disabled state
+        password_hash = auth.hash_password(password)
         with db:
+            claimed = db.execute("DELETE FROM account_invite WHERE token_hash=? AND expires>=?",
+                                 [auth.token_hash(str(token or "")), time.time()]).rowcount
+            if claimed != 1:
+                raise ValueError("This invite is invalid or expired")
             db.execute("UPDATE account SET password_hash=?,%sprivacy_version=?,privacy_ts=?,updated=? "
                        "WHERE user=? COLLATE NOCASE" % ("" if reset else "enabled=1,"),
-                       (auth.hash_password(password), PRIVACY_VERSION, time.time(), time.time(), user))
+                       (password_hash, PRIVACY_VERSION, time.time(), time.time(), user))
             db.execute("DELETE FROM account_invite WHERE user=? COLLATE NOCASE", [user])
             db.execute("DELETE FROM session WHERE user=? COLLATE NOCASE", [user])
     finally:

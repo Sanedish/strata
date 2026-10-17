@@ -98,7 +98,7 @@ def listing(path):
     files, dirs = [], []
     with os.scandir(path) as it:
         for e in it:
-            if e.name.startswith("."):
+            if e.name.startswith(".") or e.is_symlink() or (hasattr(e, "is_junction") and e.is_junction()):
                 continue
             try:
                 if e.is_dir():

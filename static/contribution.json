@@ -1,0 +1,28 @@
+{
+  "_note": "Credits shown in Settings › About. Categories render as dividers in file order; each entry is {name, about, license, url}. Entries missing any of those four fields are skipped.",
+  "Server & tools": [
+    { "name": "Caddy", "about": "Web server Strata configures", "license": "Apache 2.0", "url": "https://caddyserver.com" },
+    { "name": "Anubis", "about": "Optional bot protection, by Techaro", "license": "MIT", "url": "https://github.com/TecharoHQ/anubis" },
+    { "name": "cloudflared", "about": "Cloudflare Tunnel client", "license": "Apache 2.0", "url": "https://github.com/cloudflare/cloudflared" },
+    { "name": "FFmpeg", "about": "Video and audio processing", "license": "LGPL / GPL", "url": "https://ffmpeg.org" },
+    { "name": "Python", "about": "Runtime and standard library", "license": "PSF", "url": "https://www.python.org" },
+    { "name": "SQLite", "about": "Database", "license": "public domain", "url": "https://sqlite.org" },
+    { "name": "Tesseract", "about": "OCR engine, by Google", "license": "Apache 2.0", "url": "https://github.com/tesseract-ocr/tesseract" },
+    { "name": "Selene", "about": "Browser-based wallpaper and rendering engine by MALINT, Strata logo was rendered with it", "license": "Apache 2.0", "url": "https://selene.malo-interactive.net" }
+  ],
+  "Libraries": [
+    { "name": "Pillow", "about": "Image processing", "license": "MIT-CMU", "url": "https://python-pillow.github.io" },
+    { "name": "Brotli", "about": "Compression, by Google", "license": "MIT", "url": "https://github.com/google/brotli" },
+    { "name": "python-zstandard", "about": "Compression, by Gregory Szorc", "license": "BSD", "url": "https://github.com/indygreg/python-zstandard" },
+    { "name": "qrcode", "about": "QR codes, by Lincoln Loop", "license": "BSD", "url": "https://github.com/lincolnloop/python-qrcode" },
+    { "name": "colorama", "about": "Console colours, by Jonathan Hartley", "license": "BSD", "url": "https://github.com/tartley/colorama" },
+    { "name": "CodeMirror", "about": "Code editor, by Marijn Haverbeke and contributors", "license": "MIT", "url": "https://codemirror.net/5/" },
+    { "name": "Lucide", "about": "Icons, by the Lucide contributors", "license": "ISC", "url": "https://lucide.dev" }
+  ],
+  "Fonts": [
+    { "name": "Archivo", "about": "Typeface, by Omnibus-Type", "license": "SIL OFL", "url": "https://fonts.google.com/specimen/Archivo" },
+    { "name": "Roboto Mono", "about": "Typeface, by Google", "license": "Apache 2.0", "url": "https://fonts.google.com/specimen/Roboto+Mono" },
+    { "name": "Open Sans", "about": "Typeface, by Steve Matteson", "license": "Apache 2.0", "url": "https://fonts.google.com/specimen/Open+Sans" },
+    { "name": "Fira Code", "about": "Typeface, by Nikita Prokopov", "license": "SIL OFL", "url": "https://fonts.google.com/specimen/Fira+Code" }
+  ]
+}

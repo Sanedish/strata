@@ -643,6 +643,30 @@ class TestVideoJobs(Base):
         self.assertEqual((row["beneficial"], row["fmt"], row["file"].rsplit(".", 1)[-1]), (1, "mp4", "mp4"))
         self.assertEqual(self.job(jid)["result"]["variant"], "mp4")
 
+    def test_auto_nvenc_falls_back_to_cpu(self):
+        self.conf["video"].update(format="mp4", encoder="auto")
+        full = self.put("/gpu.mp4", b"\0" * 4096)
+        jid = self.enqueue("video", "/gpu.mp4")
+        w = self.make_worker()
+        codecs = []
+
+        def tc(src, dst, plan, conf):
+            codecs.append(plan["codec"])
+            if plan["codec"] == "h264_nvenc":
+                return sresult(1, err="GPU unavailable")
+            with open(dst, "wb") as f:
+                f.write(b"\0\0\0\x18ftypisom" + b"\0" * 988)
+            return sresult(0)
+
+        avail = dict(VIDEO_OK, codec="h264_nvenc", h264=True, h264_nvenc=True, aac=True)
+        with mock.patch.object(video, "available", return_value=avail), \
+                mock.patch.object(video, "probe", return_value=video_info(full, 4096)), \
+                mock.patch.object(video, "transcode", side_effect=tc):
+            self.step(w, "encode")
+        self.assertEqual(codecs, ["h264_nvenc", "h264"])
+        self.assertEqual(self.job(jid)["state"], "done")
+        self.assertEqual(self.job(jid)["result"]["codec"], "h264")
+
     def test_not_beneficial_and_skipped_sources(self):
         full = self.put("/clip.mp4", b"\0" * 4096)
         self.enqueue("video", "/clip.mp4")

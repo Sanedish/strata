@@ -1,5 +1,5 @@
 """Strata Media video - ffprobe / ffmpeg variants: WebM (AV1 via SVT-AV1, VP9 fallback, Opus audio) or, with
-video.format = "mp4", MP4 (H.264 via libx264, AAC audio) that every player and device takes.
+video.format = "mp4", MP4 (H.264 via libx264 or NVENC, AAC audio) for broad playback support.
 
 Why it looks like this (media/DESIGN.md 7.6):
   * Video only ever runs in the background worker. Every ffprobe / ffmpeg call goes through sandbox.run (Job
@@ -15,6 +15,7 @@ Why it looks like this (media/DESIGN.md 7.6):
 Missing ffmpeg/ffprobe raises VideoError(kind="tool_missing") (DESIGN 7.4: no retry until the tools change).
 """
 import json
+import hashlib
 import math
 import os
 import threading
@@ -25,8 +26,10 @@ try:
 except ImportError:  # parallel development / partial install: every call below then reports tool_missing
     sandbox = None
 
-VIDEO_DEFAULTS = {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
-                  "crf_h264": 23, "preset_h264": "medium", "audio_kbps": 128, "threads": 2, "cpu_pct": 50,
+VIDEO_DEFAULTS = {"enabled": True, "format": "webm", "codec": "av1", "encoder": "cpu",
+                  "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+                  "crf_h264": 23, "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5",
+                  "audio_kbps": 128, "threads": 2, "cpu_pct": 50,
                   "max_seconds": 10800, "max_bytes": 8 << 30, "min_saving": 0.10, "timeout_factor": 15}
 FORMATS = ("webm", "mp4")
 CONTENT_TYPE = "video/webm"
@@ -34,6 +37,7 @@ SOURCE_EXT = {"mp4", "m4v", "mov", "mkv", "avi", "wmv", "flv"}
 # sources already in a codec at least as efficient as the output: re-encoding would only lose quality
 SKIP_CODECS = {"webm": {"av1", "vp9"}, "mp4": {"av1", "vp9", "hevc"}}
 H264_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow")
+NVENC_PRESETS = tuple("p%d" % n for n in range(1, 8))
 # Demuxers ffmpeg may use on an input (av_match_list: "mov" matches "mov,mp4,m4a,3gp,3g2,mj2" etc.).
 DEMUXERS = "mov,matroska,avi,asf,flv"
 OPUS_LAYOUTS = "mono|stereo|3.0|quad|5.0|5.1|6.1|7.1"   # what libopus' Vorbis mapping (family 1) accepts
@@ -59,6 +63,17 @@ def video_conf(conf):
     if out["format"] not in FORMATS:
         out["format"] = "webm"
     return out
+
+
+def spec(fmt, conf):
+    """Variant identity includes every encode policy so changed settings never reuse stale output."""
+    vc = video_conf(conf)
+    relevant = {k: v for k, v in vc.items() if k not in ("enabled", "cpu_pct", "threads", "max_seconds",
+                                                          "max_bytes", "timeout_factor", "mem_mb")}
+    baseline = {k: v for k, v in VIDEO_DEFAULTS.items() if k in relevant}
+    version = "v1" if relevant == baseline else hashlib.sha256(
+        json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:12]
+    return "auto:%s:%s" % (fmt, version)
 
 
 def _which(name, conf):
@@ -119,7 +134,8 @@ def available(conf, fmt=None):
     vc = video_conf(conf)
     fmt = fmt if fmt in FORMATS else vc["format"]
     out = {"ffmpeg": _which("ffmpeg", conf), "ffprobe": _which("ffprobe", conf), "av1": False, "vp9": False,
-           "opus": False, "h264": False, "aac": False, "format": fmt, "codec": None, "ok": False, "error": ""}
+           "opus": False, "h264": False, "h264_nvenc": False, "aac": False, "format": fmt,
+           "codec": None, "ok": False, "error": ""}
     if not out["ffmpeg"] or not out["ffprobe"]:
         out["error"] = "ffmpeg missing" if not out["ffmpeg"] else "ffprobe missing"
         return out
@@ -129,12 +145,14 @@ def available(conf, fmt=None):
         out["error"] = str(e)
         return out
     out.update(av1="libsvtav1" in names, vp9="libvpx-vp9" in names, opus="libopus" in names,
-               h264="libx264" in names, aac="aac" in names)
+               h264="libx264" in names, h264_nvenc="h264_nvenc" in names, aac="aac" in names)
     if fmt == "mp4":
-        out["codec"] = "h264" if out["h264"] else None
-        out["ok"] = bool(out["h264"] and out["aac"])
+        engine = vc.get("encoder", "cpu")
+        out["codec"] = ("h264_nvenc" if engine in ("nvenc", "auto") and out["h264_nvenc"] else
+                        "h264" if engine != "nvenc" and out["h264"] else None)
+        out["ok"] = bool(out["codec"] and out["aac"])
         if not out["ok"]:
-            out["error"] = "no libx264 encoder" if not out["h264"] else "no aac encoder"
+            out["error"] = ("no h264_nvenc encoder" if engine == "nvenc" else "no libx264 encoder") if not out["codec"] else "no aac encoder"
         return out
     if vc["codec"] == "vp9":
         out["codec"] = "vp9" if out["vp9"] else ("av1" if out["av1"] else None)
@@ -240,12 +258,17 @@ def plan(info, conf, avail=None, fmt=None):
         return None
     if avail is None:
         avail = available(conf, fmt)
-    codec = "h264" if fmt == "mp4" else avail.get("codec") or vc["codec"]
+    codec = (avail.get("codec") or "h264") if fmt == "mp4" else avail.get("codec") or vc["codec"]
     threads = max(1, int(vc["threads"]))
     v = info["video"]
     fps = v.get("fps") or 30.0
     gop = max(1, int(round(min(fps, 60.0) * 10)))   # keyframe every ~10 s (<= 600 frames: bogus timebases)
-    if codec == "h264":   # High profile, 4:2:0 8-bit: plays on every browser, phone, TV and Discord embed
+    if codec == "h264_nvenc":
+        preset = vc["nvenc_preset"] if vc["nvenc_preset"] in NVENC_PRESETS else "p5"
+        cq = max(0, min(51, int(vc["nvenc_cq"])))
+        vargs = ["-c:v", "h264_nvenc", "-preset", preset, "-rc", "vbr", "-cq", str(cq),
+                 "-b:v", "0", "-profile:v", "high"]
+    elif codec == "h264":   # High profile, 4:2:0 8-bit: plays on every browser, phone, TV and Discord embed
         preset = vc["preset_h264"] if vc["preset_h264"] in H264_PRESETS else "medium"
         vargs = ["-c:v", "libx264", "-preset", preset, "-crf", str(int(vc["crf_h264"])), "-profile:v", "high",
                  "-threads", str(threads)]

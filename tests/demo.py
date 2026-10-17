@@ -25,6 +25,7 @@ import os
 import random
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -299,6 +300,12 @@ def merge(base, over):
 
 
 def main():
+    for port in (PORT, STRATA_PORT, METRICS_PORT):
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                raise SystemExit("demo port %d is already in use; stop the existing demo first" % port)
     if DEV:  # the development build keeps its instance in the git-ignored local/demo: what you set up survives a restart
         root = os.path.join(ra.CODE, "local", "demo")
     else:

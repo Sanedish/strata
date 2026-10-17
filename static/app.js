@@ -121,8 +121,10 @@ Object.assign(S, {
   menu: null, palette: false, pq: '', palIdx: 0, hover: null, dialog: null, dragOver: false, help: false,
   fpath: store.get('fpath', '/'), fsel: new Set(), fanchor: null, ftab: 'files', gkey: 0,
 });
-if (S.landing && VIEWS[S.landing] && !sessionStorage.getItem('strata:booted')) S.view = S.landing;
-try { sessionStorage.setItem('strata:booted', '1'); } catch { /* ignore */ }
+try {
+  if (S.landing && VIEWS[S.landing] && !sessionStorage.getItem('strata:booted')) S.view = S.landing;
+  sessionStorage.setItem('strata:booted', '1');
+} catch { /* storage blocked: keep the current view */ }
 if (!VIEWS[S.view]) S.view = 'summary';
 const D = { live: null, stats: null, req: null, hist: null, edge: null, ip: null, fresh: new Set(), maxId: 0,
   files: null, trash: null, audit: null, insights: null, comp: null, palFiles: null };
@@ -288,6 +290,10 @@ function lineChart(series, { h = 180, fmtY = (v) => fmt.n(v), fmtX = (x) => fmt.
   <div class="legend smt-2">${series.map((s) => `<span><i style="background:${s.color || 'var(--color-text)'};height:3px"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
 const loading = (msg = 'Collecting, please wait…') => `<div class="empty"><span class="row">${icon('loader-circle', 'spin')} ${esc(msg)}</span></div>`;
+// a set-row whose switch is greyed out in neither state: the page is still loading its state
+const loadingRow = (title, desc) => `<div class="set-row"><div class="min-w0"><div class="h800">${esc(title)}</div>
+  <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${icon('loader-circle', 'spin')}
+  <label class="sw" style="opacity:.45;cursor:default"><input type="checkbox" disabled><b></b></label></div></div>`;
 const emptyState = (ic, title, text, extra = '') => `<div class="empty big">${icon(ic, 'xl')}<div class="h800 fs-15 c-text">${esc(title)}</div><div>${esc(text)}</div>${extra}</div>`;
 
 /* ------------------------------------------------------------------ data */
@@ -369,7 +375,7 @@ async function pollLive() {
     const analytics = !D.me || D.me.role === 'root' || D.me.role === 'admin' ||
       (D.me.capabilities || []).includes('*') || (D.me.capabilities || []).includes('analytics.read');
     if (analytics) {
-      try { D.live = await get('/api/live'); online = true; } catch (e) { online = !/access|permission/i.test(e.message); }
+      try { D.live = await get('/api/live'); online = true; } catch { online = false; }
     } else { D.live = null; online = true; }
     if (D.me) {
       const accessible = navLeaves(visibleNav().flatMap(([, ids]) => ids));
@@ -398,7 +404,7 @@ function reqParams(extra = {}) {
 }
 let reqSeq = 0;
 async function pollRequests(force) {
-  if (D.me && D.me.role !== 'root' && D.me.role !== 'admin' && !(D.me.capabilities || []).includes('analytics.read') && !(D.me.capabilities || []).includes('*')) return;
+  if (D.me && D.me.role !== 'root' && D.me.role !== 'admin' && !(D.me.capabilities || []).includes('analytics.visitors') && !(D.me.capabilities || []).includes('*')) return;
   if (S.view !== 'requests' || ((S.paused || hidden()) && !force)) return;
   if (D.req && D.req.older && !force) return; // the user is paging back: keep their rows
   const seq = ++reqSeq;
@@ -442,9 +448,9 @@ function refreshForView() {
 
 /* ------------------------------------------------------------------ chrome */
 
-function navItem(id, badge, alert, cls = '') {
-  const on = S.view === id || hubOf(S.view) === id;
-  return `<button class="nav-item ${cls} ${on ? 'on' : ''}" data-act="go" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
+function navItem(id, badge, alert, cls = '', act = 'go') {
+  const on = S.view === id || hubOf(S.view) === id || (id === 'compression' && S.view === 'media');
+  return `<button class="nav-item ${cls} ${on ? 'on' : ''}" data-act="${act}" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
     <span class="mark"></span>${icon(VIEWS[id][2])}<span>${VIEWS[id][0]}</span><span class="badge ${alert ? 'alert' : ''}">${esc(badge ?? '')}</span></button>`;
 }
 // a hub is a drop-down in the sidebar: its header (chevron) folds its views in and out; open unless folded by hand
@@ -453,16 +459,19 @@ function navHub(h, b, alert) {
   const tabs = hubTabs(h);
   if (tabs.length < 2) return navItem(h, b[h], alert[h]);
   const open = navOpen(h), here = hubOf(S.view) === h;
+  const shown = h === 'site' && tabs.includes('compression') ? tabs.filter((v) => v !== 'media') : tabs;
   return `<div class="nav-group" id="navgrp-${h}"><button class="nav-item nav-drop ${here && !open ? 'on' : ''}" data-act="navToggle" data-arg="${h}" aria-expanded="${open}" title="${open ? 'Fold' : 'Unfold'} ${esc(VIEWS[h][0])}">
     <span class="mark"></span>${icon(VIEWS[h][2])}<span>${esc(VIEWS[h][0])}</span><span class="badge ${!open && alert[h] ? 'alert' : ''}">${open ? '' : esc(b[h] ?? '')}</span>${icon(open ? 'chevron-down' : 'chevron-right', 'chev')}</button>
-    ${open ? tabs.map((v) => navItem(v, b[v], alert[v], 'nav-child')).join('') : ''}</div>`;
+    ${open ? shown.map((v) => navItem(v, v === 'compression' && S.view === 'media' ? b.media : b[v],
+      v === 'compression' ? alert.compression || alert.media : alert[v], 'nav-child',
+      v === 'compression' && tabs.includes('media') ? 'compressionMenu' : 'go')).join('') : ''}</div>`;
 }
 // a view shows when the account holds any of its capabilities (the server enforces each request separately)
 const VIEW_NEEDS = { summary: ['analytics.read'], requests: ['analytics.visitors'], logs: ['logs.runtime', 'logs.access', 'audit.read'],
   content: ['analytics.read'], visitors: ['analytics.visitors'], insights: ['analytics.read'], tunnel: ['analytics.read'],
   origins: ['analytics.read'], files: ['files.read'], upload: ['files.upload'], analyze: ['files.analyze'],
   serving: ['serving.read'], blacklist: ['serving.blacklist'], challenger: ['security.bots'], links: ['serving.read', 'serving.links'], alerts: ['alerts.read'],
-  network: ['network.read'], media: ['media.read'], compression: ['analytics.read'], security: ['analytics.read'],
+  network: ['network.read'], media: ['media.read'], compression: ['analytics.read'], security: ['analytics.visitors'],
   latency: ['analytics.read'], history: ['analytics.read'], edge: ['analytics.read'], system: ['system.read'],
   accounts: ['accounts.manage'], ide: ['code.read'], office: ['office.view'] };
 function canSeeView(v) {
@@ -519,12 +528,17 @@ function renderNav() {
 function renderHeader() {
   const [title, sub, ic] = VIEWS[S.view];
   const hub = hubOf(S.view), tabs = hub ? hubTabs(hub) : [];
+  const groupedCompression = hub === 'site' && tabs.includes('compression') && tabs.includes('media');
+  const shownTabs = groupedCompression ? tabs.filter((v) => v !== 'media') : tabs;
   patch($('#title'), hub ? icon(VIEWS[hub][2]) + esc(VIEWS[hub][0]) : icon(ic) + esc(title));
   if ($('#sub').textContent !== sub) $('#sub').textContent = sub;
   // one tab needs no tab row
   const ht = $('#hubtabs');
-  ht.hidden = tabs.length < 2;
-  patch(ht, tabs.length < 2 ? '' : tabs.map((v) => `<button class="${v === S.view ? 'on' : ''}" data-act="go" data-arg="${v}" role="tab" aria-selected="${v === S.view}">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</button>`).join(''));
+  ht.setAttribute('role', groupedCompression ? 'navigation' : 'tablist');
+  ht.hidden = shownTabs.length < 2;
+  patch(ht, shownTabs.length < 2 ? '' : shownTabs.map((v) => groupedCompression && v === 'compression'
+    ? `<button class="${['compression', 'media'].includes(S.view) ? 'on' : ''}" data-act="compressionMenu" aria-haspopup="menu" aria-label="Compression menu">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}${icon('chevron-down', 'sm')}</button>`
+    : `<button class="${v === S.view ? 'on' : ''}" data-act="go" data-arg="${v}" ${groupedCompression ? v === S.view ? 'aria-current="page"' : '' : `role="tab" aria-selected="${v === S.view}"`}>${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</button>`).join(''));
   patch($('#ranges'), RANGES.map(([k, l]) => `<button class="${S.range === k ? 'on' : ''}" data-act="range" data-arg="${k}" aria-pressed="${S.range === k}">${l}</button>`).join(''));
   $('#bots').classList.toggle('ink', S.nobots);
   const botsLbl = S.nobots ? 'Bots hidden' : 'Bots';
@@ -1154,11 +1168,11 @@ function vInsights() {
       ${table('ins-daily', [{ t: 'Date', w: 90 }, { t: 'Requests', w: 70, a: 'r' }, { t: 'Visitors', w: 64, a: 'r' }, { t: 'Sent', w: 76, a: 'r' }, { t: 'Errors', w: 52, a: 'r' }], dailyRows)}</section>
     ${panel('File types', 'successful requests by extension', barList(I.exts, { label: (r) => r.k, value: (r) => r.c, fmtv: (r) => fmt.n(r.c) + ' · ' + fmt.bytes(r.b) }), '', 'file')}
     ${panel('Response sizes', 'bytes on the wire per response', barList(I.sizes.map((s) => ({ ...s, l: I.size_labels[s.k] })).sort((a, b) => a.k - b.k), { label: (r) => r.l, value: (r) => r.c, fmtv: (r) => fmt.n(r.c) + ' · ' + fmt.bytes(r.b) }), '', 'ruler')}
-    ${panel('Heaviest clients', 'by bytes sent · right-click for actions', barList(I.clients, {
+    ${hasCap('analytics.visitors') ? panel('Heaviest clients', 'by bytes sent · right-click for actions', barList(I.clients, {
       label: (r) => r.k, title: (r) => r.k + ' · ' + cname(r.country) + ' · ' + r.agent,
       labelHtml: (r) => `${esc(r.k)} <span class="dim">${esc(r.country || '')} · ${esc(r.agent)}</span>`,
       value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b), hot: (r) => r.kind === 'bot',
-      attrs: (r) => `data-menu="ip" data-arg="${esc(r.k)}" data-act="filterIp" style="cursor:pointer"` }), '', 'user')}
+      attrs: (r) => `data-menu="ip" data-arg="${esc(r.k)}" data-act="filterIp" style="cursor:pointer"` }), '', 'user') : ''}
     ${panel('Busiest hours', rangeLabel(), barList(I.busiest, { label: (r) => fmt.dt(r.t), value: (r) => r.c, fmtv: (r) => fmt.n(r.c) + ' req · ' + fmt.n(r.u) + ' vis' }), '', 'flame')}
     ${panel('Content categories', 'served, by bytes', barList(I.cats, { label: (r) => r.k, value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) + ' · ' + fmt.n(r.c) }), '', 'layers')}
     ${panel('Library by type', inv ? `${fmt.n(inv.files)} files · ${fmt.bytes(inv.bytes)} · scanned ${fmt.ago(inv.ts)}` : 'first scan pending',
@@ -1197,9 +1211,9 @@ function vCompression() {
   const runLine = st.running ? `running (${st.trigger}) · ${fmt.n(st.scanned || 0)} scanned · ${fmt.n(st.done || 0)} compressed · ${st.current || ''}`
     : `idle · next scan ${st.next_scan ? 'in ' + fmt.dur(st.next_scan - Date.now() / 1000) : '—'}`;
   return tblView({
-    title: 'Brotli precompression', note: runLine, key: 'comp-' + tab, labels, rows,
-    tabs: [['files', 'Store', 'archive'], ['runs', 'Run log', 'list'], ['served', 'Served', 'send']].map(([k, l, ic]) => ({ label: l, icon: ic, act: 'tab', arg: 'compression:' + k, on: tab === k }))
-      .concat([{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }]),
+    title: 'Brotli · ' + ({ files: 'Store', runs: 'Run log', served: 'Served' }[tab] || 'Store'),
+    note: runLine, key: 'comp-' + tab, labels, rows,
+    tabs: [{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }],
     empty: tab === 'files' ? 'Nothing precompressed yet. The first scan runs shortly after start.' : undefined,
     aux: {
       kicker: 'Precompression', title: 'Bytes saved · ' + rangeLabel(), series: C.series.saved,
@@ -1220,7 +1234,7 @@ function vCompression() {
 
 const seg = (items, cur, act) => `<div class="seg-row">${items.map(([v, l]) =>
   `<button class="${String(cur) === String(v) ? 'on' : ''}" data-act="${act}" data-arg="${esc(v)}">${l}</button>`).join('')}</div>`;
-const toggle = (on, act) => `<label class="sw" title="${on ? 'On' : 'Off'}"><input type="checkbox" data-change="${act}" ${on ? 'checked' : ''}><b></b></label>`;
+const toggle = (on, act, dis = '') => `<label class="sw" title="${on ? 'On' : 'Off'}"><input type="checkbox" data-change="${act}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><b></b></label>`;
 const setRow = (title, desc, control) => `<div class="set-row"><div class="min-w0"><div class="h800">${esc(title)}</div>
   <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${control}</div></div>`;
 function vSettings() {
@@ -1309,35 +1323,32 @@ function vSettings() {
   </div>`;
 }
 
-// Settings › About: the author and every project whose code or data Strata ships with or drives
-const CREDITS = [
-  ['Caddy', 'Web server Strata configures · Apache 2.0', 'https://caddyserver.com'],
-  ['Anubis', 'Optional bot protection, by Techaro · MIT', 'https://github.com/TecharoHQ/anubis'],
-  ['cloudflared', 'Cloudflare Tunnel client · Apache 2.0', 'https://github.com/cloudflare/cloudflared'],
-  ['FFmpeg', 'Video and audio processing · LGPL / GPL', 'https://ffmpeg.org'],
-  ['Python', 'Runtime and standard library · PSF', 'https://www.python.org'],
-  ['SQLite', 'Database · public domain', 'https://sqlite.org'],
-  ['Pillow', 'Image processing · MIT-CMU', 'https://python-pillow.github.io'],
-  ['Brotli', 'Compression, by Google · MIT', 'https://github.com/google/brotli'],
-  ['python-zstandard', 'Compression, by Gregory Szorc · BSD', 'https://github.com/indygreg/python-zstandard'],
-  ['qrcode', 'QR codes, by Lincoln Loop · BSD', 'https://github.com/lincolnloop/python-qrcode'],
-  ['colorama', 'Console colours, by Jonathan Hartley · BSD', 'https://github.com/tartley/colorama'],
-  ['CodeMirror', 'Code editor, by Marijn Haverbeke and contributors · MIT', 'https://codemirror.net/5/'],
-  ['Lucide', 'Icons, by the Lucide contributors · ISC', 'https://lucide.dev'],
-  ['Archivo', 'Typeface, by Omnibus-Type · SIL OFL', 'https://fonts.google.com/specimen/Archivo'],
-];
+// Settings › About: I always feel really bad taking others work - even with permissive licenses - so I want
+// to give credit where it's due. Thank you to everyone who made these libraries and tools, and for making them open source!
+// The list lives in /contribution.json (categories render as dividers, entries in file order).
+let CREDITS = {}, CREDITS_FAILED = false;
+fetch('/contribution.json', { cache: 'no-store', credentials: 'same-origin' })
+  .then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((j) => {
+    // hand-edited file, so normalise defensively: keep only {category: [{name, about, license, url}…]} shapes
+    CREDITS = Object.fromEntries(Object.entries(j || {}).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v))
+      .map(([k, v]) => [k, v.filter((e) => e && e.name && e.about && e.license && e.url)]).filter(([, v]) => v.length));
+    if (S.view === 'settings') render(true);
+  }).catch(() => { CREDITS_FAILED = true; if (S.view === 'settings') render(true); });
 function aboutPanel(row) {
   const ext = (href, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
   return `<section class="panel span2">
       <div class="ph"><h5>${icon('info')}About</h5><span class="small dim">${esc($('.ver')?.textContent || '')}</span></div>
-      <div class="about-banner"><div class="about-card"><img class="av lg" src="/media/fallback.jpg" alt="" width="88" height="88" style="object-position:50% 20%"><div>
+      <div class="about-banner"><div class="about-photo"></div>
+        <img class="av lg about-av" src="/media/fallback.jpg" alt="" width="88" height="88" style="object-position:50% 20%">
+        <div class="about-body">
         <div class="cap">Strata is made by:</div><b>Sanedish</b>
         <p>This interface is a solo passion project, and if you enjoy it, I would love for you to star it on GitHub! It would mean the world to me to get this project out to more people! &lt;3</p>
-        <div class="acct-actions"><a class="btn btn-secondary" href="https://github.com/Sanedish/strata" target="_blank" rel="noopener noreferrer">${icon('star', 'sm')}<span>Star on GitHub</span></a></div></div></div></div>
+        <div class="acct-actions"><a class="btn btn-secondary" href="https://github.com/Sanedish/strata" target="_blank" rel="noopener noreferrer">${icon('star', 'sm')}<span>Star on GitHub</span></a></div></div></div>
     </section>
     <section class="panel span2">
-      <div class="ph"><h5>${icon('code')}Credits</h5><span class="small dim">thank you</span></div>
-      ${CREDITS.map(([n, d, u]) => row(n, d, ext(u, u.replace(/^https:\/\/(www\.)?|\/$/g, '')))).join('')}
+      ${Object.entries(CREDITS).map(([cat, items]) => `<div class="set-cat cap">${esc(cat)}</div>` +
+        items.map((e) => row(e.name, `${e.about} · ${e.license}`, ext(e.url, e.url.replace(/^https:\/\/(www\.)?|\/$/g, '')))).join('')).join('') ||
+        (CREDITS_FAILED ? `<div class="empty">Credits could not be loaded.</div>` : `<div class="empty">Loading credits…</div>`)}
     </section>`;
 }
 
@@ -1348,6 +1359,14 @@ function filterSettings() {
     let any = !q || head;
     p.querySelectorAll('.set-row').forEach((r) => { const m = !q || head || r.textContent.toLowerCase().includes(q); r.hidden = !m; any = any || m; });
     if (q && !p.querySelector('.set-row')) any = p.textContent.toLowerCase().includes(q);
+    // credits categories: a heading matching the query shows its whole group; one whose rows all miss hides with them
+    p.querySelectorAll('.set-cat').forEach((c) => {
+      const rows = [];
+      for (let n = c.nextElementSibling; n && !n.classList.contains('set-cat'); n = n.nextElementSibling) rows.push(n);
+      const hit = !q || head || c.textContent.toLowerCase().includes(q) || rows.some((r) => !r.hidden);
+      c.hidden = !hit;
+      if (q && c.textContent.toLowerCase().includes(q) && !head) rows.forEach((r) => { r.hidden = false; });
+    });
     p.hidden = !any;
   });
 }
@@ -1606,7 +1625,7 @@ function renderOverlay() {
     const cmds = paletteCmds();
     S.palIdx = Math.min(S.palIdx, Math.max(0, cmds.length - 1));
     let lastGroup = null;
-    html += `<div class="palbg" data-act="closePalette"><div class="pal" data-act="noop">
+    html += `<div class="palbg" data-act="closePalette"><div class="pal" data-act="noop" role="dialog" aria-modal="true" aria-label="Command palette">
       <div class="pin">${icon('search')}<input id="pq" value="${esc(S.pq)}" placeholder="Go to, run, find a file…" autocomplete="off" spellcheck="false"><kbd>Esc</kbd></div>
       <div class="list">${cmds.map((c, i) => {
         const g = c.group !== lastGroup ? `<div class="cap grp">${esc(c.group || '')}</div>` : '';
@@ -1617,7 +1636,7 @@ function renderOverlay() {
   }
   if (S.dialog) {
     const d = S.dialog;
-    html += `<div class="palbg" data-act="dlgCancel"><div class="dlg" data-act="noop" role="dialog" aria-modal="true">
+    html += `<div class="palbg" data-act="dlgCancel"><div class="dlg" data-act="noop" role="dialog" aria-modal="true" aria-label="${esc(d.title || 'Confirm')}">
       <div class="body"><div class="cap ${d.danger ? 'red' : ''}">${esc(d.kicker || '')}</div><h4>${esc(d.title || '')}</h4>
         ${d.text ? `<p>${esc(d.text)}</p>` : ''}${d.html || ''}${d.input != null ? `<input id="dlgin" class="input" value="${esc(d.input)}" autocomplete="off" spellcheck="false">` : ''}
         ${d.check ? `<label class="dlg-check"><input type="checkbox" id="dlgchk" ${d.checkDefault ? 'checked' : ''}> ${esc(d.check)}</label>` : ''}</div>
@@ -1734,6 +1753,22 @@ const ACT = {
   help() { S.help = true; renderOverlay(); },
   helpClose(_, el, e) { if (!e || e.target === el || el.dataset.act === 'helpClose') { S.help = false; renderOverlay(); } },
   siteMenu(_, el, e) { const m = MENUS.site(); const r = el.getBoundingClientRect(); S.menu = Object.assign(m, { x: r.left / zoomNow, y: r.bottom / zoomNow + 4 }); renderOverlay(); },
+  compressionMenu(_, el) {
+    const items = [['files', 'Store', 'Precompressed files', 'archive'], ['runs', 'Run log', 'Past scans', 'list'],
+      ['served', 'Served', 'Responses and savings', 'send']].map(([key, label, hint, ic]) => ({
+      label, hint: S.view === 'compression' && S.tab.compression === key ? 'Current' : hint, icon: ic,
+      run: () => { S.tab.compression = key; go('compression'); },
+    }));
+    if (canSeeView('media') && VIEWFN.media) {
+      items.push({ label: 'Media pipeline', hint: S.view === 'media' ? 'Current' : 'Health and scanning', icon: 'image', sep: true, run: () => go('media') });
+      items.push({ label: 'Media settings', hint: 'General, images and video', icon: 'sliders-horizontal', run: () => ACT.mdOpenSettings?.('general') });
+    }
+    const r = el.getBoundingClientRect();
+    const x = Math.min(r.left / zoomNow, Math.max(8, innerWidth / zoomNow - 284));
+    const y = Math.min(r.bottom / zoomNow + 4, Math.max(8, innerHeight / zoomNow - 60 - items.length * 38));
+    S.menu = { kicker: 'Site · Compression', title: 'Choose a view', items, x, y };
+    renderOverlay();
+  },
   openSibling(url) { window.open(String(url).replace('{host}', location.hostname), '_blank', 'noopener'); },
   scope(k) { S.scope = k; D.req = null; render(); pollRequests(true); },
   sort(arg) { const [key, s] = arg.split(':'); S.sort[key] = s; render(true); },
@@ -2203,6 +2238,19 @@ window.addEventListener('beforeunload', (e) => {
 });
 const GO_KEYS = { s: 'summary', r: 'requests', c: 'content', v: 'visitors', i: 'insights', f: 'files', u: 'upload', a: 'analyze', e: 'serving', b: 'blacklist', l: 'links', w: 'alerts', n: 'network', t: 'tunnel', o: 'origins', h: 'history', d: 'edge', y: 'system', x: 'settings', m: 'media', p: 'compression', k: 'security' };
 document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const modal = S.dialog ? document.querySelector('#overlay .dlg[role="dialog"]')
+    : document.querySelector('#sheet [role="dialog"]') || document.querySelector('#overlay [aria-modal="true"]');
+  if (!modal) return;
+  const controls = [...modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+    .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+  const first = controls[0], last = controls[controls.length - 1];
+  if (!first) return;
+  if (!modal.contains(document.activeElement) || (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+    e.preventDefault(); (e.shiftKey ? last : first).focus();
+  }
+}, true);
+document.addEventListener('keydown', (e) => {
   if (S.dialog) {
     if (e.key === 'Enter') { e.preventDefault(); ACT.dlgOk(); }
     if (e.key === 'Escape') { e.preventDefault(); ACT.dlgCancel(); }
@@ -2233,7 +2281,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'g') { S.gkey = Date.now(); return; }
-  if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
+  if (e.key === '/' && $('#q')) { e.preventDefault(); $('#q').focus(); }
   else if (e.key === '?') { e.preventDefault(); ACT.help(); }
   else if (e.key === '[') ACT.navCollapse();
   else if (e.key.toLowerCase() === 't') ACT.themeCycle();

@@ -157,10 +157,9 @@ def spec_tf(p, ver=None):
     return s + (",ver=%d" % ver if ver is not None else "") + ":v1"
 
 
-def spec_video(fmt):
-    """The video variant's spec - the same string the worker stores it under (worker.AUTO_SPEC). These two once
-    differed ("webm:<codec>:v1" here), so every finished WebM was looked up under a key nothing ever wrote."""
-    return "auto:%s:v1" % fmt
+def spec_video(fmt, conf=None):
+    """The policy-versioned video spec shared with the worker."""
+    return video.spec(fmt, conf)
 
 
 def is_loopback(host):
@@ -1394,7 +1393,7 @@ class Service:
         g = self.gate_check(ctx)
         if g:
             return g
-        key = self.cache.key(ctx.mid, ctx.rel, ctx.st.st_size, ctx.st.st_mtime, spec_video(fmt))
+        key = self.cache.key(ctx.mid, ctx.rel, ctx.st.st_size, ctx.st.st_mtime, spec_video(fmt, ctx.conf))
         try:
             row = self.store.variant(key)
         except Exception as e:
@@ -1711,7 +1710,7 @@ class Handler(BaseHTTPRequestHandler):
         sig, secret = q.get("sig", ""), c.get("sign_secret") or ""
         if not secret or not sig or exp < time.time():
             return self.text(403, "This link has expired or is not valid." if sig else "A signed link is required.")
-        if not hmac.compare_digest(sign(secret, path, exp), sig):
+        if not hmac.compare_digest(sign(secret, path, exp).encode(), sig.encode()):  # bytes: a non-ASCII sig raises on str
             return self.text(403, "This link is not valid.")
         return self._empty(200)
 

@@ -48,6 +48,7 @@ MAX_DOWNLOAD = 100 << 20
 BUSY = threading.Lock()  # one install or set-up at a time
 CHECK_PATH = "/.within.website/x/cmd/anubis/api/check"
 POLICY_NAME = "anubis-policy.yaml"
+AUTO_RULE_NAME = "Automatic bot challenge"
 LOOPBACK_RE = re.compile(r"^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1\]|localhost):(\d{4,5})$")
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # Anubis' shipped lists (anubis docs: configuration/import). Not (data)/meta/default-config.yaml as a whole: it also holds
@@ -72,7 +73,68 @@ def settings():
     a = dict(CFG["anubis"])
     a["bind"] = a.get("bind") or "127.0.0.1:%d" % (8923 + port_offset())
     a["metrics"] = a.get("metrics") or "127.0.0.1:%d" % (9923 + port_offset())
+    if under_attack():
+        # Under Attack Mode: everyone solves a harder puzzle, direct downloads included (the auto rule's flag).
+        # Resting difficulty comes back on its own when the window lapses; the flag is cleared lazily below.
+        a["difficulty"] = max(int(a["difficulty"]), UNDER_ATTACK_DIFFICULTY)
     return a
+
+
+UNDER_ATTACK_DIFFICULTY = 6   # 4 is Anubis' default; 6 is ~256x the work - slow for a browser, slower for a scraper farm
+UNDER_ATTACK_STRETCH = 3600   # default window: one hour, adjustable after it is on
+
+
+def under_attack_left():
+    """Seconds of Under Attack Mode left (0 = off); a lapsed window is cleared from the config here."""
+    until = float(CFG["anubis"].get("under_attack_until") or 0)
+    left = until - time.time()
+    if left <= 0 and until:
+        core.save_config({"anubis": {"under_attack_until": 0}})
+        if enabled():
+            import rules  # the downloads overlay and the difficulty are in the Caddy config: re-render (local: circular)
+            rules.mutate("", "under attack mode expired", lambda db: None)
+            rules.EDGE_SYNC.set()
+            # difficulty is back down: Anubis reads the policy only at start, so restart it (off the request thread)
+            if write_policy() and not CFG["instance"].get("dry_run") and task_installed():
+                threading.Thread(target=_restart_quietly, daemon=True).start()
+        return 0
+    return max(0, int(left))
+
+
+def _restart_quietly():
+    try:
+        restart("under attack mode expired")
+    except Exception as e:
+        core.log("anubis: restart after Under Attack Mode failed: %s" % e)
+
+
+def under_attack():
+    return under_attack_left() > 0
+
+
+def auto_rule(db):
+    """The challenge rule Strata manages for the one-switch experience (None if the user deleted it)."""
+    import rules  # rules.py imports anubis at module level, so keep this local (same as ensure_auto_rule)
+    for r in rules.load(db)["rules"]:
+        if r.get("name") == AUTO_RULE_NAME and r["action"] == "challenge":
+            return r
+    return None
+
+
+def ensure_auto_rule(user, downloads=None):
+    """Make sure the global challenge rule exists. Custom rules are never touched: the auto rule is an ordinary row
+    the user can see and edit under Serving › Rules like any other. Direct downloads are covered while Under Attack
+    Mode is on by an overlay in rules.render_challenge - the rule's own downloads flag is the user's resting choice."""
+    import rules as rules_mod
+    db = core.connect()
+    try:
+        if auto_rule(db):
+            return "kept"
+        rules_mod.save_rule(user, {"name": AUTO_RULE_NAME, "action": "challenge", "patterns": ["/*"],
+                                   "params": {"downloads": bool(downloads)}})
+        return "created"
+    finally:
+        db.close()
 
 
 def enabled():
@@ -315,6 +377,11 @@ def clean(d):
         if v and not re.match(r"^(?:[a-z0-9-]+\.)+[a-z]{2,63}$", v):
             raise BotError("Cookie domain: a domain like example.com, without a port")
         a["cookie_domain"] = v
+    if "under_attack_until" in d:  # internal only - written by set_under_attack, never by the settings sheet
+        try:
+            a["under_attack_until"] = max(0.0, float(d["under_attack_until"] or 0))
+        except (TypeError, ValueError):
+            raise BotError("under_attack_until: a timestamp or 0")
     return a
 
 
@@ -386,13 +453,41 @@ def state():
         asset = asset_name()
     except BotError:
         asset = ""
+    rest = CFG["anubis"].get("difficulty", 4)
+    db = core.connect()
+    try:
+        auto = auto_rule(db)
+    finally:
+        db.close()
     return {"enabled": s["enabled"], "bind": s["bind"], "metrics": s["metrics"], "exe": s["exe"], "difficulty": s["difficulty"],
+            "rest_difficulty": int(rest), "under_attack": under_attack(),
+            "under_attack_left": under_attack_left(),
+            "auto_rule": auto["id"] if auto else None,
+            # what is in force now: the row's flag, or Under Attack Mode's overlay over every challenge rule
+            "auto_downloads": bool((auto["params"] or {}).get("downloads")) or under_attack() if auto else under_attack(),
             "defaults": s["defaults"], "cookie_domain": s["cookie_domain"], "version": version(s["exe"]),
             "reachable": up, "answers": answers, "policy": policy_path(), "key": key_path(),
             "key_exists": os.path.exists(key_path()), "policy_exists": os.path.exists(policy_path()),
             "task": task_name(), "task_installed": task_installed(), "tested": TESTED, "asset": asset,
             "dry_run": bool(CFG["instance"].get("dry_run")), "counts": counts(s["metrics"]) if up else None,
             "prometheus": "http://%s/metrics" % s["metrics"]}
+
+
+def set_under_attack(user, seconds):
+    """Turn Under Attack Mode on for `seconds` (0 = off). While it is on, rules.render_challenge and
+    cloudflare.challenge_expression overlay downloads onto every challenge rule, whatever its resting flag. A
+    restart of Anubis (it reads the policy only at start) is the caller's job - the API endpoint does it after the
+    policy file is rewritten."""
+    if seconds and not enabled():
+        raise BotError("Bot protection is off: switch it on before Under Attack Mode.")
+    core.save_config({"anubis": {"under_attack_until": (time.time() + seconds) if seconds else 0}})
+    write_policy(force=True)
+    if seconds:  # expire on time even when nobody has the dashboard open (housekeeping is the hourly backstop)
+        t = threading.Timer(seconds + 1, under_attack_left)
+        t.daemon = True
+        t.start()
+    core.audit("", user, "anubis-under-attack", "%ds" % seconds)
+    return state()
 
 
 def counts(metrics):

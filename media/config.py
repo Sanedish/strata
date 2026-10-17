@@ -52,7 +52,9 @@ MEDIA = {
                         "cpu_mb_per_s": 4, "demote_rate_per_day": 0.2, "demote_idle_days": 21,
                         "persistent_max_gb": 100, "ephemeral_max_age_days": 30, "tombstone_days": 30,
                         "failure_retry_h": 24, "upgrade_on_promote": True}},
-    "video": {"enabled": True, "format": "webm", "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+    "video": {"enabled": True, "format": "webm", "codec": "av1", "encoder": "cpu",
+              "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32, "crf_h264": 23,
+              "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5",
               "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
               "min_saving": 0.10, "timeout_factor": 15},
     "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed
@@ -274,7 +276,10 @@ def resolve(mount_conf, url_path):
             return None, None
         full = os.path.normpath(os.path.join(root, *parts))
         # compare with the root as commonpath spells it: on POSIX it drops the second slash of a //server/share root
-        if os.path.commonpath([full.lower(), root.lower()]) != os.path.commonpath([root.lower()]):
+        base, real = os.path.normcase(os.path.realpath(root)), os.path.normcase(os.path.realpath(full))
+        if os.path.commonpath([real, base]) != os.path.commonpath([base]):
+            return None, None
+        if os.path.relpath(real, base) != os.path.normcase(os.path.relpath(full, root)):
             return None, None
         return full, "/" + "/".join(parts)
     except (ValueError, TypeError, UnicodeDecodeError):

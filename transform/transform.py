@@ -151,10 +151,17 @@ def resolve(mount, url_path):
             return None, None
         path = path[len(mount["prefix"]):] or "/"
     parts = [p for p in path.split("/") if p]
-    if any(p in (".", "..") or p.startswith(".") or "\\" in p or ":" in p for p in parts):
+    if any(p in (".", "..") or p.startswith(".") or "\\" in p or ":" in p or "\x00" in p for p in parts):
         return None, None
     full = os.path.normpath(os.path.join(root, *parts))
-    if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+    base, real = os.path.normcase(os.path.realpath(root)), os.path.normcase(os.path.realpath(full))
+    try:
+        inside = os.path.commonpath([real, base]) == base
+    except ValueError:
+        inside = False
+    relative = os.path.relpath(real, base) if inside else ""
+    if not inside or relative != os.path.normcase(os.path.relpath(full, root)) or any(
+            p != "." and p.startswith(".") for p in relative.split(os.sep)):
         return None, None
     return full, "/" + "/".join(parts)
 
@@ -449,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
         secret = sign_secret()
         if not secret or not sig or exp < time.time():
             return self.plain(403, "This link has expired or is not valid." if sig else "A signed link is required.")
-        if not hmac.compare_digest(sign(secret, u.path, exp), sig):
+        if not hmac.compare_digest(sign(secret, u.path, exp).encode(), sig.encode()):  # bytes: a non-ASCII sig raises on str
             return self.plain(403, "This link is not valid.")
         self.send_response(200)
         self.send_header("Content-Length", "0")
