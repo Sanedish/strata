@@ -1,6 +1,6 @@
-"""Strata Media configuration, file categories and path resolution (DESIGN.md sections 4.1, 5.1, 11).
+"""Corium Media configuration, file categories and path resolution (DESIGN.md sections 4.1, 5.1, 11).
 
-media.py and worker.py never read strata.json (least privilege: no CF token, no password hash). Strata's
+media.py and worker.py never read strata.json (least privilege: no CF token, no password hash). Corium's
 rules.write_media_config() copies CFG["media"] plus a few runtime keys into media/media.json; load() deep-merges
 that file over DEFAULTS, so a missing or partial file still yields a complete, safe config. MEDIA below is a
 literal copy of core.DEFAULTS["media"] (a unit test keeps the two in sync); RUNTIME holds the keys only
@@ -23,9 +23,9 @@ CONF_PATH = os.environ.get("STRATA_MEDIA_CONFIG") or os.path.join(STRATA_ROOT, "
 
 MEDIA = {
     # off until deployed: rules.render() only emits media routes (and the bridge only starts media.py /
-    # worker.py) when this is on, so a Strata restart mid-rollout cannot point Caddy at a dead :8084.
+    # worker.py) when this is on, so a Corium restart mid-rollout cannot point Caddy at a dead :8084.
     "enabled": False,
-    "listen": "127.0.0.1:8084",       # media.py; Strata Transform keeps 8083 (?ver=, signed links)
+    "listen": "127.0.0.1:8084",       # media.py; Corium Transform keeps 8083 (?ver=, signed links)
     "cache_root": "data/media-cache", # local disk, not published (relative: inside the instance home)
     "cache_max_gb": 150,
     "db": "data/media.db",
@@ -54,9 +54,9 @@ MEDIA = {
                         "failure_retry_h": 24, "upgrade_on_promote": True}},
     "video": {"enabled": True, "format": "webm", "codec": "av1", "encoder": "cpu",
               "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32, "crf_h264": 23,
-              "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5",
-              "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
-              "min_saving": 0.10, "timeout_factor": 15},
+              "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5", "gpu": "auto", "gpu_jobs": 1,
+              "gpu_decode": True, "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800,
+              "max_bytes": 8 << 30, "min_saving": 0.10, "timeout_factor": 15},
     "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed
                  "hold_threshold": "medium", "av_engines": ["defender", "clamav"], "require_av": True,
              "av_categories": ["archive", "pdf", "document", "exec", "svg"], "text_max_bytes": 8 << 20,

@@ -1,5 +1,5 @@
 'use strict';
-/* Strata storage: file manager for every drive, chunked + resumable uploader, file analyser. Loaded after app.js.
+/* Corium storage: file manager for every drive, chunked + resumable uploader, file analyser. Loaded after app.js.
    Everything shown from the server passes through esc(); file names are user data. */
 
 ['files', 'upload', 'analyze'].forEach((v) => STATIC_VIEWS.add(v));
@@ -278,7 +278,7 @@ function cdnNote(c) {
 function purgeWarning(c) {
   if (!c || !c.pending || c.ok !== false) return '';
   return `<div class="tbar"><span class="small hot">⚠ ${fmt.n(c.pending)} Cloudflare purge${c.pending === 1 ? '' : 's'} waiting since ${esc(fmt.dt(c.oldest))}: ${esc(c.error || 'purge failed')}.
-    Until they go through, deleted files can still be served from Cloudflare’s cache. Queued purges are sent automatically once the token works (restart Strata after editing strata.json).</span>
+    Until they go through, deleted files can still be served from Cloudflare’s cache. Queued purges are sent automatically once the token works (restart Corium after editing strata.json).</span>
     <div class="grow"></div><button class="pill" data-act="cfPurgeRetry">Retry now</button></div>`;
 }
 function trashBody() {
@@ -476,7 +476,7 @@ function folderTreeBranch(path, depth = 0) {
 }
 function folderTree() {
   const root = activeZoneRoot(S.fpath, S.fmount).path, rootOpen = S.ftreeExpanded.has(root);
-  return `<aside class="aside ftree"><div class="ph"><h5>Folders</h5><button class="pill" data-act="fgo" data-arg="${esc(root)}">Root</button></div>
+  return `<aside class="aside ftree"><div class="ph"><h5>${icon('folder-open')}Folders</h5><button class="pill" data-act="fgo" data-arg="${esc(root)}">Root</button></div>
     <div class="ftree-scroll" data-scroll="ftree"><div class="ftree-row root ${S.fpath === root ? 'on' : ''}">
       <button class="ftree-toggle" data-act="ftoggle" data-arg="${esc(root)}" aria-label="${rootOpen ? 'Collapse' : 'Expand'} root">${icon(rootOpen ? 'chevron-down' : 'chevron-right', 'sm')}</button>
       <button class="ftree-name ${S.fpath === root ? 'on' : ''}" data-act="fgo" data-arg="${esc(root)}" data-dropdir="${esc(root)}" title="Your storage zone">${icon('hard-drive', 'sm')}<span class="ell">${esc(mountName(S.fmount))}${root !== '/' ? ' · ' + esc(root) : ''}</span></button>
@@ -668,10 +668,10 @@ Object.assign(ACT, {
   },
   async fdelete() {
     const paths = selectedPaths(); if (!paths.length) return;
-    const ok = await ask({ kicker: 'Move to trash', title: paths.length === 1 ? paths[0] : paths.length + ' items', danger: true, ok: 'Move to trash',
-      text: 'They go to the trash with their versions, and can be restored from there.' });
-    if (!ok) return;
-    try { const r = await post('/api/files/delete', { mount: S.fmount, paths }); paths.forEach((p) => invalidateFolderTree(p)); S.fsel = new Set(); note('Moved ' + r.moved.length + ' item(s) to trash' + cdnNote(r.cdn)); pollFiles(true); } catch (e) { note(e.message); }
+    const reason = await ask({ kicker: 'Move to trash', title: paths.length === 1 ? paths[0] : paths.length + ' items', danger: true, ok: 'Move to trash',
+      text: 'They go to the trash with their versions, and can be restored from there.', input: '', placeholder: 'Reason, optional. Shown on the error page' });
+    if (reason === null) return;
+    try { const r = await post('/api/files/delete', { mount: S.fmount, paths, reason: reason.trim() }); paths.forEach((p) => invalidateFolderTree(p)); S.fsel = new Set(); note('Moved ' + r.moved.length + ' item(s) to trash' + cdnNote(r.cdn)); pollFiles(true); } catch (e) { note(e.message); }
   },
   fclip(mode) { const paths = selectedPaths(); if (!paths.length) return; S.clip = { mode, mount: S.fmount, paths }; note(paths.length + ' item(s) ' + (mode === 'cut' ? 'cut' : 'copied') + '. Open the target folder and paste.'); render(true); },
   async fpaste() {
@@ -765,7 +765,7 @@ function fileKeys(e) {
     const pending = {};
     S.clipPastePending = pending;
     setTimeout(() => { if (S.clipPastePending === pending) { S.clipPastePending = null; ACT.fpaste(); } }, 0);
-    return false; // let the paste event give OS files/images priority over Strata's clipboard
+    return false; // let the paste event give OS files/images priority over Corium's clipboard
   }
   return false;
 }
@@ -831,7 +831,7 @@ function linkPreviewPanel(path, isDir) {
   if (L.loading) return loading('Loading link preview…');
   if (L.error) return `<div class="empty hot">${esc(L.error)}</div>`;
   const M = L.meta, dr = L.draft;
-  if (M.native) return '<div class="small dim lp-note">Discord, Slack and the others show pictures, videos and web pages themselves, so Strata adds no card.</div>';
+  if (M.native) return '<div class="small dim lp-note">Discord, Slack and the others show pictures, videos and web pages themselves, so Corium adds no card.</div>';
   if (M.folder_without_gallery) return '<div class="small dim lp-note">Folders get a link preview only inside a Gallery rule. Everywhere else the folder URL is a 404.</div>';
   const off = dr.off === true || (dr.off == null && M.settings.off === true && !M.rule);
   const title = dr.title || M.title, desc = dr.description || M.description;
@@ -1409,19 +1409,19 @@ function vUpload() {
       <p class="small dim mx-0 mt-10 mb-0">Large files upload in ${UPCFG.chunk / MiB} MiB chunks, ${UPCFG.parallel} at a time, and resume if interrupted. Change this in Settings.</p></div></details>
     </section>
     <section class="panel span2 min-h-260">
-      <div class="ph"><h5>Queue</h5><span class="small" id="uptotals">${totalsLine()}</span>
+      <div class="ph"><h5>${icon('upload')}Queue</h5><span class="small" id="uptotals">${totalsLine()}</span>
         <span class="srow"><button class="pill" data-act="upPauseAll">Pause all</button><button class="pill" data-act="upResumeAll">Resume all</button><button class="pill" data-act="upClear">Clear finished</button></span></div>
       <div id="upqueue" class="scroll" data-scroll="upqueue">${queueRows()}</div>
     </section>
     <section class="panel">
-      <div class="ph"><h5>Unfinished uploads</h5><span class="small dim">kept for ${D.me ? D.me.upload.stale_hours : 48} h</span></div>
+      <div class="ph"><h5>${icon('clock')}Unfinished uploads</h5><span class="small dim">kept for ${D.me ? D.me.upload.stale_hours : 48} h</span></div>
       ${srv.length ? srv.map((s) => `<div class="upq"><div class="row"><span class="ell"><b>${esc(s.path.split('/').pop())}</b> <span class="dim">${esc(mountName(s.mount))}:${esc(parentOf(s.path))}</span></span>
         <span class="small">${esc(fmt.bytes(s.bytes_done))} of ${esc(fmt.bytes(s.size))} · ${esc(fmt.ago(s.updated))}</span>
         <span class="small"><button class="link" data-act="upResumeSrv" data-arg="${esc(s.id)}">resume…</button> · <button class="link" data-act="upDiscardSrv" data-arg="${esc(s.id)}">discard</button></span></div>
         <div class="bar2"><i style="width:${share(s.bytes_done, s.size).toFixed(1)}%"></i></div></div>`).join('') : '<div class="empty">None. Interrupted uploads show up here, ready to resume.</div>'}
     </section>
     <section class="panel">
-      <div class="ph"><h5>Recently uploaded</h5></div>
+      <div class="ph"><h5>${icon('check')}Recently uploaded</h5></div>
       ${recent.map((r) => `<div class="logline"><span title="${esc(r.target)}">${esc(r.target)}</span><span>${esc(r.note || '')} · ${esc(fmt.ago(r.ts))}</span></div>`).join('') || '<div class="empty">Nothing yet.</div>'}
     </section>
   </div>`;
@@ -1563,23 +1563,23 @@ function vAnalyze() {
       ${kpi('Largest file', fmt.bytes(t.largest), (A.largest[0] || {}).path || '')}
       ${kpi('Duplicates', fmt.bytes(A.duplicates.wasted), fmt.n(A.duplicates.groups) + ' groups · ' + fmt.n(A.duplicates.hashed) + '/' + fmt.n(A.duplicates.candidates) + ' candidates hashed', A.duplicates.wasted > 0)}
       ${kpi('Cold at origin', fmt.pct(share(A.cold.b, t.bytes)), fmt.bytes(A.cold.b) + ' not requested in 90 days')}
-      ${kpi('Strata overhead', fmt.bytes(overBytes), 'versions ' + fmt.bytes(ov.versions?.bytes) + ' · trash ' + fmt.bytes(ov.trash?.bytes))}
+      ${kpi('Corium overhead', fmt.bytes(overBytes), 'versions ' + fmt.bytes(ov.versions?.bytes) + ' · trash ' + fmt.bytes(ov.trash?.bytes))}
       ${kpi('Over the cache limit', fmt.n(A.delivery.over_cache_limit.c), fmt.bytes(A.delivery.over_cache_limit.b) + ' · > 512 MB, never cached by Cloudflare', A.delivery.over_cache_limit.c > 0)}
     </div>
     <div class="grid2 angrid" ${gstyle}>
       <section class="panel an-type">
-        <div class="ph"><h5>By type</h5><span class="an-tools"><span class="small dim">${esc(status)}</span><button class="pill" data-act="compressRun" title="Scan the drives again">${icon('refresh-cw', 'sm')}Reload</button></span></div>
+        <div class="ph"><h5>${icon('chart-pie')}By type</h5><span class="an-tools"><span class="small dim">${esc(status)}</span><button class="pill" data-act="compressRun" title="Scan the drives again">${icon('refresh-cw', 'sm')}Reload</button></span></div>
         <div class="an-path">${dd}${parts.length ? `<button class="link" data-act="anGo" data-arg="/" title="Drive root">/</button>` : ''}<span class="crumbs">${parts.map((p, i) => `<span class="dim">/</span><button data-act="anGo" data-arg="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</button>`).join('')}</span></div>
         ${donut(cats.map(([k, v]) => ({ k, v, color: CAT_COLOR[k] || CAT_COLOR.other })), { fmtv: fmt.bytes, side: true, center: [fmt.bytes(here.bytes), fmt.n(here.files) + ' files'], label: 'Space by file type in this folder' })}
       </section>
       <div class="an-grip" data-an-grip="0" role="separator" aria-orientation="vertical" aria-label="Resize panels" title="Drag to resize · double-click to reset"></div>
       <section class="panel">
-        <div class="ph"><h5>Largest folders</h5><span class="small dim">stacked by type · click to open</span></div>
+        <div class="ph"><h5>${icon('folder-open')}Largest folders</h5><span class="small dim">stacked by type · click to open</span></div>
         ${stackCols(A.folders.slice(0, 8))}
       </section>
       <div class="an-grip" data-an-grip="1" role="separator" aria-orientation="vertical" aria-label="Resize panels" title="Drag to resize · double-click to reset"></div>
       <section class="panel">
-        <div class="ph"><h5>This folder</h5><span class="small dim">${esc(fmt.bytes(here.bytes))} · ${fmt.n(here.files)} files · ${fmt.n(here.dirs)} folders</span></div>
+        <div class="ph"><h5>${icon('folder')}This folder</h5><span class="small dim">${esc(fmt.bytes(here.bytes))} · ${fmt.n(here.files)} files · ${fmt.n(here.dirs)} folders</span></div>
         <div class="scroll" data-scroll="an-details">
           ${table('anhere', [
             { t: 'Type', w: 36 },
@@ -1611,8 +1611,8 @@ function anTabBody() {
   const A = D.an, tab = S.anTab;
   if (tab === 'types') {
     return `<div class="grid2 cols-2">
-      <section class="panel"><div class="ph"><h5>Categories</h5></div><div class="an-rows">${barList(A.cats, { label: (r) => r.k + ' · ' + fmt.n(r.c) + ' files', value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) + ' · ' + fmt.pct(share(r.b, A.totals.bytes)), attrs: (r) => `data-act="anList" data-arg="cat|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
-      <section class="panel"><div class="ph"><h5>Extensions</h5><span class="small dim">click for the files</span></div><div class="an-rows">${barList(A.exts, { label: (r) => (r.k ? '.' + r.k : '(none)') + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b), attrs: (r) => `data-act="anList" data-arg="ext|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
+      <section class="panel"><div class="ph"><h5>${icon('layers')}Categories</h5></div><div class="an-rows">${barList(A.cats, { label: (r) => r.k + ' · ' + fmt.n(r.c) + ' files', value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b) + ' · ' + fmt.pct(share(r.b, A.totals.bytes)), attrs: (r) => `data-act="anList" data-arg="cat|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
+      <section class="panel"><div class="ph"><h5>${icon('file-text')}Extensions</h5><span class="small dim">click for the files</span></div><div class="an-rows">${barList(A.exts, { label: (r) => (r.k ? '.' + r.k : '(none)') + ' · ' + fmt.n(r.c), value: (r) => r.b, fmtv: (r) => fmt.bytes(r.b), attrs: (r) => `data-act="anList" data-arg="ext|${esc(r.k)}" style="cursor:pointer"` })}</div></section>
     </div>` + (D.anList && D.anList.title ? `<div class="ph px-18 py-10"><h5>${esc(D.anList.title)}</h5></div>` + table('anlist', PATH_LABELS, pathRows(D.anList.rows)) : '');
   }
   if (tab === 'largest') return table('anlargest', PATH_LABELS, pathRows(A.largest));
@@ -1642,18 +1642,18 @@ function anTabBody() {
   if (tab === 'delivery') {
     const d = A.delivery;
     return `<div class="grid2 cols-3">
-      <section class="panel"><div class="ph"><h5>Too big for Cloudflare’s cache</h5></div><div class="big-num">${fmt.n(d.over_cache_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_cache_limit.b))} in files over 512 MB. Cloudflare never caches these, so the origin serves every download.</div>
+      <section class="panel"><div class="ph"><h5>${icon('cloud')}Too big for Cloudflare’s cache</h5></div><div class="big-num">${fmt.n(d.over_cache_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_cache_limit.b))} in files over 512 MB. Cloudflare never caches these, so the origin serves every download.</div>
         <div class="act-row"><button class="btn btn-secondary" data-act="anList" data-arg="over_cache_limit|">List them</button></div></section>
-      <section class="panel"><div class="ph"><h5>Video</h5></div><div class="big-num">${fmt.n(d.video.c)}</div><div class="small dim">${esc(fmt.bytes(d.video.b))}. Cloudflare’s terms limit serving video through its regular CDN; Stream or R2 are the allowed routes if this grows. <a class="link" href="https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/" target="_blank" rel="noopener">Cloudflare’s policy ↗</a></div>
+      <section class="panel"><div class="ph"><h5>${icon('film')}Video</h5></div><div class="big-num">${fmt.n(d.video.c)}</div><div class="small dim">${esc(fmt.bytes(d.video.b))}. Cloudflare’s terms limit serving video through its regular CDN; Stream or R2 are the allowed routes if this grows. <a class="link" href="https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/" target="_blank" rel="noopener">Cloudflare’s policy ↗</a></div>
         <div class="act-row"><button class="btn btn-secondary" data-act="anList" data-arg="video|">List them</button></div></section>
-      <section class="panel"><div class="ph"><h5>Over 100 MB</h5></div><div class="big-num">${fmt.n(d.over_upload_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_upload_limit.b))}. Too large for one Cloudflare request. The uploader splits them into chunks.</div></section>
+      <section class="panel"><div class="ph"><h5>${icon('hard-drive')}Over 100 MB</h5></div><div class="big-num">${fmt.n(d.over_upload_limit.c)}</div><div class="small dim">${esc(fmt.bytes(d.over_upload_limit.b))}. Too large for one Cloudflare request. The uploader splits them into chunks.</div></section>
     </div>` + (D.anList && D.anList.title ? `<div class="ph" style="padding:10px 18px"><h5>${esc(D.anList.title)}</h5></div>` + table('anlist', PATH_LABELS, pathRows(D.anList.rows)) : '');
   }
   if (tab === 'age') {
     const col = (rows, color) => columns(rows.map((r) => ({ k: r.k, v: r.b, sub: fmt.n(r.c) + ' files', color })), fmt.bytes);
     return `<div class="grid2 cols-2">
-      <section class="panel"><div class="ph"><h5>By last modified</h5><span class="small dim">space per age</span></div>${col(A.ages, CAT_COLOR.image)}</section>
-      <section class="panel"><div class="ph"><h5>By file size</h5><span class="small dim">space per size class</span></div>${col(A.sizes, CAT_COLOR.document)}</section></div>`;
+      <section class="panel"><div class="ph"><h5>${icon('clock')}By last modified</h5><span class="small dim">space per age</span></div>${col(A.ages, CAT_COLOR.image)}</section>
+      <section class="panel"><div class="ph"><h5>${icon('scale')}By file size</h5><span class="small dim">space per size class</span></div>${col(A.sizes, CAT_COLOR.document)}</section></div>`;
   }
   if (tab === 'hot') {
     return `<div class="tbar border-0"><span class="small dim">Most bytes served by the origin in 90 days, cache hits not counted.</span></div>` +

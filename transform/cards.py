@@ -1,4 +1,4 @@
-"""Strata link-preview cards for everything that isn't audio (audiocard.py draws those, and lends its fonts here).
+"""Corium link-preview cards for everything that isn't audio (audiocard.py draws those, and lends its fonts here).
 
 Each kind has its own look, so a link says what it is before anyone reads it:
 
@@ -366,7 +366,7 @@ def new(bg):
 
 
 def logo(side):
-    """The site's logo as a rounded square: <home>/brand.png (Settings › Appearance › Branding), else Strata's."""
+    """The site's logo as a rounded square: <home>/brand.png (Settings › Appearance › Branding), else Corium's."""
     from PIL import Image, ImageOps
     import instance
     for p in (instance.home("brand.png"), os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "brand-icon.png")):

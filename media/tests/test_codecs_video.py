@@ -21,6 +21,7 @@ try:
 except Exception:
     pass
 
+import gpu  # noqa: E402
 import video  # noqa: E402
 
 try:
@@ -43,6 +44,13 @@ ENC_HEAD = """Encoders:
 """
 ENC_AV1 = ENC_HEAD + " V....D libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)\n"
 ENC_NVENC = ENC_AV1 + " V....D h264_nvenc          NVIDIA NVENC H.264 encoder (codec h264)\n"
+FILTERS = """Filters:
+  T.. = Timeline support
+  ------
+ .. scale              V->V       Scale the input video size and/or convert the image format.
+ .. scale_cuda         V->V       GPU accelerated video resizer
+"""
+NO_SCALE_CUDA = FILTERS.split(" .. scale_cuda")[0]
 AVAIL_AV1 = {"codec": "av1", "ok": True, "av1": True, "vp9": True, "opus": True}
 AVAIL_VP9 = {"codec": "vp9", "ok": True, "av1": False, "vp9": True, "opus": True}
 AVAIL_MP4 = {"codec": "h264", "ok": True, "h264": True, "aac": True, "format": "mp4"}
@@ -50,15 +58,16 @@ MP4 = {"video": dict(video.VIDEO_DEFAULTS, format="mp4"), "tools": {}}
 
 
 def ffprobe_json(vcodec="h264", w=1920, h=1080, fps="30000/1001", duration="120.5", size="50000000",
-                 audio=(("aac", 2, "stereo"),), cover=False, fmt="mov,mp4,m4a,3gp,3g2,mj2"):
+                 audio=(("aac", 2, "stereo"),), cover=False, fmt="mov,mp4,m4a,3gp,3g2,mj2", rotation=-90,
+                 pix_fmt="yuv420p"):
     streams = []
     if cover:
         streams.append({"index": 0, "codec_type": "video", "codec_name": "mjpeg", "width": 600, "height": 600,
                         "avg_frame_rate": "0/0", "disposition": {"attached_pic": 1}})
     streams.append({"index": len(streams), "codec_type": "video", "codec_name": vcodec, "width": w, "height": h,
-                    "avg_frame_rate": fps, "r_frame_rate": fps, "pix_fmt": "yuv420p", "bit_rate": "4000000",
+                    "avg_frame_rate": fps, "r_frame_rate": fps, "pix_fmt": pix_fmt, "bit_rate": "4000000",
                     "disposition": {"attached_pic": 0},
-                    "side_data_list": [{"side_data_type": "Display Matrix", "rotation": -90}]})
+                    "side_data_list": [{"side_data_type": "Display Matrix", "rotation": rotation}]})
     for codec, ch, layout in audio:
         streams.append({"index": len(streams), "codec_type": "audio", "codec_name": codec, "channels": ch,
                         "channel_layout": layout, "sample_rate": "48000"})
@@ -71,27 +80,60 @@ class Res:
         self.rc, self.out, self.err, self.timed_out, self.killed, self.secs = rc, out, err, timed_out, killed, 0.1
 
 
-class FakeSandbox:
-    """Records every run(); answers -encoders / ffprobe / ffmpeg like the real tools would."""
+SMI = r"C:\fake\nvidia-smi.exe"
+DRIVER_TOO_OLD = ("[h264_nvenc @ 0x1] Driver does not support the required nvenc API version. Required: 13.1 Found: 13.0\n"
+                  "[h264_nvenc @ 0x1] The minimum required Nvidia driver for nvenc is 610.00 or newer\n"
+                  "[vost#0:0/h264_nvenc @ 0x2] Error while opening encoder\n")
 
-    def __init__(self, encoders=ENC_AV1, probe=None, tools=None, rc=0, write=True, timed_out=False, killed=None):
-        self.encoders, self.probe = encoders, probe or ffprobe_json()
+
+def is_hw_test(cmd):
+    return cmd[-1] == "-" and "-c:v" in cmd
+
+
+class FakeSandbox:
+    """Records every run(); answers -encoders / nvidia-smi / GPU test encodes / ffprobe / ffmpeg like the real tools.
+    `builds` = {ffmpeg path: encoder list} for extra installs (candidates() lists them after FFMPEG);
+    `hw_err(cmd)` -> stderr of a failing GPU test encode ('' = it works); `gpus` = nvidia-smi rows (None = no smi);
+    `fail(cmd)` -> a Res for a transcode that should end that way (None = the defaults below); `filters` = what
+    `ffmpeg -filters` lists."""
+
+    def __init__(self, encoders=ENC_AV1, probe=None, tools=None, rc=0, write=True, timed_out=False, killed=None,
+                 nvenc_err="", builds=None, hw_err=None, gpus=None, configured=False, fail=None, filters=FILTERS):
+        self.encoders, self.probe, self.nvenc_err = encoders, probe or ffprobe_json(), nvenc_err
         self.tools = {"ffmpeg": FFMPEG, "ffprobe": FFPROBE} if tools is None else tools
         self.rc, self.write, self.timed_out, self.killed = rc, write, timed_out, killed
+        self.builds, self.hw_err, self.gpus, self.configured = dict(builds or {}), hw_err, gpus, configured
+        self.fail, self.filters = fail, filters
         self.calls = []
 
     def which(self, name, conf=None):
         return self.tools.get(name)
 
+    def candidates(self, name, conf=None):
+        if not self.tools.get(name):
+            return []
+        return [self.tools[name]] + ([] if self.configured else list(self.builds))
+
     def run(self, cmd, timeout, mem_mb=1024, cpu_pct=35, priority="idle", cwd=None, env=None, max_output=4 << 20):
         self.calls.append({"cmd": list(cmd), "timeout": timeout, "mem_mb": mem_mb, "cpu_pct": cpu_pct,
-                           "priority": priority})
+                           "priority": priority, "env": env})
         if "-encoders" in cmd:
-            return Res(out=self.encoders)
+            return Res(out=self.builds.get(cmd[0], self.encoders))
+        if "-filters" in cmd:
+            return Res(out=self.filters)
+        if cmd[0] == SMI:
+            rows = "\n".join("%d, %s, %s, GPU-%d" % (i, n, d, i) for i, (n, d) in enumerate(self.gpus or ()))
+            return Res(out=rows + "\n")
+        if is_hw_test(cmd):
+            err = self.hw_err(cmd) if self.hw_err else (self.nvenc_err if "h264_nvenc" in cmd else "")
+            return Res(rc=1 if err else 0, err=err)
         if cmd[0] == FFPROBE:
             return Res(rc=self.rc, out=json.dumps(self.probe), err="boom" if self.rc else "")
         out = cmd[-1]
         assert out.startswith("file:"), out
+        res = self.fail(cmd) if self.fail else None
+        if res is not None:
+            return res
         if self.write:
             with open(out[5:], "wb") as f:
                 f.write(b"\x1a\x45\xdf\xa3" + b"\0" * 64)   # EBML magic + filler
@@ -108,10 +150,14 @@ class Base(unittest.TestCase):
         video.reset_cache()
 
     def fake(self, **kw):
+        ads = kw.pop("adapters", None)   # display adapters; None = unknown (every backend the build lists is offered)
         fk = FakeSandbox(**kw)
-        p = mock.patch.object(video, "sandbox", fk)
-        p.start()
-        self.addCleanup(p.stop)
+        for p in (mock.patch.object(video, "sandbox", fk),
+                  mock.patch.object(gpu, "_nvidia_smi", lambda: SMI if fk.gpus is not None else None),
+                  mock.patch.object(gpu, "adapters", lambda: ads)):
+            p.start()
+            self.addCleanup(p.stop)
+        video.reset_cache()
         return fk
 
     def info(self, **kw):
@@ -175,6 +221,344 @@ class TestAvailable(Base):
         self.fake(encoders=ENC_AV1)
         video.reset_cache()
         self.assertEqual(video.available(gpu)["error"], "no h264_nvenc encoder")
+
+    def test_nvenc_listed_but_unusable(self):
+        # e.g. ffmpeg 9 needs NVENC API 13.1 (driver 610+): the build lists h264_nvenc, the test encode fails
+        fk = self.fake(encoders=ENC_NVENC, nvenc_err=DRIVER_TOO_OLD)
+        auto = {"video": dict(video.VIDEO_DEFAULTS, format="mp4", encoder="auto")}
+        a = video.available(auto)
+        self.assertEqual((a["codec"], a["ok"], a["h264_nvenc"]), ("h264", True, False))   # auto -> CPU
+        self.assertIn("Required: 13.1 Found: 13.0", a["nvenc_error"])
+        self.assertIn("610.00", a["nvenc_error"])
+        probes = [c for c in fk.calls if is_hw_test(c["cmd"])]
+        self.assertEqual(len(probes), 1)
+        self.assertIn("h264_nvenc", probes[0]["cmd"])
+        self.assertEqual(probes[0]["env"]["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")
+        video.available(auto)
+        self.assertEqual(len([c for c in fk.calls if is_hw_test(c["cmd"])]), 1)   # the discovery is cached
+        gpu_conf = {"video": dict(video.VIDEO_DEFAULTS, format="mp4", encoder="nvenc")}
+        a = video.available(gpu_conf)
+        self.assertEqual((a["codec"], a["ok"]), (None, False))
+        self.assertTrue(a["error"].startswith("h264_nvenc unusable: nvenc:0: Driver does not support"), a["error"])
+        st = video.hardware_status(gpu_conf)
+        self.assertEqual([(d["id"], d["ok"]) for d in st["devices"]], [("nvenc:0", False)])
+        self.assertIn("610.00 or newer", st["devices"][0]["hint"])
+        self.assertIn("NVENC API 13.0, this ffmpeg needs 13.1", st["devices"][0]["hint"])
+        cpu = {"video": dict(video.VIDEO_DEFAULTS, format="mp4", encoder="cpu")}
+        fk = self.fake(encoders=ENC_NVENC, nvenc_err=DRIVER_TOO_OLD)
+        self.assertEqual(video.available(cpu)["codec"], "h264")
+        self.assertFalse([c for c in fk.calls if is_hw_test(c["cmd"])])   # CPU mode never touches the GPU
+
+
+ENC_ALL_HW = ENC_NVENC + (" V....D h264_qsv            H.264 (Intel Quick Sync Video acceleration) (codec h264)\n"
+                          " V....D h264_amf            AMD AMF H.264 Encoder (codec h264)\n")
+OLD_FFMPEG = r"C:\ffmpeg-8.1.1\bin\ffmpeg.exe"
+
+
+class TestGpu(Base):
+    def conf(self, **kw):
+        return {"video": dict(video.VIDEO_DEFAULTS, format="mp4", **kw), "tools": {}}
+
+    def test_two_gpus_round_robin_with_pci_order(self):
+        fk = self.fake(encoders=ENC_NVENC, gpus=[("NVIDIA T1000 8GB", "597.16"), ("NVIDIA RTX A2000", "597.16")])
+        a = video.available(self.conf(encoder="auto"))
+        self.assertEqual(a["codec"], "h264_nvenc")
+        self.assertEqual([d["id"] for d in a["devices"]], ["nvenc:0", "nvenc:1"])
+        tests = [c for c in fk.calls if is_hw_test(c["cmd"])]
+        self.assertEqual([c["cmd"][c["cmd"].index("-gpu") + 1] for c in tests], ["0", "1"])
+        plans = [video.plan(self.info(), self.conf(encoder="auto"), a) for _ in range(3)]
+        self.assertEqual([p["device"] for p in plans], ["nvenc:0", "nvenc:1", "nvenc:0"])
+        self.assertEqual(plans[1]["video_args"][:12], ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq",
+                                                       "25", "-b:v", "0", "-profile:v", "high"])
+        self.assertEqual(plans[1]["video_args"][12:14], ["-gpu", "1"])
+        self.assertEqual(plans[1]["device_name"], "NVIDIA RTX A2000")
+        dst = os.path.join(self.tmp, "out.mp4")
+        video.transcode(os.path.join(self.tmp, "in.mp4"), dst, plans[1], self.conf(encoder="auto"))
+        enc = fk.calls[-1]
+        self.assertEqual(enc["env"]["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")   # -gpu 1 = nvidia-smi's GPU 1
+        self.assertEqual(enc["cmd"][0], FFMPEG)
+
+    def test_broken_gpu_is_skipped_and_pin(self):
+        def hw_err(cmd):
+            return "[h264_nvenc @ 0x1] No NVENC capable devices found" if cmd[cmd.index("-gpu") + 1] == "0" else ""
+        self.fake(encoders=ENC_NVENC, gpus=[("Old card", "470.1"), ("Good card", "597.16")], hw_err=hw_err)
+        a = video.available(self.conf(encoder="auto"))
+        self.assertEqual([d["id"] for d in a["devices"]], ["nvenc:1"])
+        st = video.hardware_status(self.conf(encoder="auto"))
+        self.assertEqual([(d["id"], d["ok"]) for d in st["devices"]], [("nvenc:0", False), ("nvenc:1", True)])
+        self.assertIn("install the NVIDIA driver", st["devices"][0]["hint"])
+        self.assertEqual(st["selected"], ["nvenc:1"])
+        # pinned to the broken GPU: auto falls back to the CPU, explicit NVENC says which GPU and why
+        self.assertEqual(video.available(self.conf(encoder="auto", gpu="nvenc:0"))["codec"], "h264")
+        e = video.available(self.conf(encoder="nvenc", gpu="nvenc:0"))
+        self.assertEqual((e["ok"], e["error"]), (False, "h264_nvenc unusable: nvenc:0: No NVENC capable devices found"))
+        self.assertEqual(video.available(self.conf(encoder="nvenc", gpu="nvenc:7"))["error"],
+                         "h264_nvenc unusable: GPU nvenc:7 not found")
+        self.assertEqual([d["id"] for d in video.available(self.conf(encoder="nvenc", gpu="nvenc:1"))["devices"]],
+                         ["nvenc:1"])
+
+    def test_older_ffmpeg_build_is_used_when_the_newest_cannot_drive_the_gpu(self):
+        def hw_err(cmd):
+            return DRIVER_TOO_OLD if cmd[0] == FFMPEG else ""
+        fk = self.fake(encoders=ENC_NVENC, builds={OLD_FFMPEG: ENC_NVENC}, hw_err=hw_err)
+        a = video.available(self.conf(encoder="auto"))
+        self.assertEqual((a["codec"], a["hw_ffmpeg"]), ("h264_nvenc", OLD_FFMPEG))
+        st = video.hardware_status(self.conf(encoder="auto"))
+        self.assertEqual(st["ffmpeg"], OLD_FFMPEG)
+        self.assertEqual([(t["ffmpeg"], t["usable"]) for t in st["tried"]], [(FFMPEG, 0), (OLD_FFMPEG, 1)])
+        p = video.plan(self.info(), self.conf(encoder="auto"), a)
+        self.assertEqual(p["ffmpeg"], OLD_FFMPEG)
+        video.transcode(os.path.join(self.tmp, "in.mp4"), os.path.join(self.tmp, "o.mp4"), p, self.conf())
+        self.assertEqual(fk.calls[-1]["cmd"][0], OLD_FFMPEG)
+        # the CPU path keeps the default build
+        cpu = video.plan(self.info(), self.conf(encoder="cpu"), video.available(self.conf(encoder="cpu")))
+        self.assertIsNone(cpu["ffmpeg"])
+
+    def test_configured_ffmpeg_is_never_second_guessed(self):
+        def hw_err(cmd):
+            return DRIVER_TOO_OLD if cmd[0] == FFMPEG else ""
+        self.fake(encoders=ENC_NVENC, builds={OLD_FFMPEG: ENC_NVENC}, hw_err=hw_err, configured=True)
+        a = video.available(self.conf(encoder="auto"))
+        self.assertEqual((a["codec"], a["hw_ffmpeg"]), ("h264", None))
+
+    def test_bench_moves_jobs_to_the_next_gpu_then_cpu(self):
+        self.fake(encoders=ENC_NVENC, gpus=[("A", "597"), ("B", "597")])
+        video.bench("nvenc:0", "CUDA_ERROR_LAUNCH_FAILED")
+        self.assertEqual([d["id"] for d in video.available(self.conf(encoder="auto"))["devices"]], ["nvenc:1"])
+        video.bench("nvenc:1", "boom")
+        self.assertEqual(video.available(self.conf(encoder="auto"))["codec"], "h264")
+        e = video.available(self.conf(encoder="nvenc"))
+        self.assertFalse(e["ok"])
+        self.assertIn("resting after a failed job: CUDA_ERROR_LAUNCH_FAILED", e["error"])
+        self.assertEqual(set(video.hardware_status(self.conf(encoder="auto"))["benched"]), {"nvenc:0", "nvenc:1"})
+
+    def test_backend_preference_and_explicit_backends(self):
+        with mock.patch.object(gpu, "WIN", True):
+            self.fake(encoders=ENC_ALL_HW, gpus=[("T1000", "597")])
+            a = video.available(self.conf(encoder="auto"))
+            self.assertEqual([d["id"] for d in a["devices"]], ["nvenc:0", "qsv:0", "amf:0"])
+            self.assertEqual(a["codec"], "h264_nvenc")
+            q = video.available(self.conf(encoder="qsv"))
+            self.assertEqual((q["codec"], [d["id"] for d in q["devices"]]), ("h264_qsv", ["qsv:0"]))
+            p = video.plan(self.info(), self.conf(encoder="qsv", nvenc_cq=24, nvenc_preset="p7"), q)
+            self.assertEqual(p["video_args"][:8], ["-c:v", "h264_qsv", "-preset", "veryslow", "-global_quality", "24",
+                                                   "-profile:v", "high"])
+            self.assertEqual(p["video_args"][8:10], ["-pix_fmt", "nv12"])   # QSV takes NV12 system frames
+            # a pinned NVIDIA card does not apply once the encoder is Quick Sync (no "GPU not found" error)
+            q = video.available(self.conf(encoder="qsv", gpu="nvenc:0"))
+            self.assertEqual((q["ok"], q["codec"], [d["id"] for d in q["devices"]]), (True, "h264_qsv", ["qsv:0"]))
+            self.assertEqual(gpu.effective_pin({"encoder": "auto", "gpu": "nvenc:0"}), "nvenc:0")
+            self.assertEqual(gpu.effective_pin({"encoder": "nvenc", "gpu": "bogus"}), "auto")
+            m = video.available(self.conf(encoder="amf"))
+            p = video.plan(self.info(), self.conf(encoder="amf", nvenc_preset="p3"), m)
+            self.assertEqual(p["video_args"][:14], ["-c:v", "h264_amf", "-usage", "transcoding", "-quality",
+                                                    "balanced", "-rc", "cqp", "-qp_i", "25", "-qp_p", "25",
+                                                    "-qp_b", "25"])
+            self.assertFalse(p["nv_env"])
+
+    def test_only_gpus_that_are_present_are_offered(self):
+        # every Gyan build lists QSV and AMF; on an NVIDIA-only machine they must not show up as "unusable"
+        nv_only = [{"vendor": "other", "name": "Microsoft Basic Display Adapter", "node": ""},
+                   {"vendor": "nvidia", "name": "NVIDIA T1000 8GB", "node": ""}]
+        with mock.patch.object(gpu, "WIN", True):
+            fk = self.fake(encoders=ENC_ALL_HW, gpus=[("NVIDIA T1000 8GB", "597.16")], adapters=nv_only)
+            st = video.hardware_status(self.conf(encoder="auto"))
+            self.assertEqual([d["id"] for d in st["devices"]], ["nvenc:0"])
+            self.assertFalse([c for c in fk.calls if is_hw_test(c["cmd"]) and "h264_qsv" in c["cmd"]])
+            mixed = nv_only + [{"vendor": "intel", "name": "Intel(R) UHD Graphics 770", "node": ""}]
+            self.fake(encoders=ENC_ALL_HW, gpus=[("NVIDIA T1000 8GB", "597.16")], adapters=mixed)
+            st = video.hardware_status(self.conf(encoder="auto"))
+            self.assertEqual([(d["id"], d["name"]) for d in st["devices"]],
+                             [("nvenc:0", "NVIDIA T1000 8GB"), ("qsv:0", "Intel(R) UHD Graphics 770")])
+        self.assertEqual(gpu._vendor_of(r"pci\ven_8086&dev_4680"), "intel")
+        self.assertEqual(gpu._vendor_of("0x1002\n"), "amd")
+        self.assertEqual(gpu._vendor_of("pci\\ven_1414"), "other")
+
+    def test_vaapi_plan(self):
+        dev = {"id": "vaapi:renderD129", "backend": "vaapi", "index": None, "path": "/dev/dri/renderD129",
+               "name": "VAAPI renderD129", "ok": True}
+        avail = {"codec": "h264_vaapi", "ok": True, "h264": True, "aac": True, "format": "mp4", "devices": [dev],
+                 "hw_ffmpeg": "/usr/lib/jellyfin-ffmpeg/ffmpeg"}
+        p = video.plan(self.info(w=1919, h=1080), self.conf(encoder="vaapi"), avail)
+        self.assertEqual(p["input_args"], ["-vaapi_device", "/dev/dri/renderD129"])
+        self.assertEqual(p["video_args"][:6], ["-c:v", "h264_vaapi", "-qp", "25", "-profile:v", "high"])
+        self.assertNotIn("-pix_fmt", p["video_args"])                     # frames are uploaded, not converted
+        self.assertEqual(p["video_args"][-1], "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload")
+        cmd = video.command(p["ffmpeg"], "/in.mp4", "/out.mp4", p)
+        self.assertLess(cmd.index("-vaapi_device"), cmd.index("-i"))
+        nodes = ["/dev/dri/renderD128", "/dev/dri/renderD129"]
+        with mock.patch.object(gpu, "WIN", False), mock.patch.object(gpu.glob, "glob", lambda pat: nodes):
+            devs = gpu.devices({"h264_vaapi"}, None)
+        self.assertEqual([d["id"] for d in devs], ["vaapi:renderD128", "vaapi:renderD129"])
+        self.assertIn("'render' group", gpu.hint("vaapi", "Permission denied", devs[0]))
+
+    def test_gpu_choice_is_not_part_of_the_variant(self):
+        self.assertEqual(video.spec("mp4", self.conf(encoder="auto", gpu="nvenc:1")),
+                         video.spec("mp4", self.conf(encoder="auto")))
+        self.assertNotEqual(video.spec("mp4", self.conf(encoder="qsv")), video.spec("mp4", self.conf(encoder="auto")))
+        self.assertEqual(video.spec("webm", CONF), "auto:webm:v1")
+        self.assertTrue(gpu.is_device_id("nvenc:0") and gpu.is_device_id("vaapi:renderD128"))
+        self.assertFalse(gpu.is_device_id("nvenc:0;rm") or gpu.is_device_id("cuda:0") or gpu.is_device_id(3))
+
+
+def hw_decoded(cmd):
+    return "-hwaccel" in cmd
+
+
+class TestGpuDecode(Base):
+    """video.gpu_decode: the GPU decodes too while GPU compute is on, with CPU decoding as the fallback."""
+
+    def conf(self, **kw):
+        return {"video": dict(video.VIDEO_DEFAULTS, **dict({"format": "mp4"}, **kw)), "tools": {}}
+
+    def nvenc(self, **kw):
+        fk = self.fake(encoders=ENC_NVENC, gpus=[("NVIDIA T1000 8GB", "597.16"), ("NVIDIA RTX A2000", "597.16")], **kw)
+        return fk, video.available(self.conf(encoder="auto"))
+
+    def test_nvenc_job_stays_on_the_gpu(self):
+        fk, a = self.nvenc()
+        video.plan(self.info(rotation=0), self.conf(encoder="auto"), a)          # round-robin: the next is nvenc:1
+        p = video.plan(self.info(rotation=0, w=1919), self.conf(encoder="auto"), a)
+        hw = p["hw_decode"]
+        self.assertEqual((hw["mode"], hw["device"], hw["src"]), ("gpu", "nvenc:1", "h264/yuv420p"))
+        self.assertEqual(hw["input_args"], ["-hwaccel", "cuda", "-hwaccel_device", "1", "-hwaccel_output_format", "cuda"])
+        self.assertNotIn("-pix_fmt", hw["video_args"])                    # CUDA frames: scale_cuda converts
+        self.assertEqual(hw["video_args"][-2:], ["-vf", "scale_cuda=trunc(iw/2)*2:trunc(ih/2)*2:format=yuv420p"])
+        self.assertEqual(hw["video_args"][:14], p["video_args"][:14])     # same encoder settings, -gpu 1 too
+        self.assertIn("scale=trunc(iw/2)*2:trunc(ih/2)*2", p["video_args"])   # the CPU-decoding fallback
+        dst = os.path.join(self.tmp, "out.mp4")
+        r = video.transcode(os.path.join(self.tmp, "in.mp4"), dst, p, self.conf(encoder="auto"))
+        self.assertIsNone(video.result_kind(r))
+        runs = [c for c in fk.calls if c["cmd"][-1].startswith("file:")]
+        self.assertEqual(len(runs), 1)
+        cmd = runs[0]["cmd"]
+        self.assertLess(cmd.index("-hwaccel"), cmd.index("-i"))
+        self.assertEqual(runs[0]["env"]["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")
+        self.assertEqual(p["decoded"], "gpu")
+        self.assertTrue(os.path.isfile(dst))
+
+    def test_build_without_scale_cuda_still_decodes_on_the_gpu(self):
+        # distro and minimal builds often have CUDA decoding but no scale_cuda (needs the CUDA compiler)
+        fk, a = self.nvenc(filters=NO_SCALE_CUDA)
+        self.assertFalse(a["zero_copy"])
+        p = video.plan(self.info(rotation=0), self.conf(encoder="auto"), a)
+        self.assertEqual(p["hw_decode"]["mode"], "gpu_copy")
+        self.assertNotIn("-hwaccel_output_format", p["hw_decode"]["input_args"])
+        self.assertEqual(p["hw_decode"]["video_args"], p["video_args"])
+        video.available(self.conf(encoder="auto"))
+        self.assertEqual(len([c for c in fk.calls if "-filters" in c["cmd"]]), 1)   # cached with the encoder list
+        _, a = self.nvenc(filters="")                                              # a build that lists nothing
+        self.assertEqual((a["codec"], a["zero_copy"]), ("h264_nvenc", False))
+
+    def test_rotated_source_comes_back_to_the_cpu_filters(self):
+        self.nvenc()
+        p = video.plan(self.info(rotation=-90), self.conf(encoder="auto"), video.available(self.conf(encoder="auto")))
+        hw = p["hw_decode"]
+        self.assertEqual(hw["mode"], "gpu_copy")                          # autorotate needs system-memory frames
+        self.assertEqual(hw["input_args"], ["-hwaccel", "cuda", "-hwaccel_device", "0"])
+        self.assertEqual(hw["video_args"], p["video_args"])
+        self.assertEqual(video.plan(self.info(rotation=180), self.conf(encoder="auto"),
+                                    video.available(self.conf(encoder="auto")))["hw_decode"]["mode"], "gpu_copy")
+
+    def test_only_while_gpu_compute_is_on(self):
+        self.nvenc()
+        self.assertIsNone(video.plan(self.info(rotation=0), self.conf(encoder="cpu"),
+                                     video.available(self.conf(encoder="cpu")))["hw_decode"])
+        off = self.conf(encoder="auto", gpu_decode=False)
+        p = video.plan(self.info(rotation=0), off, video.available(off))
+        self.assertEqual(p["codec"], "h264_nvenc")                        # still encoded on the GPU
+        self.assertIsNone(p["hw_decode"])
+        fk = self.fake()
+        p = video.plan(self.info(rotation=0), CONF, video.available(CONF))  # WebM on the CPU encoder: no GPU
+        self.assertIsNone(p["hw_decode"])
+        self.assertFalse([c for c in fk.calls if is_hw_test(c["cmd"])])
+        self.assertEqual(video.spec("mp4", off), video.spec("mp4", self.conf(encoder="auto")))   # not policy
+
+    def test_decoder_limit_falls_back_to_cpu_decoding_and_is_remembered(self):
+        av1_err = ("[av1 @ 0x1] Hardware is lacking required capabilities\n"
+                   "[av1 @ 0x1] Failed setup for format cuda: hwaccel initialisation returned error.\n")
+        fk, a = self.nvenc(fail=lambda cmd: Res(rc=69, err=av1_err) if hw_decoded(cmd) else None)
+        conf = self.conf(encoder="auto")
+        src = self.info(rotation=0, vcodec="mpeg4")
+        p = video.plan(src, conf, a)
+        dst = os.path.join(self.tmp, "out.mp4")
+        r = video.transcode(os.path.join(self.tmp, "in.mp4"), dst, p, conf)
+        self.assertIsNone(video.result_kind(r))                           # the job worked: no failed GPU
+        self.assertTrue(os.path.isfile(dst))
+        self.assertFalse(os.path.exists(dst + ".part"))
+        runs = [c["cmd"] for c in fk.calls if c["cmd"][-1].startswith("file:")]
+        self.assertEqual([hw_decoded(c) for c in runs], [True, False])
+        self.assertIn("h264_nvenc", runs[1])                              # same GPU encode, CPU decoding
+        self.assertEqual(p["decoded"], "cpu")
+        self.assertFalse(gpu.decode_ok(p["device"], "mpeg4/yuv420p", "gpu"))
+        # the same kind of source on that GPU is planned with CPU decoding; another codec or GPU still decodes there
+        again = [video.plan(src, conf, a) for _ in range(2)]
+        self.assertEqual([(q["device"], bool(q["hw_decode"])) for q in again],
+                         [("nvenc:1", True), ("nvenc:0", False)] if p["device"] == "nvenc:0" else
+                         [("nvenc:0", True), ("nvenc:1", False)])
+        self.assertTrue(video.plan(self.info(rotation=0), conf, a)["hw_decode"])
+        with mock.patch.object(gpu.time, "monotonic", return_value=gpu.time.monotonic() + gpu.NO_DECODE_S + 1):
+            self.assertTrue(gpu.decode_ok(p["device"], "mpeg4/yuv420p", "gpu"))   # tried again after an hour
+
+    def test_timeouts_and_real_failures(self):
+        fk, a = self.nvenc(fail=lambda cmd: Res(rc=1, timed_out=True, killed="timeout") if hw_decoded(cmd) else None)
+        conf = self.conf(encoder="auto")
+        p = video.plan(self.info(rotation=0), conf, a)
+        r = video.transcode(os.path.join(self.tmp, "in.mp4"), os.path.join(self.tmp, "o.mp4"), p, conf)
+        self.assertEqual(video.result_kind(r), "timeout")                 # not run a second time
+        self.assertEqual(len([c for c in fk.calls if c["cmd"][-1].startswith("file:")]), 1)
+        # both runs fail: the CPU-decoding result goes back to the worker (GPU failover), nothing is remembered
+        fk, a = self.nvenc(fail=lambda cmd: Res(rc=1, err="CUDA_ERROR_LAUNCH_FAILED"))
+        p = video.plan(self.info(rotation=0), conf, a)
+        r = video.transcode(os.path.join(self.tmp, "in.mp4"), os.path.join(self.tmp, "o.mp4"), p, conf)
+        self.assertEqual(video.result_kind(r), "encode_error")
+        self.assertEqual([hw_decoded(c["cmd"]) for c in fk.calls if c["cmd"][-1].startswith("file:")], [True, False])
+        self.assertTrue(gpu.decode_ok(p["device"], "h264/yuv420p", "gpu"))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "o.mp4.part")))
+
+    def test_webm_is_decoded_on_the_gpu_by_a_build_that_also_encodes_it(self):
+        def hw_err(cmd):
+            return DRIVER_TOO_OLD if cmd[0] == FFMPEG else ""
+        fk = self.fake(encoders=ENC_NVENC, builds={OLD_FFMPEG: ENC_NVENC}, hw_err=hw_err, gpus=[("T1000", "597")])
+        webm = self.conf(format="webm", encoder="auto")
+        a = video.available(webm)
+        self.assertEqual((a["codec"], [d["id"] for d in a["decode_devices"]], a["decode_ffmpeg"]),
+                         ("av1", ["nvenc:0"], OLD_FFMPEG))
+        p = video.plan(self.info(rotation=0), webm, a)
+        self.assertEqual((p["codec"], p["device"], p["ffmpeg"]), ("av1", None, None))   # CPU encode, default build
+        hw = p["hw_decode"]
+        self.assertEqual((hw["mode"], hw["ffmpeg"]), ("gpu_copy", OLD_FFMPEG))
+        self.assertEqual(hw["input_args"], ["-hwaccel", "cuda", "-hwaccel_device", "0"])
+        video.transcode(os.path.join(self.tmp, "in.mp4"), os.path.join(self.tmp, "o.webm"), p, webm)
+        self.assertEqual(fk.calls[-1]["cmd"][0], OLD_FFMPEG)
+        self.assertIn("libsvtav1", fk.calls[-1]["cmd"])
+        self.assertEqual(p["decoded"], "gpu_copy")
+        # the GPU's build lacks the software encoders: the job keeps the default build and the CPU decodes
+        self.fake(encoders=ENC_NVENC, builds={OLD_FFMPEG: ENC_HEAD + ENC_NVENC.split(ENC_HEAD)[1].replace(
+            " V....D libsvtav1", " V....D libaom-av1")}, hw_err=hw_err, gpus=[("T1000", "597")])
+        a = video.available(webm)
+        self.assertEqual((a["decode_devices"], a["decode_ffmpeg"]), ([], None))
+        self.assertIsNone(video.plan(self.info(rotation=0), webm, a)["hw_decode"])
+
+    def test_decode_arguments_per_backend(self):
+        nv = {"id": "nvenc:0", "backend": "nvenc", "index": 0}
+        self.assertEqual(gpu.decode_args(nv), ["-hwaccel", "cuda", "-hwaccel_device", "0"])
+        self.assertEqual(gpu.decode_args(dict(nv, index=None), True), ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+        va = {"id": "vaapi:renderD128", "backend": "vaapi", "path": "/dev/dri/renderD128"}
+        self.assertEqual(gpu.decode_args(va), ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128"])
+        with mock.patch.object(gpu, "WIN", True):
+            self.assertEqual(gpu.decode_args({"id": "qsv:0", "backend": "qsv"}), ["-hwaccel", "d3d11va"])
+            self.assertEqual(gpu.decode_args({"id": "amf:0", "backend": "amf"}), ["-hwaccel", "d3d11va"])
+        with mock.patch.object(gpu, "WIN", False):
+            self.assertEqual(gpu.decode_args({"id": "qsv:0", "backend": "qsv"}), [])
+        self.assertEqual(gpu.decode_args(None), [])
+        # a VAAPI encode decodes on its render node and keeps its own upload filters (frames come back first)
+        avail = {"codec": "h264_vaapi", "ok": True, "h264": True, "aac": True, "format": "mp4", "devices": [va]}
+        p = video.plan(self.info(rotation=0), self.conf(encoder="vaapi"), avail)
+        self.assertEqual(p["hw_decode"]["mode"], "gpu_copy")
+        cmd = video.command("ffmpeg", "/in.mp4", "/out.mp4", p, p["hw_decode"])
+        self.assertEqual(cmd[cmd.index("-vaapi_device"):cmd.index("-protocol_whitelist")],
+                         ["-vaapi_device", "/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128"])
 
 
 class TestProbe(Base):

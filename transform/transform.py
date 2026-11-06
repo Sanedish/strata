@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strata Transform - link modifiers for the CDN (reached only through Caddy's generated rules).
+"""Corium Transform - link modifiers for the CDN (reached only through Caddy's generated rules).
 
     pythonw transform.py --home <instance home>     (config: <home>/transform/transform.json, see instance.py)
 
@@ -12,7 +12,7 @@
     /_gate                  forward_auth target: checks ?exp=&sig= on signed links (HMAC-SHA256)
 
 Least privilege: reads drive folders (read-only use) and its own cache dir; knows no database, no users, no
-tokens except the signing secret. Config comes from transform.json, written by Strata whenever drives change.
+tokens except the signing secret. Config comes from transform.json, written by Corium whenever drives change.
 """
 import base64
 import hashlib
@@ -47,7 +47,7 @@ if os.path.isdir(_USER_SITE) and _USER_SITE not in sys.path:
     site.addsitedir(_USER_SITE)
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -88,7 +88,7 @@ _RX = {}
 
 
 def cpu_percent():
-    """Whole-machine CPU use over half a second, measured like Strata Media's breaker (None when unknown)."""
+    """Whole-machine CPU use over half a second, measured like Corium Media's breaker (None when unknown)."""
     try:
         from media.breaker import SystemSampler
     except Exception:
@@ -112,7 +112,7 @@ def housekeeping():
 
 
 def overrides(c, mount_id, url_path, is_dir):
-    """Link-preview rule settings for a URL (transform.json "previews", written by Strata): the matching rules merged
+    """Link-preview rule settings for a URL (transform.json "previews", written by Corium): the matching rules merged
     field by field, the most specific pattern last. Title, description and image only come from a pattern naming
     this exact file or folder; colour, card type and on / off also from wildcards (a folder's contents, a drive)."""
     path = urllib.parse.unquote(url_path)
@@ -355,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
         else, so it must never be stored at the edge; the card URL carries the file version and is cached for good."""
         import audiocard
         import cards
-        if self.headers.get("X-Strata-Warm") == "1":  # Strata drawing ahead of time: never on a busy machine
+        if self.headers.get("X-Strata-Warm") == "1":  # Corium drawing ahead of time: never on a busy machine
             cpu = cpu_percent()
             if cpu is not None and cpu > 70:
                 return self.plain(503, "busy, try later")
@@ -486,8 +486,10 @@ def diagnose():
 def main():
     diagnose()
     host, port = conf().get("listen", "127.0.0.1:8083").rsplit(":", 1)
-    srv = ThreadingHTTPServer((host, int(port)), Handler)
-    srv.daemon_threads = True
+    try:
+        srv = instance.ExclusiveHTTPServer((host, int(port)), Handler)
+    except OSError as e:   # a second copy (a task started twice) stops here instead of sharing the port
+        sys.exit("transform: can't listen on %s:%s (%s) - is it already running?" % (host, port, e))
     threading.Thread(target=housekeeping, daemon=True).start()
     print(time.strftime("%H:%M:%S"), "strata transform on http://%s:%s" % (host, port), flush=True)
     srv.serve_forever()

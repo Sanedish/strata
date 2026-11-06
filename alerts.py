@@ -1,7 +1,7 @@
 """Alerts: security + health events, stored in SQLite, shown in the UI, e-mailed once a mail provider is configured.
 
 Configure in strata.json (or Security › Alerts › Delivery):
-    "alerts": {"from": "Strata <alerts@yourdomain>", "to": ["you@..."],
+    "alerts": {"from": "Corium <alerts@yourdomain>", "to": ["you@..."],
                "smtp": {"host": "smtp.example.com", "port": 587, "security": "starttls", "user": "...", "password": "..."},
                "min_severity": "warning", "max_per_hour": 12, "digest": "daily", "digest_hour": 8}
 Mail goes out over SMTP when smtp.host is set (any provider or a self-hosted server), otherwise through the Resend API
@@ -10,7 +10,6 @@ the Alerts view.
 "webhooks": ["https://..."] also posts each batch to Discord, Slack, ntfy (by host name) or any other URL as JSON.
 """
 import collections
-import html
 import json
 import smtplib
 import ssl
@@ -24,6 +23,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
 import core
+import mailtpl
 from core import CFG, connect, get_meta, log, rows_of, set_meta
 
 SEV = {"info": 0, "warning": 1, "critical": 2}
@@ -84,7 +84,7 @@ def hook_kind(url):
 def post_hook(url, title, text, severity="warning"):
     """One webhook POST in the format its service expects. Raises on any failure."""
     kind = hook_kind(url)
-    headers = {"User-Agent": "Strata/1", "Content-Type": "application/json"}
+    headers = {"User-Agent": "Corium/1", "Content-Type": "application/json"}
     if kind == "ntfy":
         data = text.encode()
         headers.update({"Content-Type": "text/plain; charset=utf-8", "Title": title.encode("ascii", "replace").decode(),
@@ -223,7 +223,7 @@ class Alerts(threading.Thread):
         req = urllib.request.Request(RESEND, method="POST", data=json.dumps({
             "from": a["from"], "to": list(recipients or []), "subject": subject, "text": text, "html": body_html}).encode(),
             headers={"Authorization": "Bearer " + a["resend_api_key"], "Content-Type": "application/json",
-                     "User-Agent": "Strata/1"})
+                     "User-Agent": "Corium/1"})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
                 r.read()
@@ -268,14 +268,9 @@ class Alerts(threading.Thread):
                     with db:
                         db.executemany("UPDATE alert SET sent=2 WHERE id=?", [(r["id"],) for r in rows])
                 return
-            subject = ("[Strata] " + todo[0]["title"]) if len(todo) == 1 else "[Strata] %d alerts: %s" % (len(todo), todo[0]["title"])
-            text = "\n\n".join("%s  [%s] %s\n%s" % (time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])),
-                                                    r["severity"].upper(), r["title"], r["detail"]) for r in todo)
-            body = "".join("<p><b>[%s] %s</b><br><small>%s</small><br>%s</p>" % (
-                html.escape(r["severity"].upper()), html.escape(r["title"]),
-                time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])), html.escape(r["detail"])) for r in todo)
+            m = mailtpl.build("alert", mailtpl.alert_vars(todo))
             top = max((r["severity"] for r in todo), key=lambda v: SEV.get(v, 0))
-            self.notify(subject, text, "<div style='font-family:sans-serif'>%s</div>" % body, top)
+            self.notify(m["subject"], m["text"], m["html"], top)
             with db:
                 db.executemany("UPDATE alert SET sent=1 WHERE id=?", [(r["id"],) for r in rows])
         except Exception as e:
@@ -304,15 +299,20 @@ class Alerts(threading.Thread):
                 set_meta(db, "digest_sent", time.time())
         finally:
             db.close()
-        lines = ["Requests: %d" % t["reqs"], "Data served: %.2f GB" % (t["bytes"] / 2 ** 30), "Visitors: %d" % t["uniq"],
-                 "Errors: %d 4xx, %d 5xx" % (t["e4"], t["e5"]), "Probe requests: %d" % t["scans"],
-                 "Suspicious requests (not in the error counts): %d from %d addresses" % (t["sus"], t["sus_ips"]),
-                 "New blacklist entries: %d" % bans,
-                 "Alerts: " + (", ".join("%d %s" % (n, s) for s, n in al) or "none")]
+        n = lambda v: "{:,}".format(int(v or 0))
+        alerts_ = ", ".join("%d %s" % (c, s) for s, c in al) or "none"
+        figures = {"requests": n(t["reqs"]), "data_served": "%.2f GB" % ((t["bytes"] or 0) / 2 ** 30), "visitors": n(t["uniq"]),
+                   "errors_4xx": n(t["e4"]), "errors_5xx": n(t["e5"]), "probes": n(t["scans"]), "suspicious": n(t["sus"]),
+                   "suspicious_ips": n(t["sus_ips"]), "bans": n(bans), "alerts": alerts_}
+        lines = [("Requests", figures["requests"]), ("Data served", figures["data_served"]), ("Visitors", figures["visitors"]),
+                 ("Errors", "%s 4xx, %s 5xx" % (figures["errors_4xx"], figures["errors_5xx"])), ("Probe requests", figures["probes"]),
+                 ("Suspicious requests (not in the error counts)", "%s from %s addresses" % (figures["suspicious"], figures["suspicious_ips"])),
+                 ("New blacklist entries", figures["bans"]), ("Alerts", alerts_)]
+        weekly = span > 86400
         try:
-            self.notify("[Strata] %s report" % ("Weekly" if span > 86400 else "Daily"), "\n".join(lines),
-                        "<div style='font-family:sans-serif'><h3>Strata %s report</h3><p>%s</p></div>" % (
-                            "weekly" if span > 86400 else "daily", "<br>".join(html.escape(l) for l in lines)), "info")
+            m = mailtpl.build("digest", dict(figures, period="Weekly" if weekly else "Daily", span="week" if weekly else "day",
+                                             **mailtpl.stats_vars(lines)))
+            self.notify(m["subject"], m["text"], m["html"], "info")
         except Exception as e:
             log("digest failed: %s" % e)
 

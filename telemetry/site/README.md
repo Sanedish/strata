@@ -1,4 +1,4 @@
-# Strata Telemetry site: source, build, deploy
+# Corium Telemetry site: source, build, deploy
 
 ```
 telemetry.py        the service (127.0.0.1:8082): serves ../static, sets every security header (SECURITY_HEADERS)
@@ -22,7 +22,7 @@ is refused by the browser; always edit `site/src` and deploy. Every deploy first
 Downtime is the few seconds the service needs to restart.
 
 To roll back by hand: copy `telemetry.py` and `static\` from a backup folder over the live ones, then
-`Stop-ScheduledTask "Strata Telemetry"; Start-ScheduledTask "Strata Telemetry"`.
+`Stop-ScheduledTask "Strata Telemetry"; Start-ScheduledTask "Strata Telemetry"` (the task keeps its old name).
 
 ## Why it looks like this
 

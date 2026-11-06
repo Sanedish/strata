@@ -1,4 +1,4 @@
-"""Strata gate: the login in front of proxied services (proxy drives with access = "login").
+"""Corium gate: the login in front of proxied services (proxy drives with access = "login").
 
 rules.render_service() puts this inside the drive's own `handle` block, before its reverse_proxy:
     <prefix>/__strata_gate/*  -> this server (login form, logout)
@@ -27,10 +27,11 @@ import threading
 import time
 import traceback
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import auth
 import core
+import instance
 from core import CFG, log
 
 PATH = "/__strata_gate"
@@ -146,7 +147,7 @@ button{width:100%%;margin-top:18px;padding:11px;border:0;border-radius:9px;backg
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Strata"
+    server_version = "Corium"
     sys_version = ""
     protocol_version = "HTTP/1.1"
     timeout = 20
@@ -360,8 +361,8 @@ class Handler(BaseHTTPRequestHandler):
                              ("Set-Cookie", set_cookie(csrf_cookie(m["id"]), "", 0, "Strict"))])
 
 
-class Server(ThreadingHTTPServer):
-    daemon_threads = True
+class Server(instance.ExclusiveHTTPServer):
+    pass
 
 
 def start():
@@ -369,7 +370,12 @@ def start():
     if host not in ("127.0.0.1", "localhost", "[::1]"):
         log("gate: refusing to listen on %s - loopback only" % CFG["gate_listen"])
         return None
-    srv = Server((host.strip("[]"), int(port)), Handler)
+    try:
+        srv = Server((host.strip("[]"), int(port)), Handler)
+    except OSError as e:   # Caddy's forward_auth fails closed (502) without it; the admin UI keeps running
+        log("gate: can't listen on %s (%s) - is another program or a second copy of this instance using it?"
+            % (CFG["gate_listen"], e))
+        return None
     threading.Thread(target=srv.serve_forever, name="gate", daemon=True).start()
     log("gate: login for proxied services on %s" % CFG["gate_listen"])
     return srv

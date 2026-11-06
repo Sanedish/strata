@@ -74,7 +74,7 @@ def _ui(w, h, mode="RGB"):
     d = ImageDraw.Draw(im)
     for y in range(0, h, 40):
         d.rectangle([20, y + 5, w - 20, y + 30], fill=((y * 7) % 255, 120, 200))
-        d.text((30, y + 10), "Strata media %d" % y, fill=(0, 0, 0))
+        d.text((30, y + 10), "Corium media %d" % y, fill=(0, 0, 0))
     return im
 
 

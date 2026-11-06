@@ -667,6 +667,57 @@ class TestVideoJobs(Base):
         self.assertEqual(self.job(jid)["state"], "done")
         self.assertEqual(self.job(jid)["result"]["codec"], "h264")
 
+    def test_failed_gpu_job_moves_to_the_next_gpu(self):
+        self.conf["video"].update(format="mp4", encoder="nvenc")
+        full = self.put("/two.mp4", b"\0" * 4096)
+        jid = self.enqueue("video", "/two.mp4")
+        w = self.make_worker()
+        devices = []
+        g0 = {"id": "nvenc:0", "backend": "nvenc", "index": 0, "name": "A", "ok": True}
+        g1 = {"id": "nvenc:1", "backend": "nvenc", "index": 1, "name": "B", "ok": True}
+
+        def tc(src, dst, plan, conf):
+            devices.append(plan["device"])
+            if plan["device"] == "nvenc:0":
+                return sresult(1, err="CUDA_ERROR_LAUNCH_FAILED")
+            with open(dst, "wb") as f:
+                f.write(b"\0\0\0\x18ftypisom" + b"\0" * 988)
+            return sresult(0)
+
+        avail = dict(VIDEO_OK, codec="h264_nvenc", h264=True, h264_nvenc=True, aac=True, devices=[g0, g1])
+        benched = []
+        with mock.patch.object(video, "available", return_value=avail), \
+                mock.patch.object(video, "probe", return_value=video_info(full, 4096)), \
+                mock.patch.object(video, "bench", side_effect=lambda d, e="": benched.append((d, e))), \
+                mock.patch.object(video.gpu, "pick", side_effect=lambda devs: devs[0] if devs else None), \
+                mock.patch.object(video, "transcode", side_effect=tc):
+            self.step(w, "encode")
+        self.assertEqual(devices, ["nvenc:0", "nvenc:1"])
+        self.assertEqual(benched, [("nvenc:0", "CUDA_ERROR_LAUNCH_FAILED")])
+        res = self.job(jid)["result"]
+        self.assertEqual((self.job(jid)["state"], res["codec"], res["device"]), ("done", "h264_nvenc", "nvenc:1"))
+
+    def test_explicit_gpu_without_a_working_device_fails_retryably(self):
+        self.conf["video"].update(format="mp4", encoder="nvenc")
+        full = self.put("/one.mp4", b"\0" * 4096)
+        jid = self.enqueue("video", "/one.mp4")
+        w = self.make_worker()
+        g0 = {"id": "nvenc:0", "backend": "nvenc", "index": 0, "name": "A", "ok": True}
+        avail = dict(VIDEO_OK, codec="h264_nvenc", h264=True, h264_nvenc=True, aac=True, devices=[g0])
+        calls = []
+
+        def tc(src, dst, plan, conf):
+            calls.append(plan["codec"])
+            return sresult(1, err="GPU gone")
+        with mock.patch.object(video, "available", return_value=avail), \
+                mock.patch.object(video, "probe", return_value=video_info(full, 4096)), \
+                mock.patch.object(video, "bench"), mock.patch.object(video, "transcode", side_effect=tc):
+            self.step(w, "encode")
+        self.assertEqual(calls, ["h264_nvenc"])          # NVENC was asked for: no silent CPU encode
+        self.assertNotEqual(self.job(jid)["state"], "done")
+        # a hardware failure never records "original only", so the job can succeed once the GPU is back
+        self.assertIsNone(self.db.variant(self.key(w, "/one.mp4", video.spec("mp4", self.conf))))
+
     def test_not_beneficial_and_skipped_sources(self):
         full = self.put("/clip.mp4", b"\0" * 4096)
         self.enqueue("video", "/clip.mp4")

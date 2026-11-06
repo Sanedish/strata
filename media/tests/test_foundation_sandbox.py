@@ -268,6 +268,25 @@ class WhichTest(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_candidates_lists_every_install_once(self):
+        d = tempfile.mkdtemp(prefix="sbx-")
+        try:
+            exe = "ffmpeg.exe" if WIN else "ffmpeg"
+            a, b = os.path.join(d, "new", exe), os.path.join(d, "old", exe)
+            for p in (a, b):
+                os.makedirs(os.path.dirname(p))
+                with open(p, "wb") as f:
+                    f.write(b"MZ")
+            from unittest import mock
+            with mock.patch.object(sandbox.shutil, "which", lambda name: a), \
+                    mock.patch.object(sandbox, "_known_paths", lambda name: [a, b, os.path.join(d, "none", exe)]):
+                self.assertEqual(sandbox.candidates("ffmpeg", {}), [a, b])          # PATH first, no duplicates
+                self.assertEqual(sandbox.candidates("ffmpeg", {"tools": {"ffmpeg": b}}), [b])   # configured: only it
+                self.assertEqual(sandbox.candidates("ffmpeg", {"tools": {"ffmpeg": os.path.join(d, "x.exe")}}), [])
+                self.assertEqual(sandbox.candidates("not-a-tool", {}), [])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
 
 class SafeJoinTest(unittest.TestCase):
     def setUp(self):

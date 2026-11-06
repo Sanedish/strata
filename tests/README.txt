@@ -13,7 +13,7 @@ The suites, in the order run_all.py runs them:
   smtp_test.py          SMTP mail delivery against a recorder (no mail server needed)
   sec_regress.py        takeover paths, zones, SSRF, CSRF, headers
   audit_test.py         isolated upload, request-framing, storage-link, credential-race and log-ingestion regressions
-  audit_nov_test.py     November 2026 audit: Caddy placeholders, tunnel routes, sign-in limiter,
+  audit_nov_test.py     November 2026 audit: Caddy placeholders, tunnel routes, CORS principal, sign-in limiter,
                         trash metadata, disk-root drives, tar preview cards, hot folders, sign-in code mail budget
   caddy_test.py         the generated Caddy config through a real `caddy validate` (skipped without Caddy)
   anubis_test.py        bot protection: config off/on, policy and key files, settings checks, the download (fake archives),
@@ -24,7 +24,7 @@ The suites, in the order run_all.py runs them:
   office_regress.py     the Team view: directory privacy, presence, notes, the Moderator flag, delegation
   login_test.py         the /login password step and where it sends each account next
   ssrf_test.py          remote upload: public HTTPS works, LAN and loopback are refused
-  media/tests/          unit tests for Strata Media (python -m unittest)
+  media/tests/          unit tests for Corium Media (python -m unittest)
 
 anubis_demo.py is not a suite: a small site behind a real Caddy and a real Anubis, to open in a browser (see its docstring).
 browser_smoke.mjs checks every accessible demo view at desktop and phone sizes, keyboard focus, upload cancellation

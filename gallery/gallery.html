@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>{{html .Name}}</title>
-<!-- Strata gallery: Caddy file_server browse template (gallery/gallery.html), enabled per folder by
+<!-- Corium gallery: Caddy file_server browse template (gallery/gallery.html), enabled per folder by
      a "Gallery view" access rule. Caddy fills in the listing below; everything else is client-side. Thumbnails use
-     ?w= (Strata Media picks AVIF/WebP by Accept) + _wait=1 (busy -> 503 and a retry, never the original);
+     ?w= (Corium Media picks AVIF/WebP by Accept) + _wait=1 (busy -> 503 and a retry, never the original);
      variants are edge-cached, the listing itself never is. -->
 <style>
 :root {
@@ -126,7 +126,7 @@ body.fit .t img, body.fit .t video { object-fit: contain; }
 <script>
 (function () {
   'use strict';
-  var IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|avif)$/i;      // what Strata's link modifiers can resize
+  var IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|avif)$/i;      // what Corium's link modifiers can resize
   var VID = /\.(mp4|webm|m4v|mov|ogv)$/i;
   var HIDDEN = /^(\.|\$|~\$)|^(thumbs\.db|desktop\.ini|system volume information)$/i;
   var THUMB = '?w=640&_wait=1';

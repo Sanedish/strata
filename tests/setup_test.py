@@ -48,7 +48,7 @@ def check(name, cond, detail=""):
 
 
 def config(home):
-    """strata.json with the secrets of data/.env put back, as Strata reads it - and strata.json itself must hold none."""
+    """strata.json with the secrets of data/.env put back, as Corium reads it - and strata.json itself must hold none."""
     sys.path.insert(0, ra.CODE)
     import instance  # here, after the test home exists: it resolves STRATA_HOME when first imported
     with open(os.path.join(home, "strata.json"), encoding="utf-8") as f:

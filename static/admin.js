@@ -1,5 +1,5 @@
 'use strict';
-/* Strata administration views: system health, log explorer, source IDE and staff access control. */
+/* Corium administration views: system health, log explorer, source IDE and staff access control. */
 (() => {
   const A = D.admin = {
     system: null, logs: null, logSource: 'runtime', logSearch: '', logUser: '', logAction: '', logBefore: null,
@@ -28,7 +28,7 @@
     const counts = Object.entries(c).map(([k, v]) => `<div class="sys-count"><span>${esc(k.replaceAll('_', ' '))}</span><b>${fmt.n(v)}</b></div>`).join('');
     const big = (k, v, sub, title) => `<div${title ? ` title="${esc(title)}"` : ''}><div class="cap">${esc(k)}</div><div class="val">${esc(v)}</div><div class="small dim ell">${esc(sub)}</div></div>`;
     return `<div class="sys-page">
-      <div class="tbar"><span class="small dim">${esc(s.instance?.name || 'Strata')} · PID ${esc(s.pid)} · Python ${esc(s.python)}</span><div class="grow"></div><button class="pill" data-act="sysRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>
+      <div class="tbar"><span class="small dim">${esc(s.instance?.name || 'Corium')} · PID ${esc(s.pid)} · Python ${esc(s.python)}</span><div class="grow"></div><button class="pill" data-act="sysRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>
       <div class="kpis">${big('Database', fmt.bytes(s.db?.size), fmt.n(s.db?.rows) + ' requests')}${big('Running', fmt.dur(Date.now() / 1000 - s.started), 'since the last start')}${big('Runtime log', fmt.bytes(r.bytes), r.path ? r.path.split(/[\\/]/).pop() : 'not created yet', r.path)}</div>
       <div class="sys-grid"><section class="panel sys-panel"><div class="ph"><h5>${icon('activity')} Service health</h5><span class="small dim">local listeners</span></div><div class="sys-services">${services || '<div class="empty">No local services are configured.</div>'}</div></section>
         <section class="panel sys-panel"><div class="ph"><h5>${icon('database')} Stored records</h5><span class="small dim">live table counts</span></div><div class="sys-counts">${counts}</div></section>
@@ -52,7 +52,7 @@
     const L = D.live || {}, c = L.caddy || {}, t = L.tunnel || {}, cs = L.compress || {};
     return `<section class="panel sys-panel"><div class="ph"><h5>${icon('server')} Versions</h5><span class="small dim">this instance</span></div>
       <div class="kv" style="padding:4px 0 0">
-        <span>Strata</span><span>${esc(INST.version || '—')}${INST.update ? `, <a href="${esc(INST.update.url)}" target="_blank" rel="noopener">${esc(INST.update.tag)} available</a>` : ''}</span>
+        <span>Corium</span><span>${esc(INST.version || '—')}${INST.update ? `, <a href="${esc(INST.update.url)}" target="_blank" rel="noopener">${esc(INST.update.tag)} available</a>` : ''}</span>
         <span>Site</span><span>${esc(INST.name || '—')}, instance ${esc(INST.id || '—')}</span>
         <span>Caddy</span><span>${esc(c.version || '—')}, ${c.up ? 'up ' + esc(fmt.dur(c.uptime)) : 'unreachable'}</span>
         <span>cloudflared</span><span>${esc(t.version || '—')}, ${t.up ? t.ha + '/4 links, up ' + esc(fmt.dur(t.uptime)) : 'unreachable'}</span>
@@ -102,7 +102,7 @@
     if (A.logError) body = `<div class="empty">${esc(A.logError)}</div>`;
     else if (!source) body = loading('Loading ' + A.logSource + ' log…');
     else if (A.logSource === 'runtime') {
-      meta = `${source.path || 'Strata process log'} · newest ${fmt.n(source.lines?.length)} lines${source.truncated ? ' · older rotated lines omitted' : ''}`;
+      meta = `${source.path || 'Corium process log'} · newest ${fmt.n(source.lines?.length)} lines${source.truncated ? ' · older rotated lines omitted' : ''}`;
       body = `<pre class="runtime-log">${(source.lines || []).map(esc).join('\n') || 'No process log lines match this filter.'}</pre>`;
     } else if (A.logSource === 'activity') {
       meta = `Append-only · ${fmt.n(source.rows?.length)} shown${source.append_only ? ' · deletion disabled' : ''}`;
@@ -202,8 +202,8 @@
 
   function permissionSection(sel) {
     if (sel.role === 'root') {
-      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>Owner</h5></div></div>
-        <p class="acct-note">The owner can do everything, including what no other account can be given: managing accounts, editing Strata’s code and the sign-in e-mail sender.</p></section>`;
+      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Role &amp; permissions</div><h5>${icon('user')}Owner</h5></div></div>
+        <p class="acct-note">The owner can do everything, including what no other account can be given: managing accounts, editing Corium’s code and the sign-in e-mail sender.</p></section>`;
     }
     const d = draftFor(sel), dirty = draftDirty(sel), isAdmin = d.preset === 'admin';
     const perms = A.accounts.permissions || [], groups = A.accounts.groups || {};
@@ -233,7 +233,7 @@
 
   function zoneSection(sel) {
     if (sel.role === 'root' || sel.role === 'admin') {
-      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Storage access</div><h5>All drives</h5></div></div><p class="acct-note">${sel.role === 'root' ? 'The owner' : 'Administrators'} can reach every drive. Storage zones only limit members.</p></section>`;
+      return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Storage access</div><h5>${icon('hard-drive')}All drives</h5></div></div><p class="acct-note">${sel.role === 'root' ? 'The owner' : 'Administrators'} can reach every drive. Storage zones only limit members.</p></section>`;
     }
     const drives = fileDrives();
     const driveName = (m) => drives.find((x) => String(x.mount) === String(m))?.name || 'Drive ' + m;
@@ -266,7 +266,7 @@
 
   function limitsSection(sel) {
     if (sel.role === 'root') return '';
-    return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Sign-in limits</div><h5>When and from where</h5></div></div>
+    return `<section class="panel acct-sec"><div class="acct-sec-head"><div><div class="cap">Sign-in limits</div><h5>${icon('clock')}When and from where</h5></div></div>
       <div class="limits-grid">
         <label>Access until<input class="input" type="date" id="lim-exp" value="${esc(dateIn(sel.expires))}"><small>Sign-in ends after this day. Empty: no end.</small></label>
         <label>Longest session (hours)<input class="input" type="number" min="0.25" max="2160" step="0.25" id="lim-hours" value="${esc(sel.session_hours ?? '')}" placeholder="instance default"><small>Counted from sign-in.</small></label>
@@ -279,7 +279,7 @@
   function createSection() {
     if (!A.createOpen) return '';
     const drives = fileDrives();
-    return `<section class="panel acct-sec acct-create" aria-label="Create account"><div class="acct-sec-head"><div><div class="cap">New account</div><h5>Create an account</h5></div>${btn('accountCreateToggle', 'Close', { icon: 'x' })}</div>
+    return `<section class="panel acct-sec acct-create" aria-label="Create account"><div class="acct-sec-head"><div><div class="cap">New account</div><h5>${icon('user-plus')}Create an account</h5></div>${btn('accountCreateToggle', 'Close', { icon: 'x' })}</div>
       <p class="acct-note">They set their password with a link that works once, for 24 hours. Sign-in codes go to their e-mail.</p>
       <div class="create-grid">
         <label>Username<input id="invite-user" class="input" autocomplete="off" spellcheck="false" maxlength="60" placeholder="e.g. alex" value="${esc(A.createUser || '')}"><small>2–60 letters, digits, dot, dash, underscore</small></label>
@@ -403,8 +403,8 @@
     if (A.ide.editor) rememberIdeDraft();
     const write = has('code.write'), path = A.ide.path;
     const state = A.ide.error ? `<div class="empty">${esc(A.ide.error)}</div>` : !A.ide.tree ? loading('Indexing source files…') : treeMarkup() || '<div class="empty">No source files are in the IDE scope.</div>';
-    const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Edit Strata’s own source files.</p><p>${write ? 'Every save keeps a backup first.' : 'This account can only read the source.'}</p></div>`;
-    return `<div class="admin-page ide-page"><div class="tbar"><span class="small dim">Source changes apply to every Strata instance using this shared code folder.</span><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
+    const editor = A.ide.loading ? loading('Opening source file…') : path ? `<div class="ide-filebar"><div><b>${esc(path)}</b><small>${esc(A.ide.mode || 'text')} · ${write ? 'editable' : 'read only'}</small></div><span id="ide-state" class="ide-state"></span><button id="ide-save" class="btn btn-primary" data-act="ideSave" ${write ? '' : 'disabled'}>${icon('save', 'sm')} Save <kbd>Ctrl S</kbd></button><button class="btn btn-secondary" data-act="ideReload">Reload</button></div><div id="ide-editor" class="ide-editor-host"></div>` : `<div class="ide-welcome">${icon('code', 'xl')}<h4>Select a source file</h4><p>Edit Corium’s own source files.</p><p>${write ? 'Every save keeps a backup first.' : 'This account can only read the source.'}</p></div>`;
+    return `<div class="admin-page ide-page"><div class="tbar"><span class="small dim">Source changes apply to every Corium instance using this shared code folder.</span><div class="ide-head-actions"><button class="btn btn-secondary" data-act="ideRefresh">${icon('refresh-cw', 'sm')} Refresh tree</button>${write ? '<span class="admin-callout inline">Write access is local-network-only</span>' : ''}</div></div>
       <div class="ide-workspace"><aside class="ide-sidebar"><div class="ide-tree-head">${icon('folder-tree', 'sm')} Source files</div><input class="input" id="ide-search" placeholder="Filter files…" value="${esc(A.ide.search)}"><div class="ide-tree">${state}</div></aside><section class="ide-main">${editor}</section></div></div>`;
   }
 
@@ -451,14 +451,14 @@
       const file = el.files && el.files[0];
       if (!file) return;
       const ok = await ask({ kicker: 'Restore backup', title: 'Replace this instance’s data with ' + file.name + '?', danger: true, ok: 'Restore',
-        text: 'Accounts, drives, rules, links and statistics are replaced, and the settings in the backup are applied. Keys and passwords on this machine stay. Restart Strata afterwards.' });
+        text: 'Accounts, drives, rules, links and statistics are replaced, and the settings in the backup are applied. Keys and passwords on this machine stay. Restart Corium afterwards.' });
       if (!ok) { el.value = ''; return; }
       A.restoreBusy = true; render(true);
       try {
         const r = await fetch('/api/backup/restore', { method: 'POST', body: file, credentials: 'same-origin', headers: { 'X-Strata': '1', 'Content-Type': 'application/zip' } });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || 'Restore failed (' + r.status + ')');
-        note('Backup restored. Restart Strata to finish.');
+        note('Backup restored. Restart Corium to finish.');
       } catch (e) { note('Couldn’t restore: ' + e.message, { err: true }); } finally { A.restoreBusy = false; el.value = ''; render(true); }
     },
     async sysOptimize() {

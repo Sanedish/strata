@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strata setup: installs Strata on this machine and registers it as a background service.
+"""Corium setup: installs Corium on this machine and registers it as a background service.
 
     python setup.py                 interactive setup; asks before it changes anything, safe to run again
     python setup.py --home <dir>    set up another site in its own instance folder
@@ -9,7 +9,7 @@
     python setup.py --uninstall     remove the service (configuration and data stay)
 
 Steps: Python packages into vendor/, the site (domain, files folder, ports), Caddy (Caddyfile backup + import of the
-config Strata renders), the Cloudflare Tunnel (config backup + ingress rule for the CDN host), API keys and the owner
+config Corium renders), the Cloudflare Tunnel (config backup + ingress rule for the CDN host), API keys and the owner
 account, strata.json (backup first) and data/.env (every secret), then the service: a Task Scheduler task on Windows, a systemd unit on Linux.
 Standard library only, so it runs before anything is installed.
 """
@@ -238,7 +238,8 @@ def service_exists(name):
 
 
 def service_names(home, iid):
-    """(Strata service, tunnel service) names: plain for the instance in the code folder, suffixed for the others."""
+    """(Corium service, tunnel service) names: plain for the instance in the code folder, suffixed for the others.
+    They keep the old name: installs find, restart and remove their tasks by it (docs/RENAMING.md)."""
     default = os.path.normcase(home) == os.path.normcase(CODE) or not iid
     if WIN:
         return "Strata" if default else "Strata %s" % iid, "Strata Tunnel" if default else "Strata Tunnel %s" % iid
@@ -286,7 +287,7 @@ def step_packages():
         return
     say("  packages to install or update: %s" % ", ".join(missing))
     if not yes("Install or update them in %s with pip?" % vendor):
-        say("  skipped. Strata runs without them, but loses Brotli, image previews and 2FA QR codes.")
+        say("  skipped. Corium runs without them, but loses Brotli, image previews and 2FA QR codes.")
         return
     if run([sys.executable, "-m", "pip", "--version"])[0] != 0:
         run([sys.executable, "-m", "ensurepip", "--upgrade"], capture=False)
@@ -346,10 +347,10 @@ def step_caddy(cfg, raw, home, given=""):
     default_cf = raw.get("caddyfile") or (os.path.join(os.path.dirname(exe), "Caddyfile") if WIN else "/etc/caddy/Caddyfile")
     for _ in range(3):
         caddyfile = os.path.abspath(ask("Caddyfile", default_cf))
-        # a new Caddyfile never belongs in Strata's code folder: that is a stray answer (a relative "n" lands there)
+        # a new Caddyfile never belongs in Corium's code folder: that is a stray answer (a relative "n" lands there)
         if os.path.exists(caddyfile) or not os.path.normcase(caddyfile).startswith(os.path.normcase(CODE) + os.sep):
             break
-        say("  %s would be a new file in Strata's code folder. Give the Caddyfile Caddy uses, e.g. %s" % (caddyfile, default_cf))
+        say("  %s would be a new file in Corium's code folder. Give the Caddyfile Caddy uses, e.g. %s" % (caddyfile, default_cf))
     else:
         sys.exit("  No usable Caddyfile path given.")
     text = open(caddyfile, encoding="utf-8-sig").read() if os.path.exists(caddyfile) else ""
@@ -358,16 +359,16 @@ def step_caddy(cfg, raw, home, given=""):
     gen = os.path.join(home, "generated", "cdn.caddy")
     import_line = "import " + gen.replace("\\", "/")  # the exact line rules.py looks for
     if not os.path.exists(gen):
-        write(gen, "# Placeholder written by setup.py. Strata replaces it with the CDN site within a minute of starting.\n")
+        write(gen, "# Placeholder written by setup.py. Corium replaces it with the CDN site within a minute of starting.\n")
 
     if import_line in text:
-        say("  the Caddyfile already imports Strata's config")
+        say("  the Caddyfile already imports Corium's config")
         new = text
     else:
-        new = text or "# Caddyfile written by Strata setup on %s\n{\n\tadmin localhost:2019\n}\n" % time.strftime("%Y-%m-%d")
+        new = text or "# Caddyfile written by Corium setup on %s\n{\n\tadmin localhost:2019\n}\n" % time.strftime("%Y-%m-%d")
         if yes("Let other devices on your network open the dashboard on port %d?" % ports["lan"], False):
-            new += "\n# Strata dashboard for your local network\n:%d {\n\treverse_proxy 127.0.0.1:%d\n}\n" % (ports["lan"], ports["listen"])
-        new += "\n# CDN site on :%d, rendered by Strata from its database (Strata > Serving)\n%s\n" % (ports["cdn"], import_line)
+            new += "\n# Corium dashboard for your local network\n:%d {\n\treverse_proxy 127.0.0.1:%d\n}\n" % (ports["lan"], ports["listen"])
+        new += "\n# CDN site on :%d, rendered by Corium from its database (Corium > Serving)\n%s\n" % (ports["cdn"], import_line)
     if new != text:
         if text:
             say("  backup: %s" % backup(caddyfile))
@@ -403,7 +404,7 @@ def step_caddy_running(cfg, service):
         return say("  Caddy is not running. Start it with: %s run --config \"%s\"" % (exe, caddyfile))
     say("  Caddy is not running.")
     if WIN and yes("Start Caddy at boot (Task Scheduler task \"Caddy\")?"):
-        install_task("Caddy", "Caddy web server (installed by Strata setup)", exe,
+        install_task("Caddy", "Caddy web server (installed by Corium setup)", exe,
                      'run --config "%s" --adapter caddyfile' % caddyfile, os.path.dirname(caddyfile))
         say("  task \"Caddy\" registered and started")
     elif not WIN:
@@ -502,16 +503,16 @@ def step_tunnel(cfg, raw, service):
         name = service_names(cfg["_home"], cfg["update"]["instance"]["id"])[1]
         args = 'tunnel --config "%s" run' % path
         if WIN:
-            install_task(name, "Cloudflare Tunnel for Strata", exe, args, os.path.dirname(path))
+            install_task(name, "Cloudflare Tunnel for Corium", exe, args, os.path.dirname(path))
             merge(cfg["update"], {"instance": {"tunnel_restart": {"kind": "task", "name": name}}})
         else:
-            install_unit(name, "Cloudflare Tunnel for Strata", '%s %s' % (exe, args), os.path.dirname(path))
+            install_unit(name, "Cloudflare Tunnel for Corium", '%s %s' % (exe, args), os.path.dirname(path))
         say("  %s registered and started" % name)
 
 
 def step_tokens(cfg, raw):
     cf = raw.get("cloudflare") or {}
-    say("  Cloudflare API token: lets Strata manage DNS, purge the cache and block addresses at the edge.")
+    say("  Cloudflare API token: lets Corium manage DNS, purge the cache and block addresses at the edge.")
     say("  Create one at https://dash.cloudflare.com/profile/api-tokens with: " + ", ".join(CF_PERMISSIONS))
     token = secret("Cloudflare API token (Enter to %s)" % ("keep the current one" if cf.get("api_token") else "skip"))
     if token:
@@ -649,21 +650,21 @@ def step_service(cfg, raw):
     home = cfg["_home"]
     if WIN:
         pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-        install_task(name, "Strata dashboard for %s" % raw["instance"]["name"], pyw if os.path.exists(pyw) else sys.executable,
+        install_task(name, "Corium dashboard for %s" % raw["instance"]["name"], pyw if os.path.exists(pyw) else sys.executable,
                      '"%s" --home "%s"' % (script, home), CODE)
         say("  Task Scheduler task \"%s\" registered (starts at boot, runs as SYSTEM) and started" % name)
     else:
-        install_unit(name, "Strata dashboard for %s" % raw["instance"]["name"],
+        install_unit(name, "Corium dashboard for %s" % raw["instance"]["name"],
                      '%s %s --home %s' % (sys.executable, script, home), CODE, "network-online.target caddy.service")
         say("  systemd unit %s enabled and started" % name)
     url = "http://%s/login" % raw["listen"]
     for _ in range(40):
         st, _ = http_get(url, timeout=3)
         if st == 200:
-            say("  Strata answers on http://%s" % raw["listen"])
+            say("  Corium answers on http://%s" % raw["listen"])
             return True
         time.sleep(1)
-    say("  Strata did not answer within 40 seconds. Its log: %s" % os.path.join(home, "data", "strata.log"))
+    say("  Corium did not answer within 40 seconds. Its log: %s" % os.path.join(home, "data", "strata.log"))
     return False
 
 
@@ -714,7 +715,7 @@ def uninstall(home):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install Strata on this machine.")
+    ap = argparse.ArgumentParser(description="Install Corium on this machine.")
     ap.add_argument("--home", default=CODE, help="instance folder (default: this folder)")
     ap.add_argument("--check", action="store_true", help="report the current state and exit")
     ap.add_argument("--no-service", action="store_true", help="don't register or start the background service")
@@ -726,7 +727,7 @@ def main():
     if a.check:
         return check(home)
     if sys.version_info < (3, 10):
-        sys.exit("Strata needs Python 3.10 or newer (this is %s)" % sys.version.split()[0])
+        sys.exit("Corium needs Python 3.10 or newer (this is %s)" % sys.version.split()[0])
     if not a.no_service and not is_admin():
         if WIN and relaunch_elevated():
             return say("Continuing in a new window with administrator rights.")
@@ -740,7 +741,7 @@ def main():
 
     os.makedirs(home, exist_ok=True)
     path, raw = load(home)
-    say("Strata setup  (code: %s, instance folder: %s)" % (CODE, home))
+    say("Corium setup  (code: %s, instance folder: %s)" % (CODE, home))
     if raw:
         say("Existing configuration found. Values in brackets are the current ones; press Enter to keep them.")
     cfg = {"_home": home, "update": {}}
@@ -759,7 +760,7 @@ def main():
     step_save(cfg, raw, path)
     if a.no_service:
         step_caddy_running(cfg, False)
-        say("\nDone. Start Strata with:  python strata.py --home \"%s\"" % home)
+        say("\nDone. Start Corium with:  python strata.py --home \"%s\"" % home)
         return
     step(7, total, "Service")
     step_caddy_running(cfg, True)

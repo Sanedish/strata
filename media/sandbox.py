@@ -337,6 +337,9 @@ def _version_key(path):
 
 def _known_paths(name):
     if not WIN:
+        if name in ("ffmpeg", "ffprobe"):   # distro, static and Jellyfin builds (the latter often has QSV / VAAPI)
+            return ["/usr/lib/jellyfin-ffmpeg/" + name, "/usr/local/bin/" + name, "/usr/bin/" + name,
+                    "/opt/ffmpeg/bin/" + name, "/snap/bin/" + name]
         return []
     pf = [os.environ.get("ProgramFiles") or r"C:\Program Files", r"C:\Program Files",
           os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"]
@@ -352,8 +355,16 @@ def _known_paths(name):
         found = glob.glob(os.path.join(local, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg*", "**", "bin", exe),
                           recursive=True)
         found.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0, reverse=True)
+        # unpacked release zips: C:\ffmpeg-8.1.1\ffmpeg-8.1.1-full_build\bin, C:\ffmpeg\bin, Program Files\ffmpeg*
+        unpacked = sorted(set(glob.glob(os.path.join("C:\\", "ffmpeg*", "bin", exe))
+                              + glob.glob(os.path.join("C:\\", "ffmpeg*", "*", "bin", exe))
+                              + [g for p in pf for g in glob.glob(os.path.join(p, "ffmpeg*", "bin", exe))
+                                 + glob.glob(os.path.join(p, "ffmpeg*", "*", "bin", exe))]),
+                          key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0, reverse=True)
         return found + [os.path.join(local, "Microsoft", "WinGet", "Links", exe), os.path.join(r"C:\ffmpeg\bin", exe)] \
-            + [os.path.join(p, "ffmpeg", "bin", exe) for p in pf]
+            + [os.path.join(p, "ffmpeg", "bin", exe) for p in pf] + unpacked \
+            + [os.path.join(pdata, "chocolatey", "bin", exe),
+               os.path.join(os.path.expanduser("~"), "scoop", "apps", "ffmpeg", "current", "bin", exe)]
     if name == "mpcmdrun":
         plat = glob.glob(os.path.join(pdata, "Microsoft", "Windows Defender", "Platform", "*", "MpCmdRun.exe"))
         plat.sort(key=_version_key, reverse=True)
@@ -398,6 +409,31 @@ def which(name, conf=None, fresh=False):
     with _which_lock:
         _which_cache[key] = (now, found)
     return found
+
+
+def candidates(name, conf=None):
+    """Every installed copy of a tool, best first: [configured path] alone when media.tools.<name> is set (the
+    operator decided), else which()'s order (PATH, then the usual install dirs) without duplicates. gpu.py walks this
+    list for an ffmpeg build whose hardware encoders work with the installed driver."""
+    name = (name or "").lower()
+    if name not in EXE_NAMES:
+        return []
+    tools_conf = (conf or {}).get("tools") or {} if isinstance(conf, dict) else {}
+    configured = (tools_conf.get(name) or "").strip()
+    if configured:
+        return [os.path.abspath(configured)] if os.path.isfile(configured) else []
+    out, seen = [], set()
+    for p in [shutil.which(exe) for exe in EXE_NAMES[name]] + _known_paths(name):
+        try:
+            if not p or not os.path.isfile(p):
+                continue
+            real = os.path.normcase(os.path.realpath(p))
+        except OSError:
+            continue
+        if real not in seen:
+            seen.add(real)
+            out.append(os.path.abspath(p))
+    return out
 
 
 def tools(conf=None, fresh=False):

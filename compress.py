@@ -4,9 +4,9 @@ One walk per drive does everything:
   * fidx  - every file (size, mtime, category, quick hash / sha256 for duplicate detection)
   * fdir  - recursive folder totals (files, sub-folders, bytes, newest, bytes per category)
   * .br   - Brotli sidecars for compressible files on drives with precompression on. Rules:
-            only sidecars Strata made itself (tracked in cfile) are ever replaced or removed; a variant is kept
+            only sidecars Corium made itself (tracked in cfile) are ever replaced or removed; a variant is kept
             only if it saves >= min_saving (min_saving_large above large_bytes); stale ones are regenerated.
-  * inventory - per drive, including Strata's own overhead (trash, versions, stalled uploads, variants)
+  * inventory - per drive, including Corium's own overhead (trash, versions, stalled uploads, variants)
 Uploads and file operations queue a quick re-index of just the affected folder.
 """
 import collections
@@ -473,7 +473,7 @@ class Compressor(threading.Thread):
             files, dirs, variants = self.walk_mount(db, m, root, "/", recs, stats, seen)
             self.store_index(db, m, "/", files, dirs)
             self.write_inventory(db, m, root, files, variants)
-        # originals that vanished outside Strata: drop our sidecars + records
+        # originals that vanished outside Corium: drop our sidecars + records
         for (path, v), rec in list(recs.items()):
             if path in seen:
                 continue

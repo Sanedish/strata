@@ -427,7 +427,7 @@ class MediaServiceTest(unittest.TestCase):
         st, _, body = g("/f/x.png")
         self.assertEqual((st, body), (403, b"A signed link is required."))
         tf = os.path.join(STRATA, "transform", "transform.py")
-        if os.path.isfile(tf):   # byte-identical MAC to Strata Transform
+        if os.path.isfile(tf):   # byte-identical MAC to Corium Transform
             spec = importlib.util.spec_from_file_location("strata_transform_under_test", tf)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)

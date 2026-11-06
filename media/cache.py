@@ -1,4 +1,4 @@
-"""Variant cache for Strata Media (DESIGN.md 4.2, 11) - the two derived tiers of the image optimizer.
+"""Variant cache for Corium Media (DESIGN.md 4.2, 11) - the two derived tiers of the image optimizer.
 
     <cache_root>/cache/img/<ab>/<cd>/<key>.<ext>          ephemeral: LRU + age evicted, capped by cache_max_gb
     <cache_root>/cache/static/img/<ab>/<cd>/<key>.<ext>   persistent: promoted hot variants, never LRU-evicted,

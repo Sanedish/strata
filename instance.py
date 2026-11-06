@@ -1,4 +1,4 @@
-"""Which Strata instance this process serves.
+"""Which Corium instance this process serves.
 
 One code folder (this one) runs several sites. Everything a site owns lives in its *instance home*:
 
@@ -6,18 +6,20 @@ One code folder (this one) runs several sites. Everything a site owns lives in i
     <home>/data/.env                   every secret (API keys, tokens, hashes), locked to this account
     <home>/data/                       strata.db, media.db, thumbnails, transform cache, process logs
     <home>/generated/cdn.caddy         the rendered CDN site its Caddyfile imports
-    <home>/transform/transform.json    written by rules.py for Strata Transform
-    <home>/telemetry/telemetry.json    feed token + listen address of Strata Telemetry
-    <home>/media/media.json            written by media_rules.py for Strata Media
+    <home>/transform/transform.json    written by rules.py for Corium Transform
+    <home>/telemetry/telemetry.json    feed token + listen address of Corium Telemetry
+    <home>/media/media.json            written by media_rules.py for Corium Media
 
 The home is chosen by `--home <dir>` on the command line or the STRATA_HOME environment variable (the first one
-wins), else this code folder itself. It is exported to STRATA_HOME so the processes Strata starts (media.py,
+wins), else this code folder itself. It is exported to STRATA_HOME so the processes Corium starts (media.py,
 worker.py) serve the same instance.
 """
 import json
 import os
 import re
+import socket
 import sys
+from http.server import ThreadingHTTPServer
 
 CODE = os.path.dirname(os.path.abspath(__file__))
 
@@ -51,9 +53,26 @@ def code(*parts):
     return os.path.join(CODE, *parts)
 
 
+# ---------------------------------------------------------------- listeners: one process per port
+
+class ExclusiveHTTPServer(ThreadingHTTPServer):
+    """A listener only one process can hold. http.server turns SO_REUSEADDR on, and on Windows that lets a second
+    copy of a service (a scheduled task started twice) bind the same port and take part of its requests unnoticed;
+    with SO_EXCLUSIVEADDRUSE the second copy gets "address in use" instead. A restart still rebinds at once, even
+    with closed connections lingering in TIME_WAIT. Elsewhere SO_REUSEADDR stays: there it never shares a live port,
+    it only lets a restart rebind over TIME_WAIT."""
+    daemon_threads = True
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 # ---------------------------------------------------------------- secrets: <home>/data/.env
 
-# Every secret of an instance lives in <home>/data/.env, never in strata.json or the JSON files Strata writes for its
+# Every secret of an instance lives in <home>/data/.env, never in strata.json or the JSON files Corium writes for its
 # helper processes. Highest source first: the process environment (set on the machine) > data/.env > a leftover in
 # strata.json (moved into data/.env on the next start). Config path -> variable name; JSON ones hold lists.
 SECRETS = {
@@ -62,6 +81,7 @@ SECRETS = {
     ("feed_token_hash",): "STRATA_FEED_TOKEN_HASH",
     ("auth", "cookie_secret"): "STRATA_COOKIE_SECRET",
     ("auth", "password_hash"): "STRATA_PASSWORD_HASH",
+    ("auth", "cors_password_hash"): "STRATA_CORS_PASSWORD_HASH",
     ("auth", "totp_secret"): "STRATA_TOTP_SECRET",
     ("auth", "recovery"): "STRATA_RECOVERY_HASHES",
     ("auth", "api_keys"): "STRATA_API_KEYS",

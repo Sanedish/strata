@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strata Media - the hot path on 127.0.0.1:8084 (media/DESIGN.md sections 2, 4.2, 4.3, 5, 6.1, 6.3, 7.6, 8, 14).
+"""Corium Media - the hot path on 127.0.0.1:8084 (media/DESIGN.md sections 2, 4.2, 4.3, 5, 6.1, 6.3, 7.6, 8, 14).
 
 Caddy (media_rules.py) sends it, always from loopback:
   GET /_scan                        forward_auth gate: 200 (+ X-Strata-Lane: throttle) | 403 held | 503 pending
@@ -1886,7 +1886,7 @@ def make_server(listen, svc):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Strata Media hot path (media/DESIGN.md)")
+    ap = argparse.ArgumentParser(description="Corium Media hot path (media/DESIGN.md)")
     ap.add_argument("--config", help="media.json (default: %s)" % config.CONF_PATH)
     ap.add_argument("--listen", help="host:port (default: the config's listen)")
     args = ap.parse_args(argv)

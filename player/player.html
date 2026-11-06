@@ -1,5 +1,5 @@
 {{- /*
-  Strata audio player: Caddy template, served by an "Audio player" access rule (rules.py render_players) when a
+  Corium audio player: Caddy template, served by an "Audio player" access rule (rules.py render_players) when a
   desktop / tablet browser *navigates* to an audio file. Everything else - the <audio> element, phones, link previews,
   ?dl=1, ?raw=1 - gets the plain file. Caddy hands us three request headers (set by the generated config, never by
   the client): the audio file's folder and the placeholder folder (both drive-relative, for listFiles), and the
@@ -25,7 +25,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
 <title>Player</title>
-<!-- Strata audio player (player/player.html). Visualizer: spring-bounce spectrum from the Novise engine. -->
+<!-- Corium audio player (player/player.html). Visualizer: spring-bounce spectrum from the Novise engine. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@800;900&family=Space+Mono:wght@400;700&display=swap">
@@ -512,7 +512,7 @@ input[type=range]:hover::-webkit-slider-thumb, input[type=range]:active::-webkit
     var list = cfg.bg || [];
     if (!list.length || !cfg.bgUrl) return;
     var base = cfg.bgUrl.replace(/\/$/, '') + '/' + encodeURIComponent(list[Math.floor(Math.random() * list.length)]);
-    var url = base + '?w=2560&fm=webp&q=82';          // Strata's link modifiers: wallpapers can be 8K
+    var url = base + '?w=2560&fm=webp&q=82';          // Corium's link modifiers: wallpapers can be 8K
     try { await loadImg(url); } catch (e) { url = base; try { await loadImg(url); } catch (e2) { return; } }
     bg.classList.add('ph');
     bg.style.backgroundImage = 'url("' + url + '")';

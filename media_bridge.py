@@ -1,4 +1,4 @@
-"""Strata Media bridge - the part of the media pipeline that runs inside strata.py (media/DESIGN.md 2, 9, 13).
+"""Corium Media bridge - the part of the media pipeline that runs inside strata.py (media/DESIGN.md 2, 9, 13).
 
 media.py and worker.py hold neither strata.db nor the Cloudflare token (least privilege), so everything that needs
 one of them lives here, in one daemon thread with independent timers:
@@ -23,6 +23,7 @@ import http.client
 import importlib
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -39,6 +40,10 @@ if MEDIA_DIR not in sys.path:
 
 VERSION = "1"
 NEG_META, CAP_META, CURSOR_META = "media_negotiation_effective", "media_capacity", "media_verdict_cursor"
+# media/gpu.py BACKENDS / ID_RX (kept literal here: the bridge never imports the media package at load time)
+GPU_BACKENDS = ("nvenc", "qsv", "amf", "vaapi")
+VIDEO_ENCODERS = ("cpu", "auto") + GPU_BACKENDS
+GPU_ID_RX = re.compile(r"^(nvenc|qsv|amf|vaapi):[A-Za-z0-9_.-]{1,32}$")
 BAD_STATES = ("flagged", "held", "error")
 VERDICT_STATES = ("pending", "clean", "flagged", "held", "released", "error", "skipped")
 JOB_KINDS = ("scan", "image", "video")
@@ -81,7 +86,7 @@ def log(msg, key=None, every=600):
 
 def _mod(name):
     """Lazily imported module (strata's rules / cloudflare / files / media_rules / media_edge, or a media/ module):
-    a broken pipeline module can never keep Strata from starting."""
+    a broken pipeline module can never keep Corium from starting."""
     return importlib.import_module(name)
 
 
@@ -250,9 +255,9 @@ class Child:
 
 
 class Supervisor:
-    """Starts media.py / worker.py with Strata's own interpreter (pythonw under the scheduled task), keeps them
+    """Starts media.py / worker.py with Corium's own interpreter (pythonw under the scheduled task), keeps them
     healthy, restarts with backoff 10 s, 30 s, 60 s ... 5 min and records supervisor.* events. A healthy instance it
-    did not start (e.g. left running across a Strata restart) is adopted as "external" and never touched: only
+    did not start (e.g. left running across a Corium restart) is adopted as "external" and never touched: only
     processes this object spawned are ever killed."""
 
     def __init__(self, children, emit=None, backoff=BACKOFF, clock=time.time, max_fails=3,
@@ -335,11 +340,11 @@ class Supervisor:
         env.setdefault("PYTHONIOENCODING", "utf-8")
         flags = NOWIN | (BELOW_NORMAL if c.priority == "below_normal" else 0)
         with open(c.out, "ab") as out, open(c.err, "ab") as err:
-            out.write(("\n--- %s started by the Strata supervisor ---\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode())
+            out.write(("\n--- %s started by the Corium supervisor ---\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode())
             out.flush()
             c.proc = subprocess.Popen(c.argv, stdin=subprocess.DEVNULL, stdout=out, stderr=err, cwd=c.cwd, env=env,
                                       creationflags=flags, close_fds=True)
-        core.tie_to_me(c.proc)  # ends with Strata (a task stop no longer orphans media.py / worker.py)
+        core.tie_to_me(c.proc)  # ends with Corium (a task stop no longer orphans media.py / worker.py)
         c.pid, c.started, c.fails, c.state, c.healthy_since = c.proc.pid, now, 0, "starting", None
         if c.pending_reason is not None:
             c.restarts += 1
@@ -384,7 +389,7 @@ class Supervisor:
 
 
 def default_children(c, store, python=None, media_dir=MEDIA_DIR, data_dir=None):
-    """media.py (hot path) and worker.py (BELOW_NORMAL). The interpreter is Strata's own: pythonw under the
+    """media.py (hot path) and worker.py (BELOW_NORMAL). The interpreter is Corium's own: pythonw under the
     scheduled task, python in a console. Output is appended to data/media.out|err and data/worker.out|err."""
     py = python or sys.executable or "python"
     data_dir = data_dir or os.path.join(core.HOME, "data")
@@ -1044,9 +1049,9 @@ class Bridge(threading.Thread):
                                                   "avif_alpha_quality", "webp_quality", "jpeg_quality",
                                                   "speed_sync", "speed_bg", "min_saving", "sync_budget_s",
                                                   "min_bytes", "threads", "prewarm_uploads", "prewarm_popular")},
-                "video": {k: v.get(k) for k in ("enabled", "codec", "encoder", "crf_av1", "preset_av1",
-                                                "crf_vp9", "crf_h264", "preset_h264", "nvenc_cq",
-                                                "nvenc_preset", "audio_kbps", "threads", "cpu_pct",
+                "video": {k: v.get(k) for k in ("enabled", "codec", "encoder", "gpu", "gpu_jobs", "gpu_decode",
+                                                "crf_av1", "preset_av1", "crf_vp9", "crf_h264", "preset_h264",
+                                                "nvenc_cq", "nvenc_preset", "audio_kbps", "threads", "cpu_pct",
                                                 "max_seconds", "max_bytes", "min_saving", "timeout_factor")}}
 
     def config_summary(self):
@@ -1061,9 +1066,9 @@ class Bridge(threading.Thread):
                          "legacy_while_pending": g.get("legacy_while_pending", True)},
                 "lane": dict(c.get("lane") or {}),
                 "image": {k: img.get(k) for k in ("sync_budget_s", "sync_max_mp", "prewarm_uploads", "prewarm_popular")},
-                "video": {k: v.get(k) for k in ("enabled", "codec", "format", "encoder", "crf_av1",
-                                                 "preset_av1", "crf_vp9", "crf_h264", "preset_h264",
-                                                 "nvenc_cq", "nvenc_preset", "audio_kbps", "threads",
+                "video": {k: v.get(k) for k in ("enabled", "codec", "format", "encoder", "gpu", "gpu_jobs",
+                                                 "gpu_decode", "crf_av1", "preset_av1", "crf_vp9", "crf_h264",
+                                                 "preset_h264", "nvenc_cq", "nvenc_preset", "audio_kbps", "threads",
                                                  "cpu_pct", "max_seconds", "max_bytes", "min_saving")},
                 "file_policy": {"enabled": bool((c.get("file_policy") or {}).get("enabled"))}}
 
@@ -1122,6 +1127,12 @@ class Bridge(threading.Thread):
         mon = stats.get("monitor")
         out["monitor"] = mon if isinstance(mon, dict) else (br or {}).get("monitor") if isinstance(br, dict) else None
         out["tools"] = self.tools()
+        try:
+            tm = st.get_meta("tools")
+            out["gpu"] = ((tm.get("video") or {}).get("gpu") if isinstance(tm, dict) else None) or None
+        except Exception as e:
+            out["gpu"] = None
+            errors.append("media.db: %s" % e)
         out["cache"] = None
         try:
             out["cache"] = self.cache().usage()
@@ -1418,7 +1429,7 @@ def _post_settings(b, user, body, A):
         raw = body["video"]
         if not isinstance(raw, dict) or not raw:
             raise ValueError("video must be a non-empty object")
-        enums = {"codec": ("av1", "vp9"), "encoder": ("cpu", "auto", "nvenc"),
+        enums = {"codec": ("av1", "vp9"), "encoder": VIDEO_ENCODERS,
                  "preset_h264": ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium",
                                  "slow", "slower", "veryslow"),
                  "nvenc_preset": tuple("p%d" % n for n in range(1, 8))}
@@ -1428,9 +1439,9 @@ def _post_settings(b, user, body, A):
                 "max_bytes": (1 << 20, 64 << 30), "timeout_factor": (1, 60)}
         checked = {}
         for k, val in raw.items():
-            if k == "enabled":
+            if k in ("enabled", "gpu_decode"):
                 if not isinstance(val, bool):
-                    raise ValueError("video.enabled must be true or false")
+                    raise ValueError("video.%s must be true or false" % k)
             elif k in enums:
                 if val not in enums[k]:
                     raise ValueError("video.%s must be one of %s" % (k, ", ".join(enums[k])))
@@ -1441,14 +1452,23 @@ def _post_settings(b, user, body, A):
             elif k == "min_saving":
                 if isinstance(val, bool) or not isinstance(val, (int, float)) or not 0 <= val <= 0.75:
                     raise ValueError("video.min_saving must be between 0 and 0.75")
+            elif k == "gpu":
+                if not isinstance(val, str) or not (val == "auto" or GPU_ID_RX.match(val)):
+                    raise ValueError("video.gpu must be auto or a GPU id such as nvenc:0")
+            elif k == "gpu_jobs":   # parallel encodes per GPU: one number, or {GPU id | backend | "*": number}
+                per = val if isinstance(val, dict) else {"*": val}
+                if not per or any(not (n == "*" or n in GPU_BACKENDS or GPU_ID_RX.match(str(n))) or
+                                  isinstance(c, bool) or not isinstance(c, int) or not 1 <= c <= 8
+                                  for n, c in per.items()):
+                    raise ValueError("video.gpu_jobs must be 1 to 8, or {GPU id or backend: 1 to 8}")
             else:
                 raise ValueError("unsupported video setting: %s" % k)
             checked[k] = val
         media.setdefault("video", {}).update(checked)
         upd["video"] = checked
     effective_video = dict((b.conf.get("video") or {}), **media.get("video", {}))
-    if effective_video.get("format") == "webm" and effective_video.get("encoder") == "nvenc":
-        raise ValueError("NVENC requires MP4; choose CPU or Auto for WebM")
+    if effective_video.get("format") != "mp4" and effective_video.get("encoder") in GPU_BACKENDS:
+        raise ValueError("GPU encoders (NVENC, Quick Sync, AMF, VAAPI) make MP4; choose CPU or Auto for WebM")
     if not media:
         raise ValueError("nothing to change")
     core.save_config({"media": media})

@@ -12,7 +12,7 @@ $site    = $PSScriptRoot
 $tele    = Split-Path $site -Parent                               # <install folder>\telemetry
 $static  = Join-Path $tele 'static'
 $backups = Join-Path (Split-Path (Split-Path $tele -Parent) -Parent) 'backups'
-$task    = 'Strata Telemetry'
+$task    = 'Strata Telemetry'  # the task keeps its old name (docs/RENAMING.md)
 $local   = 'http://127.0.0.1:8082'
 $py      = (Get-Command python -ErrorAction Stop).Source
 

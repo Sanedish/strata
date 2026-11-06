@@ -1,4 +1,4 @@
-"""media.db - verdicts, jobs, variants, events, samples and meta for Strata Media (DESIGN.md section 10).
+"""media.db - verdicts, jobs, variants, events, samples and meta for Corium Media (DESIGN.md section 10).
 
 Shared by media.py (hot path: reads, enqueues), worker.py (claims jobs, writes verdicts and variants) and the
 bridge inside strata.py (discovery, admin). WAL lets all of them read while one writes. sqlite3 connections
@@ -10,6 +10,7 @@ Timestamps are wall-clock seconds (self.clock, replaceable in tests).
 import contextlib
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -51,6 +52,10 @@ VARIANT_COLS = (("tier", "TEXT DEFAULT 'ephemeral'"), ("width", "INTEGER"), ("et
                 ("hits", "INTEGER DEFAULT 0"), ("score", "REAL DEFAULT 0"), ("score_at", "REAL"),
                 ("promoted", "REAL"), ("served", "INTEGER DEFAULT 0"), ("saved", "INTEGER DEFAULT 0"))
 TIERS = ("ephemeral", "persistent", "evicted")
+# lease  opaque token of the current claim: heartbeat / finish / fail by a holder that passes it only touch the job
+#        while that claim is still the job's, so a run whose lease expired and was re-claimed (by another lane of the
+#        same worker, another worker or later a GPU node, REMOTE_ENCODING.md) cannot extend or settle the new one
+JOB_COLS = (("lease", "TEXT"),)
 JSON_COLS = ("findings", "engines", "detail", "data", "result")
 VERDICT_STATES = ("pending", "clean", "flagged", "held", "released", "error", "skipped")
 SEVERITY = {"low": 1, "medium": 2, "high": 3}
@@ -154,14 +159,15 @@ class Store:
     def init(self):
         db = self._db()
         db.executescript(SCHEMA)
-        have = {r[1] for r in db.execute("PRAGMA table_info(variant)")}
-        for name, decl in VARIANT_COLS:
-            if name not in have:
-                try:
-                    db.execute("ALTER TABLE variant ADD COLUMN %s %s" % (name, decl))
-                except sqlite3.OperationalError as e:   # another process added it first
-                    if "duplicate column" not in str(e).lower():
-                        raise
+        for table, cols in (("variant", VARIANT_COLS), ("job", JOB_COLS)):
+            have = {r[1] for r in db.execute("PRAGMA table_info(%s)" % table)}
+            for name, decl in cols:
+                if name not in have:
+                    try:
+                        db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                    except sqlite3.OperationalError as e:   # another process added it first
+                        if "duplicate column" not in str(e).lower():
+                            raise
         db.execute("CREATE INDEX IF NOT EXISTS variant_tier ON variant(tier, last_used)")
         return self
 
@@ -299,13 +305,14 @@ class Store:
                         return None
                     not_before = max(not_before or 0, (row["finished"] or 0) + FAILED_REQUEUE_S)
             db.execute("UPDATE job SET state='queued', priority=?, size=?, mtime=?, attempts=0, not_before=?, "
-                       "lease_until=NULL, worker=NULL, started=NULL, finished=NULL, error=NULL, error_kind=NULL, "
-                       "result=NULL, created=? WHERE id=?", (int(priority), size, mtime, not_before or 0, now, jid))
+                       "lease_until=NULL, lease=NULL, worker=NULL, started=NULL, finished=NULL, error=NULL, "
+                       "error_kind=NULL, result=NULL, created=? WHERE id=?", (int(priority), size, mtime, not_before or 0, now, jid))
             return jid
 
     def claim(self, worker, kinds, lease_s=900):
         """Atomically take the most urgent runnable job of one of `kinds` (attempts counts claims, so a file that
-        crashes the worker is not retried forever - see requeue_expired)."""
+        crashes the worker is not retried forever - see requeue_expired). The row carries "lease", the token that
+        heartbeat / finish / fail take to act on this claim only."""
         kinds = [kinds] if isinstance(kinds, str) else list(kinds or ())
         if not kinds:
             return None
@@ -316,40 +323,52 @@ class Store:
                              (*kinds, now)).fetchone()
             if row is None:
                 return None
-            db.execute("UPDATE job SET state='running', worker=?, lease_until=?, started=?, attempts=attempts+1 "
-                       "WHERE id=?", (worker, now + lease_s, now, row["id"]))
+            db.execute("UPDATE job SET state='running', worker=?, lease_until=?, lease=?, started=?, "
+                       "attempts=attempts+1 WHERE id=?", (worker, now + lease_s, secrets.token_hex(12), now, row["id"]))
             return _row(db.execute("SELECT * FROM job WHERE id=?", (row["id"],)).fetchone())
 
-    def heartbeat(self, job_id, lease_s=900):
-        """Extend the lease. Returns False when the job is no longer running (cancelled or re-leased)."""
-        cur = self._db().execute("UPDATE job SET lease_until=? WHERE id=? AND state='running'",
-                                 (self.clock() + lease_s, job_id))
+    @staticmethod
+    def _held(token):
+        """WHERE clause + args: the job is running, and (with a token) still under that claim."""
+        return (" AND state='running'", ()) if token is None else (" AND state='running' AND lease=?", (token,))
+
+    def heartbeat(self, job_id, lease_s=900, token=None):
+        """Extend the lease. Returns False when the job is no longer running (cancelled) or, with the claim's token,
+        no longer this claim's (expired and re-leased)."""
+        held, args = self._held(token)
+        cur = self._db().execute("UPDATE job SET lease_until=? WHERE id=?" + held,
+                                 (self.clock() + lease_s, job_id, *args))
         return cur.rowcount > 0
 
-    def finish(self, job_id, result=None):
-        cur = self._db().execute("UPDATE job SET state='done', finished=?, lease_until=NULL, result=?, error=NULL, "
-                                 "error_kind=NULL WHERE id=? AND state='running'", (self.clock(), _j(result), job_id))
+    def finish(self, job_id, result=None, token=None):
+        held, args = self._held(token)
+        cur = self._db().execute("UPDATE job SET state='done', finished=?, lease_until=NULL, lease=NULL, result=?, "
+                                 "error=NULL, error_kind=NULL WHERE id=?" + held,
+                                 (self.clock(), _j(result), job_id, *args))
         return cur.rowcount > 0
 
-    def fail(self, job_id, error, error_kind, retry_in=None, max_attempts=3):
+    def fail(self, job_id, error, error_kind, retry_in=None, max_attempts=3, token=None):
         """Record a failed attempt: requeue with backoff (60 s, 10 min, 1 h) or give up after max_attempts
-        claims. Returns the new state ("queued" | "failed"), or the unchanged state if the job was not running."""
+        claims. Returns the new state ("queued" | "failed"), or the unchanged state if the job was not running
+        ("lost" when it runs under another claim than `token`)."""
         now = self.clock()
         with self._tx() as db:
-            row = db.execute("SELECT state, attempts FROM job WHERE id=?", (job_id,)).fetchone()
+            row = db.execute("SELECT state, attempts, lease FROM job WHERE id=?", (job_id,)).fetchone()
             if row is None:
                 return "missing"
             if row["state"] != "running":
                 return row["state"]
+            if token is not None and row["lease"] != token:
+                return "lost"
             attempts = max(1, row["attempts"] or 0)
             err = str(error or "")[:2000]
             if error_kind in NO_RETRY or attempts >= max_attempts:
-                db.execute("UPDATE job SET state='failed', finished=?, lease_until=NULL, error=?, error_kind=? "
-                           "WHERE id=?", (now, err, error_kind, job_id))
+                db.execute("UPDATE job SET state='failed', finished=?, lease_until=NULL, lease=NULL, error=?, "
+                           "error_kind=? WHERE id=?", (now, err, error_kind, job_id))
                 return "failed"
             delay = retry_in if retry_in is not None else BACKOFF[min(attempts, len(BACKOFF)) - 1]
-            db.execute("UPDATE job SET state='queued', not_before=?, lease_until=NULL, worker=NULL, error=?, "
-                       "error_kind=? WHERE id=?", (now + delay, err, error_kind, job_id))
+            db.execute("UPDATE job SET state='queued', not_before=?, lease_until=NULL, lease=NULL, worker=NULL, "
+                       "error=?, error_kind=? WHERE id=?", (now + delay, err, error_kind, job_id))
             return "queued"
 
     def requeue_expired(self, max_attempts=3):
@@ -360,10 +379,10 @@ class Store:
                               (now,)).fetchall()
             for r in rows:
                 if (r["attempts"] or 0) >= max_attempts:
-                    db.execute("UPDATE job SET state='failed', finished=?, lease_until=NULL, error=?, "
+                    db.execute("UPDATE job SET state='failed', finished=?, lease_until=NULL, lease=NULL, error=?, "
                                "error_kind='lease_expired' WHERE id=?", (now, "lease expired (worker died?)", r["id"]))
                 else:
-                    db.execute("UPDATE job SET state='queued', lease_until=NULL, worker=NULL, "
+                    db.execute("UPDATE job SET state='queued', lease_until=NULL, lease=NULL, worker=NULL, "
                                "error_kind='lease_expired' WHERE id=?", (r["id"],))
             return len(rows)
 
@@ -375,7 +394,7 @@ class Store:
             where += " AND kind=?"
             args.append(kind)
         with self._tx() as db:
-            n = db.execute("UPDATE job SET state='cancelled', finished=?, lease_until=NULL" + where
+            n = db.execute("UPDATE job SET state='cancelled', finished=?, lease_until=NULL, lease=NULL" + where
                            + " AND state='running'", (self.clock(), *args)).rowcount
             n += db.execute("DELETE FROM job" + where + " AND state NOT IN ('running', 'cancelled')", args).rowcount
             return n
@@ -405,11 +424,14 @@ class Store:
             sql += " ORDER BY finished DESC"
         else:
             sql += " ORDER BY state='running' DESC, priority, created"
-        return _rows(self._db().execute(sql + " LIMIT ?", (*args, int(limit))))
+        rows = _rows(self._db().execute(sql + " LIMIT ?", (*args, int(limit))))
+        for r in rows:
+            r.pop("lease", None)     # the claim's token stays with its holder (admin API / dashboard read these)
+        return rows
 
     def retry_failed(self, kind=None):
-        sql, args = ("UPDATE job SET state='queued', attempts=0, not_before=0, lease_until=NULL, worker=NULL, "
-                     "finished=NULL, error=NULL, error_kind=NULL WHERE state='failed'"), ()
+        sql, args = ("UPDATE job SET state='queued', attempts=0, not_before=0, lease_until=NULL, lease=NULL, "
+                     "worker=NULL, finished=NULL, error=NULL, error_kind=NULL WHERE state='failed'"), ()
         if kind:
             sql, args = sql + " AND kind=?", (kind,)
         return self._db().execute(sql, args).rowcount

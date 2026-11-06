@@ -1,4 +1,4 @@
-"""Security regression suite for the Strata DEV instance (127.0.0.1:8190, scratchpad home only).
+"""Security regression suite for the Corium DEV instance (127.0.0.1:8190, scratchpad home only).
 
 Creates an admin and an employee through root's API, activates them through /enroll, then checks that the
 escalation paths found in the 2026-10-10 audit are closed. Exit code 1 if any check fails."""

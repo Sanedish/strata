@@ -1,4 +1,4 @@
-"""Strata Media at the Cloudflare edge: URL-rewrite (Transform) rules for format negotiation (media/DESIGN.md 6.1, 9).
+"""Corium Media at the Cloudflare edge: URL-rewrite (Transform) rules for format negotiation (media/DESIGN.md 6.1, 9).
 
 Why: Cloudflare Free ignores `Vary: Accept`, so the origin must never answer different formats under one URL. The
 edge rules add `_v=avif` / `_v=webp` (images, by the Accept header) or `_v=webm` (videos played by Chromium /
@@ -65,18 +65,18 @@ def build_rules(hosts, img_exts=IMG_EXTS, vid_exts=VID_EXTS, video_fmt="webm"):
     out = []
     if img:
         img_base = "%s and http.request.uri.path.extension in %s and %s" % (base, _set(img), NO_TRANSFORM)
-        out.append({"ref": REF_AVIF, "description": "Strata Media - AVIF for query-less images (managed by Strata)",
+        out.append({"ref": REF_AVIF, "description": "Corium Media - AVIF for query-less images (managed by Corium)",
                     "expression": "%s and %s" % (img_base, accept % "avif"),
                     "action": "rewrite", "action_parameters": _rewrite("_v=avif"), "enabled": True})
-        out.append({"ref": REF_WEBP, "description": "Strata Media - WebP for query-less images (managed by Strata)",
+        out.append({"ref": REF_WEBP, "description": "Corium Media - WebP for query-less images (managed by Corium)",
                     "expression": "%s and not %s and %s" % (img_base, accept % "avif", accept % "webp"),
                     "action": "rewrite", "action_parameters": _rewrite("_v=webp"), "enabled": True})
     if vid and video_fmt == "mp4":   # same ref: switching the format patches the one video rule in place
-        out.append({"ref": REF_WEBM, "description": "Strata Media - MP4 (H.264) for videos (managed by Strata)",
+        out.append({"ref": REF_WEBM, "description": "Corium Media - MP4 (H.264) for videos (managed by Corium)",
                     "expression": "%s and http.request.uri.path.extension in %s and %s" % (base, _set(vid), NO_TRANSFORM),
                     "action": "rewrite", "action_parameters": _rewrite("_v=mp4"), "enabled": True})
     elif vid:
-        out.append({"ref": REF_WEBM, "description": "Strata Media - WebM for videos in Chromium/Firefox (managed by Strata)",
+        out.append({"ref": REF_WEBM, "description": "Corium Media - WebM for videos in Chromium/Firefox (managed by Corium)",
                     "expression": "%s and http.request.uri.path.extension in %s"
                                   ' and any(http.request.headers["sec-fetch-dest"][*] eq "video")'
                                   ' and (lower(http.user_agent) contains "chrome/" or lower(http.user_agent) contains "firefox/")'

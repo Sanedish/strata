@@ -1,5 +1,5 @@
 @echo off
-rem Double-click to install Strata. Finds Python 3.10+ and runs setup.py next to this file.
+rem Double-click to install Corium. Finds Python 3.10+ and runs setup.py next to this file.
 setlocal
 cd /d "%~dp0"
 where py >nul 2>nul && (py -3 setup.py %* & goto :end)

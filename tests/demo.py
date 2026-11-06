@@ -13,14 +13,15 @@ Caddy's JSON format, and the stub Caddy from run_all.py. Visitors use documentat
 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32), so nothing here points at a real person. Traffic keeps trickling
 in while it runs, so the live views move.
 
-No sign-in: Strata itself listens on 8390 (8391 for --dev) with its sign-in untouched, and a small proxy on 8290 (in this file only,
-never in Strata) adds alex's session cookie to every request. Nothing about this reaches a real installation.
+No sign-in: Corium itself listens on 8390 (8391 for --dev) with its sign-in untouched, and a small proxy on 8290 (in this file only,
+never in Corium) adds alex's session cookie to every request. Nothing about this reaches a real installation.
 """
 import http.client
 import http.server
 import io
 import json
 import math
+import mimetypes
 import os
 import random
 import shutil
@@ -41,7 +42,7 @@ import run_all as ra  # noqa: E402
 
 DEV = "--dev" in sys.argv
 PORT = 8291 if DEV else 8290   # the proxy you open: already signed in
-STRATA_PORT = PORT + 100       # Strata itself, sign-in as in production
+STRATA_PORT = PORT + 100       # Corium itself, sign-in as in production
 P = 18490 if DEV else 18480    # its helper ports, P..P+6
 DAYS = 7
 rnd = random.Random(7)
@@ -67,7 +68,7 @@ PROBES = ["/.env", "/wp-login.php", "/.git/config", "/wp-admin/setup-config.php"
 
 
 def signed_in_proxy(token):
-    """Forward http://127.0.0.1:PORT to Strata on STRATA_PORT with alex's session cookie on every request."""
+    """Forward http://127.0.0.1:PORT to Corium on STRATA_PORT with alex's session cookie on every request."""
     cookie = "strata_session=" + token
 
     class Proxy(http.server.BaseHTTPRequestHandler):
@@ -157,9 +158,12 @@ def make_files(root):
     put("/downloads/press-kit.zip", buf.getvalue(), "application/zip")
     put("/downloads/handbook.pdf", b"%PDF-1.4\n" + os.urandom(340000), "application/pdf")
     put("/robots.txt", b"User-agent: *\nAllow: /\n", "text/plain")
-    for code in ("403", "404", "502"):  # the default error pages, at the paths the site settings use
-        with open(os.path.join(ra.CODE, "static", "errors", code + ".html"), "rb") as f:
-            put("/404/%s.html" % code, f.read(), "text/html")
+    stock = os.path.join(ra.CODE, "static", "errors")  # the default error pages, where the site settings expect them
+    for dirpath, _dirs, names in os.walk(stock):
+        for name in names:
+            rel = os.path.relpath(os.path.join(dirpath, name), stock).replace(os.sep, "/")
+            with open(os.path.join(dirpath, name), "rb") as f:
+                put("/_errors/" + rel, f.read(), mimetypes.guess_type(name)[0] or "application/octet-stream")
     return out
 
 
@@ -365,7 +369,7 @@ def main():
     token = ra.session(db, "alex")
     proxy = signed_in_proxy(token)
     req = urllib.request.Request("http://127.0.0.1:%d/api/serving/site" % PORT, method="POST",
-                                 data=json.dumps({"error_page_502": "/404/502.html"}).encode(),
+                                 data=json.dumps({"error_page_502": "/_errors/bad-gateway/index.html"}).encode(),
                                  headers={"X-Strata": "1", "Origin": "http://127.0.0.1:%d" % PORT, "Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=30).read()  # the 404 and 403 pages already sit at the default paths
 

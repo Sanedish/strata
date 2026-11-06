@@ -1,5 +1,5 @@
 'use strict';
-/* Strata - CDN monitor front end. Renders strata.py's /api/* into the Strata System Monitor layout.
+/* Corium - CDN monitor front end. Renders strata.py's /api/* into the Corium System Monitor layout.
    Everything that comes from the access log is attacker-controlled (paths, user agents, referrers):
    it only ever reaches the DOM through esc(). Icons: Lucide (ISC), static/icons.svg, inlined into the page by the server. */
 
@@ -38,7 +38,7 @@ const VIEWS = {
   accounts: ['Accounts', 'Users, permissions and storage access', 'key-round'],
   // ponytail: Team (office.js) is hidden for now; to bring it back restore this line and 'office' in NAV_GROUPS
   // office: ['Team', 'People, noticeboard and notes', 'users'],
-  ide: ['Code', 'Edit Strata’s source', 'code'],
+  ide: ['Code', 'Edit Corium’s source', 'code'],
   settings: ['Settings', 'Your preferences', 'settings'],
   // hubs: one sidebar entry, a tab row for their views. S.view is always a view, never a hub.
   traffic: ['Traffic', 'Requests, visitors and content', 'activity'],
@@ -74,7 +74,8 @@ const NAV_C = HUBS.site; // media.js appends 'media'
 // "work" views (files, team, configuration, administration, settings) have no use for the traffic vitals, time ranges
 // or the request filter: they get that height and width back unless Settings › Vitals › Show everywhere is on
 const WORK_VIEWS = new Set(['office', 'files', 'upload', 'analyze', 'serving', 'blacklist', 'challenger', 'links', 'alerts', 'network', 'accounts', 'ide', 'settings']);
-const workView = (v = S.view) => WORK_VIEWS.has(v);
+const WORK_PAGES = {};  // modules: view -> () => true while that view shows a work page (Media › Settings)
+const workView = (v = S.view) => WORK_VIEWS.has(v) || !!WORK_PAGES[v]?.();
 const NAV_BADGES = [];   // modules push () => ({badges: {view: text}, alerts: {view: true}})
 const STATIC_VIEWS = new Set(['settings']);
 const OVERLAYS = [];     // modules push () => html (rendered by renderOverlay)
@@ -450,7 +451,7 @@ function refreshForView() {
 /* ------------------------------------------------------------------ chrome */
 
 function navItem(id, badge, alert, cls = '', act = 'go') {
-  const on = S.view === id || hubOf(S.view) === id || (id === 'compression' && S.view === 'media');
+  const on = S.view === id || hubOf(S.view) === id;
   return `<button class="nav-item ${cls} ${on ? 'on' : ''}" data-act="${act}" data-arg="${id}" data-menu="navitem" data-arg2="${id}" title="${esc(VIEWS[id][0])}"${on ? ' aria-current="page"' : ''}>
     <span class="mark"></span>${icon(VIEWS[id][2])}<span>${VIEWS[id][0]}</span><span class="badge ${alert ? 'alert' : ''}">${esc(badge ?? '')}</span></button>`;
 }
@@ -460,12 +461,9 @@ function navHub(h, b, alert) {
   const tabs = hubTabs(h);
   if (tabs.length < 2) return navItem(h, b[h], alert[h]);
   const open = navOpen(h), here = hubOf(S.view) === h;
-  const shown = h === 'site' && tabs.includes('compression') ? tabs.filter((v) => v !== 'media') : tabs;
   return `<div class="nav-group" id="navgrp-${h}"><button class="nav-item nav-drop ${here && !open ? 'on' : ''}" data-act="navToggle" data-arg="${h}" aria-expanded="${open}" title="${open ? 'Fold' : 'Unfold'} ${esc(VIEWS[h][0])}">
     <span class="mark"></span>${icon(VIEWS[h][2])}<span>${esc(VIEWS[h][0])}</span><span class="badge ${!open && alert[h] ? 'alert' : ''}">${open ? '' : esc(b[h] ?? '')}</span>${icon(open ? 'chevron-down' : 'chevron-right', 'chev')}</button>
-    ${open ? shown.map((v) => navItem(v, v === 'compression' && S.view === 'media' ? b.media : b[v],
-      v === 'compression' ? alert.compression || alert.media : alert[v], 'nav-child',
-      v === 'compression' && tabs.includes('media') ? 'compressionMenu' : 'go')).join('') : ''}</div>`;
+    ${open ? tabs.map((v) => navItem(v, b[v], alert[v], 'nav-child')).join('') : ''}</div>`;
 }
 // a view shows when the account holds any of its capabilities (the server enforces each request separately)
 const VIEW_NEEDS = { summary: ['analytics.read'], requests: ['analytics.visitors'], logs: ['logs.runtime', 'logs.access', 'audit.read'],
@@ -529,24 +527,20 @@ function renderNav() {
 function renderHeader() {
   const [title, sub, ic] = VIEWS[S.view];
   const hub = hubOf(S.view), tabs = hub ? hubTabs(hub) : [];
-  const groupedCompression = hub === 'site' && tabs.includes('compression') && tabs.includes('media');
-  const shownTabs = groupedCompression ? tabs.filter((v) => v !== 'media') : tabs;
   patch($('#title'), hub ? icon(VIEWS[hub][2]) + esc(VIEWS[hub][0]) : icon(ic) + esc(title));
   if ($('#sub').textContent !== sub) $('#sub').textContent = sub;
   // one tab needs no tab row
   const ht = $('#hubtabs');
-  ht.setAttribute('role', groupedCompression ? 'navigation' : 'tablist');
-  ht.hidden = shownTabs.length < 2;
-  patch(ht, shownTabs.length < 2 ? '' : shownTabs.map((v) => groupedCompression && v === 'compression'
-    ? `<button class="${['compression', 'media'].includes(S.view) ? 'on' : ''}" data-act="compressionMenu" aria-haspopup="menu" aria-label="Compression menu">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}${icon('chevron-down', 'sm')}</button>`
-    : `<button class="${v === S.view ? 'on' : ''}" data-act="go" data-arg="${v}" ${groupedCompression ? v === S.view ? 'aria-current="page"' : '' : `role="tab" aria-selected="${v === S.view}"`}>${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</button>`).join(''));
+  ht.setAttribute('role', 'tablist');
+  ht.hidden = tabs.length < 2;
+  patch(ht, tabs.length < 2 ? '' : tabs.map((v) => `<button class="${v === S.view ? 'on' : ''}" data-act="go" data-arg="${v}" role="tab" aria-selected="${v === S.view}">${icon(VIEWS[v][2], 'sm')}${esc(VIEWS[v][0])}</button>`).join(''));
   patch($('#ranges'), RANGES.map(([k, l]) => `<button class="${S.range === k ? 'on' : ''}" data-act="range" data-arg="${k}" aria-pressed="${S.range === k}">${l}</button>`).join(''));
   $('#bots').classList.toggle('ink', S.nobots);
   const botsLbl = S.nobots ? 'Bots hidden' : 'Bots';
   if ($('#bots').querySelector('span').textContent !== botsLbl) $('#bots').querySelector('span').textContent = botsLbl;
   patch($('#pause'), icon(S.paused ? 'play' : 'pause'));
   $('#pause').classList.toggle('on', S.paused);
-  document.title = title + ' · Strata · ' + (INST.name || location.host);
+  document.title = title + ' · Corium · ' + (INST.name || location.host);
 }
 function vital(label, unit, val, bar, sub, menu, ic) {
   return `<div class="vital" data-menu="vital" data-arg="${esc(menu || '')}">
@@ -657,12 +651,12 @@ function auxPanel(a) {
   </aside>`;
 }
 function tblView(o) {
-  // one bar, like Requests: the view's tabs, then what it shows, then CSV
-  const pills = (o.tabs || []).map((t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`).join('');
+  // one bar, like Requests: the view's tabs, then what it shows, then its actions (o.actions) and CSV
+  const pill = (t) => `<button class="pill ${t.on ? 'on' : ''}" data-act="${t.act}" data-arg="${esc(t.arg)}">${t.icon ? icon(t.icon, 'sm') : ''}${esc(t.label)}</button>`;
   return `<div class="split" style="grid-template-columns:1fr 300px">
     <section class="aside">
-      <div class="tbar">${pills}<span class="small dim ell" style="flex:1 1 120px;min-width:0;text-align:right">${esc(o.note || '')}</span>
-        <button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>
+      <div class="tbar">${(o.tabs || []).map(pill).join('')}<span class="small dim ell" style="flex:1 1 120px;min-width:0;text-align:right">${esc(o.note || '')}</span>
+        ${(o.actions || []).map(pill).join('')}<button class="pill" data-act="exportTable" data-arg="${esc(o.key)}" title="Download this table as CSV">${icon('download', 'sm')}CSV</button></div>
       ${table(o.key, o.labels, o.rows, o)}
     </section>
     ${auxPanel(o.aux)}
@@ -932,7 +926,7 @@ function vVisitors() {
 function vTunnel() {
   const t = D.live?.tunnel;
   if (!t) return loading();
-  if (!t.up) return `<div class="setup"><h5 class="hot">cloudflared metrics unreachable</h5><p>${esc(t.error)}</p><p>Strata reads <code>${esc(INST.cloudflared_metrics === 'auto' ? 'http://127.0.0.1:20241-20250/metrics (auto)' : INST.cloudflared_metrics)}</code>. If cloudflared restarted on another port, set <code>cloudflared_metrics</code> in <code>${esc(INST.config)}</code>, or pin it with a fixed <code>metrics:</code> address in cloudflared’s config.yml. The Network view can restart the tunnel.</p></div>`;
+  if (!t.up) return `<div class="setup"><h5 class="hot">cloudflared metrics unreachable</h5><p>${esc(t.error)}</p><p>Corium reads <code>${esc(INST.cloudflared_metrics === 'auto' ? 'http://127.0.0.1:20241-20250/metrics (auto)' : INST.cloudflared_metrics)}</code>. If cloudflared restarted on another port, set <code>cloudflared_metrics</code> in <code>${esc(INST.config)}</code>, or pin it with a fixed <code>metrics:</code> address in cloudflared’s config.yml. The Network view can restart the tunnel.</p></div>`;
   const codes = Object.entries(t.codes || {}).sort((a, b) => b[1] - a[1]);
   const tot = codes.reduce((a, [, v]) => a + v, 0);
   const rows = (t.conns || []).map((c) => ({
@@ -973,7 +967,7 @@ function vOrigins() {
   const nas = st[0] || {};
   return tblView({
     title: 'Tunnel ingress', note: `${rows.length} rules from cloudflared’s config.yml, checked every 15 s`, key: 'origins', rows,
-    tabs: [{ label: 'Edit ingress', icon: 'pencil', act: 'go', arg: 'network', on: false }],
+    actions: [{ label: 'Edit ingress', icon: 'pencil', act: 'go', arg: 'network', on: false }],
     labels: [{ t: 'Hostname', w: 220 }, { t: 'Service', w: 190 }, { t: 'HTTP', w: 56 }, { t: 'Latency', w: 76, a: 'r' }, { t: 'State', w: 100 }, { t: 'Trend', w: 110 }, { t: 'Error', w: 200 }],
     aux: {
       kicker: 'Storage', title: nas.path || 'media share', series: nas.hist,
@@ -1083,17 +1077,17 @@ function vEdge() {
   const e = D.edge;
   if (!e) return loading('Asking Cloudflare…');
   const setup = `<div class="setup">
-    <h5>Connect Cloudflare edge analytics</h5>
+    <h5>${icon('cloud')}Connect Cloudflare edge analytics</h5>
     <p>Caddy only sees requests that <b>miss</b> Cloudflare’s cache. Connect Cloudflare to see the rest.</p>
     <ol>
       <li>Open <b>dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</b>.</li>
       <li>Permissions: <code>Zone · Analytics · Read</code> and <code>Zone · Zone · Read</code>. Zone resources: <code>${esc(INST.zone)}</code> only.</li>
-      <li>Put the token in <code>${esc(INST.config)}</code> (or the <code>${esc(INST.token_env)}</code> environment variable) and restart Strata:</li>
+      <li>Put the token in <code>${esc(INST.config)}</code> (or the <code>${esc(INST.token_env)}</code> environment variable) and restart Corium:</li>
     </ol>
     <pre><code>{
   "cloudflare": { "api_token": "paste-token-here", "zone_name": "${esc(INST.zone)}" }
 }</code></pre>
-    <p class="dim">The Network view lists the other permissions Strata can use.</p>
+    <p class="dim">The Network view lists the other permissions Corium can use.</p>
     ${e.configured ? `<p class="hot"><b>Last attempt failed:</b> ${esc(e.error)}</p><button class="btn btn-secondary" data-act="edgeRetry">${icon('refresh-cw', 'sm')}Retry now</button>` : ''}
   </div>`;
   if (!e.configured || !e.ok) return setup;
@@ -1131,15 +1125,15 @@ function vEdge() {
     </div>
     <div class="grid2 cols-135 fill">
       <section class="panel oy-auto">
-        <div class="ph"><h5>Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin</span></div>
+        <div class="ph"><h5>${icon('activity')}Edge requests · 24 h</h5><span class="small dim">dark: cache hit · red: from origin</span></div>
         ${bars(hrs, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => fmt.dt(Date.parse(x.dimensions.datetime) / 1000))}
         <div class="axis"><span>−24 h</span><span>hourly</span><span>now</span></div>
-        <div class="ph smt-4"><h5>Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
+        <div class="ph smt-4"><h5>${icon('chart-area')}Edge requests · 30 days</h5><span class="small dim">${fmt.n(days.reduce((a, x) => a + x.sum.requests, 0))} requests · ${esc(fmt.bytes(days.reduce((a, x) => a + x.sum.bytes, 0)))}</span></div>
         ${bars(days, (x) => x.sum.requests, (x) => x.sum.cachedRequests, (x) => x.dimensions.date)}
         <div class="axis"><span>−30 d</span><span>daily</span><span>today</span></div>
       </section>
       <section class="aside">
-        <div class="ph ph-pad"><h5>Countries at the edge</h5></div>
+        <div class="ph ph-pad"><h5>${icon('earth')}Countries at the edge</h5></div>
         <div class="bt-div"></div>
         ${table('edge', [{ t: 'Country', w: 170 }, { t: 'CC', w: 40 }, { t: 'Requests', w: 80, a: 'r' }, { t: 'Sent', w: 80, a: 'r' }, { t: 'Threats', w: 60, a: 'r' }], crow)}
       </section>
@@ -1230,7 +1224,9 @@ function vCompression() {
   return tblView({
     title: 'Brotli · ' + ({ files: 'Store', runs: 'Run log', served: 'Served' }[tab] || 'Store'),
     note: runLine, key: 'comp-' + tab, labels, rows,
-    tabs: [{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }],
+    tabs: [['files', 'Store', 'archive'], ['runs', 'Run log', 'list'], ['served', 'Served', 'send']].map(([k, label, ic]) =>
+      ({ label, icon: ic, act: 'tab', arg: 'compression:' + k, on: tab === k })),
+    actions: [{ label: st.running ? 'Scanning…' : 'Scan now', icon: 'refresh-cw', act: 'compressRun', arg: '', on: false }],
     empty: tab === 'files' ? 'Nothing precompressed yet. The first scan runs shortly after start.' : undefined,
     aux: {
       kicker: 'Precompression', title: 'Bytes saved · ' + rangeLabel(), series: C.series.saved,
@@ -1271,7 +1267,9 @@ function vSettings() {
   const vitalSlots = Array.from({ length: 8 }, (_, i) => `<select class="input" data-change="vitalSlot" data-arg="${i}">
     <option value="">— empty —</option>${Object.entries(VITALS).map(([k, [l]]) => `<option value="${k}" ${(S.vitals || [])[i] === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`).join('');
   const q = (S.setQ || '').trim(), tab = S.setTab || 'prefs';
-  const head = `<div class="set-head span2"><nav class="hubtabs" role="tablist">${[['prefs', 'Preferences', 'sliders-horizontal'], ['account', 'Account', 'user'], ['about', 'About', 'info']].map(([k, l, ic]) =>
+  const emails = typeof emailsPanel === 'function' && emCan(); // Settings › E-mails (emails.js): owner only
+  const tabs = [['prefs', 'Preferences', 'sliders-horizontal'], ['account', 'Account', 'user']].concat(emails ? [['emails', 'E-mails', 'mail']] : [], [['about', 'About', 'info']]);
+  const head = `<div class="set-head span2"><nav class="hubtabs" role="tablist">${tabs.map(([k, l, ic]) =>
     `<button class="${!q && tab === k ? 'on' : ''}" data-act="setTab" data-arg="${k}" role="tab" aria-selected="${!q && tab === k}">${icon(ic, 'sm')}${l}</button>`).join('')}</nav>
     <label class="set-q">${icon('search')}<input id="setq" class="input" placeholder="Filter settings" value="${esc(S.setQ || '')}" autocomplete="off" spellcheck="false" aria-label="Filter settings"></label></div>`;
   const account = SETTINGS_PANELS.map((f) => { try { return f(row, toggle, seg); } catch (e) { return `<section class="panel"><div class="empty">${esc(e.message)}</div></section>`; } }).join('');
@@ -1293,7 +1291,7 @@ function vSettings() {
       <div class="ph"><h5>${icon('maximize-2')}Interface scale</h5><span class="small dim">default ${Math.round(SCALE_DEFAULT * 100)} %</span></div>
       <div class="scale-hero">
         <div><div class="big-num" id="scale-val">${pct} %</div><div class="small dim">${esc(effNote)}</div></div>
-        <div class="scale-demo">Aa<span>Strata body text at the current size</span></div>
+        <div class="scale-demo">Aa<span>Corium body text at the current size</span></div>
       </div>
       <div class="scale-ctl">
         <button class="pill" data-act="scaleStep" data-arg="-5" title="Smaller">−</button>
@@ -1336,7 +1334,7 @@ function vSettings() {
       ${row('Export or import', 'A JSON file with every preference.', `<button class="pill" data-act="prefsExport">${icon('download', 'sm')}Export</button><button class="pill" data-act="prefsImport">${icon('upload', 'sm')}Import…</button>`)}
       ${row('Reset everything', 'Back to the defaults in this browser.', `<button class="pill danger" data-act="resetPrefs">${icon('rotate-ccw', 'sm')}Reset</button>`)}
     </section>
-` : ''}${q || tab === 'about' ? aboutPanel(row) : ''}
+` : ''}${emails && (q || tab === 'emails') ? emailsPanel(row) : ''}${q || tab === 'about' ? aboutPanel(row) : ''}
   </div>`;
 }
 
@@ -1358,9 +1356,9 @@ function aboutPanel(row) {
       <div class="about-banner"><div class="about-photo"></div>
         <img class="av lg about-av" src="/media/fallback.jpg" alt="" width="88" height="88" style="object-position:50% 20%">
         <div class="about-body">
-        <div class="cap">Strata is made by:</div><b>Sanedish</b>
+        <div class="cap">Corium is made by:</div><b>Sanedish</b>
         <p>This interface is a solo passion project, and if you enjoy it, I would love for you to star it on GitHub! It would mean the world to me to get this project out to more people! &lt;3</p>
-        <div class="acct-actions"><a class="btn btn-secondary" href="https://github.com/Sanedish/strata" target="_blank" rel="noopener noreferrer">${icon('star', 'sm')}<span>Star on GitHub</span></a></div></div></div>
+        <div class="acct-actions"><a class="btn btn-secondary" href="https://github.com/Sanedish/corium" target="_blank" rel="noopener noreferrer">${icon('star', 'sm')}<span>Star on GitHub</span></a></div></div></div>
     </section>
     <section class="panel span2">
       ${Object.entries(CREDITS).map(([cat, items]) => `<div class="set-cat cap">${esc(cat)}</div>` +
@@ -1655,7 +1653,7 @@ function renderOverlay() {
     const d = S.dialog;
     html += `<div class="palbg" data-act="dlgCancel"><div class="dlg" data-act="noop" role="dialog" aria-modal="true" aria-label="${esc(d.title || 'Confirm')}">
       <div class="body"><div class="cap ${d.danger ? 'red' : ''}">${esc(d.kicker || '')}</div><h4>${esc(d.title || '')}</h4>
-        ${d.text ? `<p>${esc(d.text)}</p>` : ''}${d.html || ''}${d.input != null ? `<input id="dlgin" class="input" value="${esc(d.input)}" autocomplete="off" spellcheck="false">` : ''}
+        ${d.text ? `<p>${esc(d.text)}</p>` : ''}${d.html || ''}${d.input != null ? `<input id="dlgin" class="input" value="${esc(d.input)}"${d.placeholder ? ` placeholder="${esc(d.placeholder)}"` : ''} autocomplete="off" spellcheck="false">` : ''}
         ${d.check ? `<label class="dlg-check"><input type="checkbox" id="dlgchk" ${d.checkDefault ? 'checked' : ''}> ${esc(d.check)}</label>` : ''}</div>
       <div class="acts"><button class="btn ${d.danger ? 'btn-primary' : 'btn-primary'}" data-act="dlgOk">${esc(d.ok || 'OK')}</button>
         ${d.alt ? `<button class="btn btn-secondary" data-act="dlgAlt">${esc(d.alt)}</button>` : ''}
@@ -1770,22 +1768,6 @@ const ACT = {
   help() { S.help = true; renderOverlay(); },
   helpClose(_, el, e) { if (!e || e.target === el || el.dataset.act === 'helpClose') { S.help = false; renderOverlay(); } },
   siteMenu(_, el, e) { const m = MENUS.site(); const r = el.getBoundingClientRect(); S.menu = Object.assign(m, { x: r.left / zoomNow, y: r.bottom / zoomNow + 4 }); renderOverlay(); },
-  compressionMenu(_, el) {
-    const items = [['files', 'Store', 'Precompressed files', 'archive'], ['runs', 'Run log', 'Past scans', 'list'],
-      ['served', 'Served', 'Responses and savings', 'send']].map(([key, label, hint, ic]) => ({
-      label, hint: S.view === 'compression' && S.tab.compression === key ? 'Current' : hint, icon: ic,
-      run: () => { S.tab.compression = key; go('compression'); },
-    }));
-    if (canSeeView('media') && VIEWFN.media) {
-      items.push({ label: 'Media pipeline', hint: S.view === 'media' ? 'Current' : 'Health and scanning', icon: 'image', sep: true, run: () => go('media') });
-      items.push({ label: 'Media settings', hint: 'General, images and video', icon: 'sliders-horizontal', run: () => ACT.mdOpenSettings?.('general') });
-    }
-    const r = el.getBoundingClientRect();
-    const x = Math.min(r.left / zoomNow, Math.max(8, innerWidth / zoomNow - 284));
-    const y = Math.min(r.bottom / zoomNow + 4, Math.max(8, innerHeight / zoomNow - 60 - items.length * 38));
-    S.menu = { kicker: 'Site · Compression', title: 'Choose a view', items, x, y };
-    renderOverlay();
-  },
   openSibling(url) { window.open(String(url).replace('{host}', location.hostname), '_blank', 'noopener'); },
   scope(k) { S.scope = k; D.req = null; render(); pollRequests(true); },
   sort(arg) { const [key, s] = arg.split(':'); S.sort[key] = s; render(true); },
@@ -1877,12 +1859,12 @@ const ACT = {
   prefsImport() {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
     inp.onchange = async () => {
-      try { const o = JSON.parse(await inp.files[0].text()); Object.entries(o).forEach(([k, v]) => { if (Object.hasOwn(PREFS, k)) S[k] = v; }); cleanWidths(); persist(); applyScale(); applyAppearance(); render(true); note('Preferences imported'); } catch (e) { note('Not a Strata preferences file', { err: true }); }
+      try { const o = JSON.parse(await inp.files[0].text()); Object.entries(o).forEach(([k, v]) => { if (Object.hasOwn(PREFS, k)) S[k] = v; }); cleanWidths(); persist(); applyScale(); applyAppearance(); render(true); note('Preferences imported'); } catch (e) { note('Not a Corium preferences file', { err: true }); }
     };
     inp.click();
   },
   async resetPrefs() {
-    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Strata preference in this browser?', ok: 'Reset', text: 'Everything on the Settings page goes back to its default. Only this browser changes.' });
+    const ok = await ask({ kicker: 'Reset preferences', title: 'Reset every Corium preference in this browser?', ok: 'Reset', text: 'Everything on the Settings page goes back to its default. Only this browser changes.' });
     if (!ok) return;
     try { Object.keys(localStorage).filter((k) => k.startsWith('strata:')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
     if (S.syncPrefs) { try { await post('/api/prefs', { prefs: {}, ts: Date.now() / 1000 }); } catch { /* ignore */ } }
@@ -1992,7 +1974,7 @@ const MENUS = {
     ] };
   },
   site() {
-    return { kicker: 'Strata · ' + (INST.id || 'instance'), title: INST.name || location.host, items: [
+    return { kicker: 'Corium · ' + (INST.id || 'instance'), title: INST.name || location.host, items: [
       ...(INST.siblings || []).map((s) => item('Open ' + s.name, '↗', () => ACT.openSibling(s.url), { icon: 'external-link' })),
       item('Instance & system', '', () => go('system'), { sep: !!(INST.siblings || []).length, icon: 'cpu' }),
       item('Network & tunnel', '', () => go('network'), { icon: 'globe' }),
@@ -2017,7 +1999,7 @@ const MENUS = {
     return { kicker: 'Refresh rate', title: 'Currently ' + S.rate + ' ms', items: RATES.map((r, i) => item(r + ' ms' + (r === S.rate ? '  ·  current' : ''), i === 0 ? 'fastest' : i === RATES.length - 1 ? 'calmest' : '', () => { S.rate = r; persist(); render(); })) };
   },
 };
-function appMenu(kicker = 'Strata', title = INST.name || 'CDN Monitor') {
+function appMenu(kicker = 'Corium', title = INST.name || 'CDN Monitor') {
   return { kicker, title, items: [
     item('Summary', 'g s', () => go('summary'), { icon: 'layout-dashboard' }), item('Requests', 'g r', () => go('requests'), { icon: 'activity' }), item('Files', 'g f', () => go('files'), { icon: 'folder-open' }),
     item(S.nobots ? 'Include bots in stats' : 'Exclude bots from stats', 'B', () => ACT.bots(), { sep: true, icon: 'bot' }),

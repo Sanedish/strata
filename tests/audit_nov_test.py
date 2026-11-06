@@ -1,6 +1,6 @@
-"""Regressions for the November 2026 security audit.
+"""Regressions for the November 2026 audit (continuation of the Gemini-started review).
 
-Each test names the finding it guards (N-xx, see the commit message). Runs on its own or through run_all.py;
+Each test names the finding it guards (changelog, 0.5.0 Security). Runs on its own or through run_all.py;
 everything lives in a throwaway home.
 """
 import io
@@ -68,8 +68,90 @@ class CaddyPlaceholderTests(unittest.TestCase):
         self.assertNotIn("respond `{file.", text)
 
 
+class ErrorTemplateTests(unittest.TestCase):
+    """N-06 / O-02: error pages are files on a drive and never Caddy templates (whoever writes the folder would get
+    Caddy's file and environment functions); the reason, version and Ray ID reach the page in Server-Timing."""
+
+    def render_with(self, page):
+        root = tempfile.mkdtemp(dir=HOME.name)
+        db = core.connect()
+        try:
+            with db:
+                mid = db.execute("INSERT INTO mount(name,kind,path,prefix,hosts,cache,edge_cache,precompress,browse,"
+                                 "transforms,enabled,note,sort) VALUES('E','files',?,'/','[\"e.example\"]','no-store',"
+                                 "'',0,0,0,1,'',0)", [root.replace("\\", "/")]).lastrowid
+                s = rules.site(db)
+                s.update(error_mount=mid, error_assets="/_errors", error_page=page)
+                core.set_meta(db, "site", s)
+            return rules.render(db)
+        finally:
+            with db:
+                db.execute("DELETE FROM mount WHERE id=?", [mid])
+            db.close()
+
+    def test_fallback_outside_assets_is_not_a_template(self):
+        self.assertNotRegex(self.render_with("/_errors/404/index.html /uploads/404.html"), r"(?m)^\s*templates\b")
+
+    def test_pages_inside_assets_are_not_templates_either(self):
+        text = self.render_with("/_errors/404/index.html /_errors/legacy/404.html")
+        self.assertNotRegex(text, r"(?m)^\s*templates\b")
+        self.assertIn('header Server-Timing `corium;desc="%s", reason;desc="{http.vars.strata_reason}", '
+                      'ray;desc="{http.request.header.Cf-Ray}"`' % core.VERSION, text)
+
+
+class StockErrorPagesTests(unittest.TestCase):
+    """The default error pages install into a drive folder without overwriting anything, and contain no templates."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(dir=HOME.name)
+        db = core.connect()
+        with db:
+            self.mid = db.execute("INSERT INTO mount(name,kind,path,prefix,hosts,cache,edge_cache,precompress,browse,"
+                                  "transforms,enabled,note,sort) VALUES('S','files',?,'/','[\"s.example\"]','',"
+                                  "'',0,0,0,1,'',0)", [self.root.replace("\\", "/")]).lastrowid
+        db.close()
+        core.mounts(refresh=True)  # the drive list is cached
+
+    def tearDown(self):
+        db = core.connect()
+        with db:
+            db.execute("DELETE FROM mount WHERE id=?", [self.mid])
+        db.close()
+        core.mounts(refresh=True)
+
+    def test_install_copies_rewrites_and_keeps_edits(self):
+        mine = os.path.join(self.root, "errs", "not-found", "info.md")
+        os.makedirs(os.path.dirname(mine))
+        with open(mine, "w") as f:
+            f.write("my text")
+        r = rules.install_error_pages(self.mid, "/errs/")
+        self.assertEqual(r["folder"], "/errs")
+        self.assertEqual(r["pages"]["404"], "/errs/not-found/index.html")
+        self.assertNotIn("not-found/info.md", r["created"])
+        self.assertIn("_shared/page.js", r["created"])
+        self.assertIn("_shared/img/kcat_1.webp", r["created"])
+        with open(mine) as f:
+            self.assertEqual(f.read(), "my text")
+        with open(os.path.join(self.root, "errs", "forbidden", "index.html")) as f:
+            page = f.read()
+        self.assertIn('<base href="/errs/forbidden/">', page)
+        self.assertEqual(rules.install_error_pages(self.mid, "/errs")["created"], [])  # a second run adds nothing
+
+    def test_bad_folders_are_refused(self):
+        for folder in ("/", "/../x", "/a b", "/.strata-trash"):
+            with self.assertRaises((rules.ServeError, files.FileError)):
+                rules.install_error_pages(self.mid, folder)
+
+    def test_stock_pages_hold_no_template_actions(self):
+        for dirpath, _dirs, names in os.walk(rules.STOCK_ERRORS):
+            for name in names:
+                if name.endswith((".html", ".md")):
+                    with open(os.path.join(dirpath, name), encoding="utf-8") as f:
+                        self.assertNotIn("{{", f.read(), name)
+
+
 class TunnelIngressTests(unittest.TestCase):
-    """N-03: a tunnel route skips Caddy and every Strata rule; non-owners may not publish internal ports."""
+    """N-03: a tunnel route skips Caddy and every Corium rule; non-owners may not publish internal ports."""
 
     def as_role(self, role):
         return mock.patch.object(accounts, "get", return_value={"user": "x", "role": role, "enabled": 1})
@@ -88,9 +170,31 @@ class TunnelIngressTests(unittest.TestCase):
             self.assertEqual(network.check_ingress_service("x", "http_status:404"), "http_status:404")
             self.assertEqual(network.check_ingress_service("x", "http://192.168.1.20:3000"), "http://192.168.1.20:3000")
 
+    def test_cors_password_is_not_owner(self):
+        with self.assertRaises(network.NetError):
+            network.check_ingress_service("api:cors", "http://127.0.0.1:2019")
+
     def test_owner_keeps_full_control(self):
         with self.as_role("root"):
             self.assertEqual(network.check_ingress_service("x", "tcp://127.0.0.1:22"), "tcp://127.0.0.1:22")
+
+
+class CorsPrincipalTests(unittest.TestCase):
+    """N-01: the CORS password ("api:cors") never holds root-only capabilities, also not through accounts.has()."""
+
+    def test_cors_lacks_root_only(self):
+        for cap in accounts.ROOT_ONLY:
+            self.assertFalse(accounts.has("api:cors", cap), cap)
+        self.assertTrue(accounts.has("api:cors", "serving.drives"))
+        self.assertTrue(accounts.has("api:somekey", "code.write"))  # a generated API key is the owner's own
+
+    def test_cors_cannot_mount_outside_storage(self):
+        outside = tempfile.mkdtemp(dir=HOME.name)
+        with mock.patch.object(core, "file_mounts", return_value=[]), \
+                mock.patch.dict(core.CFG, {"storage_paths": [tempfile.mkdtemp(dir=HOME.name)]}), \
+                mock.patch.object(rules, "mutate", return_value={"diff": "ok"}), self.assertRaises(files.FileError):
+            rules.save_mount("api:cors", {"name": "code", "kind": "files", "path": outside, "prefix": "/x",
+                                          "hosts": ["c.example"]})
 
 
 class LoginLimiterTests(unittest.TestCase):

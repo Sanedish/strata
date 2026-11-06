@@ -1,6 +1,6 @@
-# Strata image optimizer
+# Corium image optimizer
 
-Adaptive, bandwidth-first image delivery for the `:8080` CDN, built on Strata Media (DESIGN.md). Deployed
+Adaptive, bandwidth-first image delivery for the `:8080` CDN, built on Corium Media (DESIGN.md). Deployed
 2026-10-03 in the **images-only profile**: `media.enabled` on, scan gate / file policy / large-file lane / video
 off. Originals on the NAS are never modified; everything derived lives under `media.cache_root` (`E:/strata-media`).
 
@@ -20,7 +20,7 @@ cloudflared -> Caddy :8080 (generated/cdn.caddy, rendered by rules.py + media_ru
           accel -> file_server from <cache_root>/cache (persistent or ephemeral tier)  Range/ETag/304/HEAD
           orig  -> file_server from the NAS (precompressed br kept)
           304 / 302 / 4xx pass through
-    @ver  ?ver=N -> Strata Transform :8083 (unchanged), /_gate signed links (unchanged)
+    @ver  ?ver=N -> Corium Transform :8083 (unchanged), /_gate signed links (unchanged)
   5 drives: everything else exactly as before (non-images, ?_v=orig, ?nocompress=1 ...)
 ```
 
@@ -89,13 +89,13 @@ media.image.tiers.*                interval_s half_life_h promote_min_hits promo
 * media.py `GET /_metrics` (loopback): `image_optimizer_*` Prometheus counters/gauges (requests by result/format/cache,
   original/served/saved bytes, encodes, failures, duration histogram, cache hits/misses, promotions, demotions,
   evictions, queue depth, tier bytes).
-* `GET /_stats` -> `optimizer` (since start + lifetime per variant) -> Strata > Media > Image optimizer panel.
+* `GET /_stats` -> `optimizer` (since start + lifetime per variant) -> Corium > Media > Image optimizer panel.
 * media.db `sample` rows (per minute): `optimizer.{original,served,saved}` bytes.
 
 ## Operations
 
-* Turn it off: `media.enabled=false` in Strata > Media (or strata.json) -> Caddy config re-renders to the old
-  transform routes; Strata Transform (:8083) never stopped.
+* Turn it off: `media.enabled=false` in Corium > Media (or strata.json) -> Caddy config re-renders to the old
+  transform routes; Corium Transform (:8083) never stopped.
 * Force a re-encode of everything: bump `media.image.profile`.
 * Cloudflare: grant the token **Zone > Transform Rules > Edit** to move from redirect to edge mode automatically
   (no extra round trip per image view). Keep Polish off.

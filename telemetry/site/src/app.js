@@ -1,5 +1,5 @@
 'use strict';
-/* Strata Telemetry - public statistics page. Reads /api/stats and /api/live (already aggregated and
+/* Corium Telemetry - public statistics page. Reads /api/stats and /api/live (already aggregated and
    redacted upstream).
 
    Hardening: this file never parses HTML. Every node is made with createElement/createTextNode and
@@ -308,7 +308,7 @@ function renderGrid() {
   for (const n of [...grid.children]) if (!n.classList.contains('traffic')) n.remove();
   grid.append(...tiles);
   $('#kanon').textContent = String(num(S.k_anon, 3));
-  $('#updated').textContent = 'Updated ' + fmt.time(S.generated) + ' · Strata Telemetry';
+  $('#updated').textContent = 'Updated ' + fmt.time(S.generated) + ' · Corium Telemetry';
   fit();
 }
 

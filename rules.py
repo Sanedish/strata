@@ -38,7 +38,7 @@ import files
 import gate
 from core import CFG, connect, get_meta, log, rows_of, set_meta
 
-try:  # Strata Media (media_rules.py, media/DESIGN.md): optional - while it is off or missing, render() is unchanged
+try:  # Corium Media (media_rules.py, media/DESIGN.md): optional - while it is off or missing, render() is unchanged
     import media_rules
 except Exception:
     media_rules = None
@@ -70,6 +70,8 @@ ACTIONS = {
 PREVIEW_KINDS = ("", "audio", "text", "archive", "pdf", "folder", "warning", "file")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 PRIVATE_ACTIONS = {"password", "signed", "ip_allow", "geo_allow", "geo_deny", "hotlink"}
+REASON_ACTIONS = {"hide", "deny", "ip_allow", "geo_allow", "geo_deny", "hotlink"}  # rules that answer 403 / 404
+MAINT_CODES = (500, 502, 503, 504)
 BL_KINDS = {
     "ip": "IP address", "cidr": "IP range (CIDR)", "country": "Country", "asn": "Network / ASN (edge only)",
     "ua_contains": "User agent contains", "ua_regex": "User agent regex (origin only)", "agent": "Client class",
@@ -100,7 +102,7 @@ NAV_EXPR = ('{http.request.header.Sec-Fetch-Dest} in ["document", "iframe"] || (
             ' && {http.request.header.Accept}.contains("text/html"))')
 PLAYER_HEADERS = ("X-Strata-Player-Dir", "X-Strata-Player-Bg", "X-Strata-Player-Bg-Url")
 PREVIEW_UA = "(?i)" + core.EMBED_RE.pattern  # link-preview crawlers (Discord, Slack, Telegram, X, WhatsApp...)
-# file types the platforms embed themselves (pictures, videos, web pages): every other file gets a Strata card
+# file types the platforms embed themselves (pictures, videos, web pages): every other file gets a Corium card
 PREVIEW_NATIVE = ("jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "avif", "svg", "ico", "heic", "mp4",
                   "webm", "mov", "m4v", "mkv", "avi", "ogv", "html", "htm", "xhtml")
 PREVIEW_NATIVE_RX = r"(?i)\.(%s)$" % "|".join(PREVIEW_NATIVE)
@@ -175,6 +177,54 @@ def active(row):
     return row.get("enabled") and not (row.get("expires") and row["expires"] < now())
 
 
+# ---------------------------------------------------------------- reasons on error pages
+# A reason travels to the error page as the Caddy variable strata_reason: base64url JSON, so it never needs escaping
+# in the Caddyfile and no placeholder inside it is ever expanded: what (what happened), who (who is affected), eta (UTC).
+# The page reads it from the Server-Timing header of its own response (SERVER_TIMING), next to the version and the
+# Cloudflare Ray ID. Error pages are never Caddy templates: they are files on a drive, and a template there would give
+# anyone who can write to that folder Caddy's file and environment functions.
+REASON_VAR = "strata_reason"
+SERVER_TIMING = 'corium;desc="%s", reason;desc="{http.vars.%s}", ray;desc="{http.request.header.Cf-Ray}"' % (
+    core.VERSION, REASON_VAR)
+
+
+def clean_text(v, limit):
+    """Free text for an error page: control characters out (newlines kept), trimmed, capped."""
+    return re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", "", str(v or "")).replace("\r", "").strip()[:limit]
+
+
+def reason_payload(**fields):
+    d = {k: v for k, v in fields.items() if v}
+    if not d:
+        return ""
+    raw = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def reason_vars(o, depth, n, payload):
+    """`vars [@n] strata_reason <payload>` - set before the error, read by the error page."""
+    if payload:
+        o.add(depth, "vars %s%s %s" % ("@%s " % n if n else "", REASON_VAR, payload))
+
+
+def clean_maint(d):
+    """Maintenance mode of a drive: {on, code, what, who, eta (epoch s), lan (LAN still served normally)}."""
+    code = int(d.get("code") or 503)
+    if code not in MAINT_CODES:
+        raise ServeError("maintenance code must be one of %s" % ", ".join(map(str, MAINT_CODES)))
+    eta = d.get("eta")
+    eta = float(eta) if eta not in (None, "", 0) else None
+    if eta is not None and not 946684800 < eta < 4102444800:
+        raise ServeError("invalid return time")
+    return {"on": bool(d.get("on")), "code": code, "what": clean_text(d.get("what"), 600),
+            "who": clean_text(d.get("who"), 300), "eta": eta, "lan": bool(d.get("lan"))}
+
+
+def maint_payload(mt):
+    eta = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt["eta"])) if mt.get("eta") else ""
+    return reason_payload(mode="maintenance", code=mt.get("code") or 503, what=mt.get("what"), who=mt.get("who"), eta=eta)
+
+
 # ---------------------------------------------------------------- validation
 
 def clean_hosts(v):
@@ -188,7 +238,7 @@ def clean_hosts(v):
 
 
 def own_addresses():
-    """Every address of this PC: a service there could be Strata's or Caddy's own admin side."""
+    """Every address of this PC: a service there could be Corium's or Caddy's own admin side."""
     addrs = {"127.0.0.1", "::1"}
     for fn in (lambda: [a[4][0] for a in socket.getaddrinfo(socket.gethostname(), None)],
                lambda: socket.gethostbyname_ex(socket.gethostname())[2]):
@@ -219,7 +269,7 @@ def clean_upstream(v):
                          "127/8, fc00::/7) - not %s" % ip)
     canon = ("[%s]" % ip if ip.version == 6 else str(ip)) + ":%d" % port
     if ip.is_loopback or str(ip) in own_addresses():
-        # services on this PC (e.g. localhost:1234) are fine - except the reserved ports where Strata, Caddy, the
+        # services on this PC (e.g. localhost:1234) are fine - except the reserved ports where Corium, Caddy, the
         # tunnel's metrics, monitoring or remote access live (network.reserved_ports); those only with an explicit
         # proxy_local_allow entry in strata.json, deliberately not settable from the UI or the API
         import network
@@ -229,9 +279,9 @@ def clean_upstream(v):
             if am:
                 allowed.add(int(am.group(4)))
         if port in network.reserved_ports() and port not in allowed:
-            raise ServeError("%s is reserved on this PC (Strata, Caddy, tunnel metrics, monitoring or remote access "
+            raise ServeError("%s is reserved on this PC (Corium, Caddy, tunnel metrics, monitoring or remote access "
                              "listen there) - refused. If you really mean it, add \"127.0.0.1:%d\" to proxy_local_allow "
-                             "in strata.json (on purpose not possible from the UI or the API) and restart Strata."
+                             "in strata.json (on purpose not possible from the UI or the API) and restart Corium."
                              % (canon, port))
     return canon
 
@@ -348,7 +398,7 @@ def clean_ips(v, allow_private=True):
         except ValueError:
             raise ServeError("not an IP or CIDR range: %s" % s)
         if not allow_private and any(net.overlaps(n) for n in NEVER_NETS):
-            raise ServeError("refusing to block loopback addresses (%s) - Strata's own health checks use them" % s)
+            raise ServeError("refusing to block loopback addresses (%s) - Corium's own health checks use them" % s)
         out.append(str(net.network_address) if net.num_addresses == 1 else str(net))
     return list(dict.fromkeys(out))
 
@@ -453,6 +503,8 @@ def clean_rule(d, old=None):
                                     ("color", color.lower()), ("image", image[:500]), ("kind", kind)) if v}
         if p.get("off") in (True, False):
             params["off"] = bool(p["off"])
+    if action in REASON_ACTIONS and clean_text(p.get("reason"), 600):  # shown on the 403 / 404 page
+        params["reason"] = clean_text(p.get("reason"), 600)
     exp = d.get("expires")
     return {"name": str(d.get("name") or ACTIONS[action]).strip()[:80], "mount": mount,
             "patterns": clean_patterns(d.get("patterns")), "action": action, "params": params,
@@ -570,7 +622,11 @@ def site_default():
     return {
         "listen": CFG["instance"].get("cdn_listen") or ":8080", "log_file": CFG["access_log"], "roll_size": "50MiB",
         "roll_keep": 10, "roll_keep_for": "720h", "encode": ["gzip", "zstd"], "nosniff": True, "hide_server": True,
-        "error_mount": 1, "error_page": "/404/404.html", "error_page_403": "/404/403.html", "error_page_502": "",
+        # the default pages (static/errors, installed by Settings > Error pages > Edit), then the pre-0.5 single pages
+        "error_mount": 1, "error_page": "/_errors/not-found/index.html /404/404.html",
+        "error_page_403": "/_errors/forbidden/index.html /404/403.html", "error_page_502": "",
+        "error_page_500": "", "error_page_503": "", "error_page_504": "", "error_page_maintenance": "",
+        "error_assets": "/_errors",
         "unknown_host": "404 - Unknown host",
         "quiet": [{"host": sh, "paths": ["/api/live", "/api/stats"]}] if sh else [],
         "link_prefix": "/l/",
@@ -585,7 +641,7 @@ def site(db):
 
 def seed(db):
     """First run of an instance: a files drive on the first storage path for the CDN hostnames, the public
-    statistics page (Strata Telemetry) on stats.<zone>, and the built-in hiding rules."""
+    statistics page (Corium Telemetry) on stats.<zone>, and the built-in hiding rules."""
     if db.execute("SELECT count(*) FROM mount").fetchone()[0]:
         return False
     t = now()
@@ -602,14 +658,14 @@ def seed(db):
         rows.append((1, "Storage", "files", CFG["storage_paths"][0], "/", cdn, BROWSER_REVALIDATE, 1, 0, 1, 10,
                      "first storage path of this instance"))
     if sh:
-        rows.append((3, "Public statistics", "proxy", tele, "/", [sh], "", 0, 0, 0, 20, "Strata Telemetry"))
+        rows.append((3, "Public statistics", "proxy", tele, "/", [sh], "", 0, 0, 0, 20, "Corium Telemetry"))
     for mid, name, kind, path, prefix, hosts, cache, pre, browse, tf, sort, note in rows:
         db.execute("INSERT INTO mount(id,name,kind,path,prefix,hosts,cache,edge_cache,precompress,browse,transforms,"
                    "enabled,sort,note,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)",
                    [mid, name, kind, path, prefix, json.dumps(hosts), cache, EDGE_LONG if kind == "files" else "",
                     pre, browse, tf, sort, note, t, t])
     for sort, name, pats, action, note in [
-            (0, "Hide dot-files", ["re:/\\."], "hide", "built in: .env, .git, Strata's own .strata-* folders"),
+            (0, "Hide dot-files", ["re:/\\."], "hide", "built in: .env, .git, Corium's own .strata-* folders"),
             (1, "Hide Windows system folders", ["/System*", "/$RECYCLE.BIN*"], "hide", "built in")]:
         db.execute("INSERT INTO rule(name,mount,patterns,action,params,enabled,sort,note,builtin,created,updated) "
                    "VALUES(?,?,?,?,?,1,?,?,1,?,?)", [name, None, json.dumps(pats), action, "{}", sort, note, t, t])
@@ -649,7 +705,7 @@ def load(db):
                 r[c] = json.loads(r[c]) if r.get(c) else ([] if c in ("hosts", "patterns") else {})
         return rows
     return {
-        "mounts": js(rows_of(db.execute("SELECT * FROM mount ORDER BY sort, id")), "hosts"),
+        "mounts": js(rows_of(db.execute("SELECT * FROM mount ORDER BY sort, id")), "hosts", "maint"),
         "rules": js(rows_of(db.execute("SELECT * FROM rule ORDER BY sort, id")), "patterns", "params"),
         "blacklist": rows_of(db.execute("SELECT * FROM blacklist ORDER BY id DESC")),
         "links": js(rows_of(db.execute("SELECT * FROM link ORDER BY created DESC")), "mods"),
@@ -835,7 +891,7 @@ def bin_rows(db):
     """{(mount id, 'bin'|'gone'): [row]} - binned paths, and deleted ones still inside the gone_days window."""
     gone_after = now() - float(CFG.get("gone_days") or 30) * 86400
     out = collections.defaultdict(list)
-    for r in rows_of(db.execute("SELECT mount, path, dir, state, ts FROM binpath ORDER BY mount, state, path")):
+    for r in rows_of(db.execute("SELECT mount, path, dir, state, ts, reason FROM binpath ORDER BY mount, state, path")):
         if r["state"] == "bin" or (r["state"] == "gone" and (r["ts"] or 0) >= gone_after):
             out[(r["mount"], r["state"])].append(r)
     return out
@@ -857,7 +913,7 @@ MEDIA_ERRORS = set()
 
 
 def media(name, *a):
-    """Strata Media hook (media_rules.hook): None while media is off or media_rules is missing. A failure is logged
+    """Corium Media hook (media_rules.hook): None while media is off or media_rules is missing. A failure is logged
     (once per message) and never raised, so render() / apply() then behave exactly as without media."""
     if media_rules is None:
         return None
@@ -1116,6 +1172,11 @@ def cel(text):
     return '"%s"' % text.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def error_drive(S, mounts):
+    """The drive the error pages (and their assets folder) are stored on, if it is enabled."""
+    return next((m for m in mounts if m["id"] == S.get("error_mount") and m["kind"] in ("files", "page")), None)
+
+
 def render(db):
     D = load(db)
     S = D["site"]
@@ -1124,9 +1185,9 @@ def render(db):
     bl = [b for b in D["blacklist"] if active(b) and b["scope"] in ("origin", "both") and b["action"] == "block"]
     hosts_all = cdn_hosts(mounts)
     o = Out()
-    o.add(0, "# Generated by Strata (instance %s, code %s) - do not edit by hand: use Strata > Serving."
+    o.add(0, "# Generated by Corium (instance %s, code %s) - do not edit by hand: use Corium > Serving."
           % (re.sub(r"[\r\n]", " ", core.HOME), re.sub(r"[\r\n]", " ", core.ROOT)))
-    o.add(0, "# The previous revisions are kept in Strata's database and can be restored from the Config tab.")
+    o.add(0, "# The previous revisions are kept in Corium's database and can be restored from the Config tab.")
     o.add(0, S["listen"] + " {")
     o.add(1, "log {")
     o.add(2, "output file %s {" % bq(S["log_file"]))
@@ -1150,9 +1211,9 @@ def render(db):
             o.add(2, "-Server")
         o.add(1, "}")
     o.add(1, "route {")
-    media("prologue", o)  # Strata Media: clients cannot inject internal X-Strata-* request headers
+    media("prologue", o)  # Corium Media: clients cannot inject internal X-Strata-* request headers
 
-    # 1 blacklist (LAN / loopback are never blocked, so Strata's probes and your own network keep working)
+    # 1 blacklist (LAN / loopback are never blocked, so Corium's probes and your own network keep working)
     safe = "not client_ip private_ranges"
     ips = [b["value"] for b in bl if b["kind"] in ("ip", "cidr")]
     if ips:
@@ -1211,9 +1272,12 @@ def render(db):
         if a in PRIVATE_ACTIONS:  # never let Cloudflare cache what the origin restricts
             o.add(2, "header @%s >Cache-Control `private, no-store`" % n)
             o.add(2, "header @%s -%s" % (n, EDGE_HEADER))  # else the drive's edge TTL would still cache it
+        reason = reason_payload(what=p.get("reason")) if a in REASON_ACTIONS else ""
         if a == "hide":
+            reason_vars(o, 2, n, reason)
             o.add(2, "error @%s 404" % n)
         elif a == "deny":
+            reason_vars(o, 2, n, reason)
             o.add(2, "error @%s 403" % n)
         elif a == "password":
             o.add(2, "basic_auth @%s bcrypt %s {" % (n, bq(p.get("realm") or "Protected")))
@@ -1238,6 +1302,7 @@ def render(db):
                 rx = r"(?i)^https?://([^/:]+\.)?(%s)(?::\d+)?(?:/|$)" % "|".join(re.escape(x) for x in doms)
                 extra = ["header Referer *", "not header_regexp %s Referer %s" % (o.name("hl"), bq(rx))]
             o.matcher(2, d, base + extra)
+            reason_vars(o, 2, d, reason)
             o.add(2, "error @%s 403" % d)
         elif a == "download":
             o.add(2, "header @%s >Content-Disposition `attachment`" % n)
@@ -1247,8 +1312,38 @@ def render(db):
         elif a == "redirect":
             o.add(2, "redir @%s %s %d" % (n, bq(p["to"]), p.get("code", 302)))
 
+    # 2a error page assets (css, scripts, texts the error pages load) on every host - a 502 on a service host renders too
+    em = error_drive(S, mounts)
+    if em and S.get("error_assets"):
+        n = o.name("errassets")
+        o.add(2, "# error page assets")
+        o.matcher(2, n, ["path " + bq(S["error_assets"] + "/*")])
+        o.add(2, "handle @%s {" % n)
+        o.add(3, "root * %s" % bq(em["path"]))
+        o.add(3, "header Cache-Control `public, max-age=300`")
+        o.add(3, "header -%s" % EDGE_HEADER)
+        o.add(3, "file_server")
+        o.add(2, "}")
+
+    # 2a' drives in maintenance answer their 5xx code with the maintenance page (after the error assets, so it renders)
+    for m in [m for m in mounts if (m.get("maint") or {}).get("on")]:
+        mt = m["maint"]
+        n = o.name("mt%d" % m["id"])
+        o.add(2, "# maintenance: %s" % re.sub(r"[\r\n]", " ", m["name"]))
+        if m["kind"] == "page":
+            conds = [host_cond(m["hosts"]), "path /"]
+        elif m["prefix"] != "/":
+            conds = [host_cond(m["hosts"]), "path " + bq(m["prefix"]) + " " + bq(m["prefix"] + "/*")]
+        else:
+            conds = [host_cond(m["hosts"])]
+        if mt.get("lan"):
+            conds.append("not client_ip private_ranges")
+        o.matcher(2, n, conds)
+        reason_vars(o, 2, n, maint_payload(mt))
+        o.add(2, "error @%s `Maintenance` %d" % (n, mt.get("code") or 503))
+
     # 2b services at a URL prefix: right after the blacklist and access rules, so short links, galleries, link
-    # modifiers and Strata Media (all meant for folder drives) never answer inside a service's prefix
+    # modifiers and Corium Media (all meant for folder drives) never answer inside a service's prefix
     for m in sorted([m for m in mounts if m["kind"] == "proxy" and m["prefix"] != "/"], key=lambda m: -len(m["prefix"])):
         n = o.name("m%d" % m["id"])
         o.add(2, "# service %s" % re.sub(r"[\r\n]", " ", m["name"]))
@@ -1273,7 +1368,7 @@ def render(db):
     render_galleries(o, rules, mounts)
     render_players(o, rules, mounts)
 
-    media("file_policy", o, mounts, allows)  # Strata Media: dangerous -> 404, unknown type -> 403, SVG CSP
+    media("file_policy", o, mounts, allows)  # Corium Media: dangerous -> 404, unknown type -> 403, SVG CSP
 
     # 4 link modifiers
     fmounts = [m for m in mounts if m["kind"] == "files"]
@@ -1300,7 +1395,7 @@ def render(db):
             o.add(4, "error 404")
             o.add(3, "}")
             o.add(2, "}")
-        if not media("media_routes", o, m, up, db):  # Strata Media takes ?_v= ?w= ... (not ?ver=) when it is on
+        if not media("media_routes", o, m, up, db):  # Corium Media takes ?_v= ?w= ... (not ?ver=) when it is on
             n = o.name("tf%d" % m["id"])
             o.matcher(2, n, [host_cond(m["hosts"])] + pc + [
                 "path_regexp %s %s" % (n, bq(IMAGE_RX)),
@@ -1309,7 +1404,7 @@ def render(db):
         n = o.name("ver%d" % m["id"])
         o.matcher(2, n, [host_cond(m["hosts"])] + pc + ["expression `{query.ver} != \"\"`"])
         transform_proxy(n)
-    media("gate", o, fmounts)  # Strata Media: scan gate (forward_auth) + large-file lane
+    media("gate", o, fmounts)  # Corium Media: scan gate (forward_auth) + large-file lane
     render_previews(o, fmounts, rules)
 
     # 5 drives
@@ -1353,16 +1448,18 @@ def render(db):
 
     # errors: never cacheable (headers the failed route already set - the drive's Cache-Control and edge TTL - are
     # still on the response, so both are overridden here)
-    em = next((m for m in mounts if m["id"] == S.get("error_mount") and m["kind"] in ("files", "page")), None)
-
     def no_store(depth):
         o.add(depth, "header Cache-Control `no-store`")
         o.add(depth, "header -%s" % EDGE_HEADER)
 
     def error_page(depth, page, status, text):
-        if em and page:
+        pages = (page or "").split()  # "/new.html /old.html": the first page that exists is served
+        if em and pages:
             o.add(depth, "root * %s" % bq(em["path"]))
-            o.add(depth, "rewrite * %s" % bq(page))
+            o.add(depth, "rewrite * %s" % bq(pages[-1]))
+            if len(pages) > 1:
+                o.add(depth, "try_files %s" % " ".join(bq(p) for p in pages))
+            o.add(depth, "header Server-Timing %s" % bq(SERVER_TIMING))  # reason, version, Ray ID: never `templates`
             o.add(depth, "file_server {")
             o.add(depth + 1, "status %s" % status)
             o.add(depth, "}")
@@ -1379,17 +1476,24 @@ def render(db):
                                       ("gone", S.get("error_page"), 404, "deleted permanently: 404 + cache wipe")):
         for m in [x for x in mounts if x["kind"] == "files"]:
             pre = "" if m["prefix"] == "/" else m["prefix"]
-            alts = [re2_literal(pre + r["path"]) + ("(?:/.*)?" if r["dir"] else "") for r in bins.get((m["id"], state), [])]
-            for i in range(0, len(alts), 200):
-                n = o.name(state + str(m["id"]))
-                if i == 0:
-                    o.add(2, "# %s - %s" % (re.sub(r"[\r\n]", " ", m["name"]), what))
-                o.matcher(2, n, [host_cond(m["hosts"]), "vars_regexp %s {http.request.orig_uri.path} %s" % (
-                    n, bq("(?i)^(?:%s)$" % "|".join(alts[i:i + 200])))])
-                o.add(2, "handle @%s {" % n)
-                o.add(3, wipe)
-                error_page(3, page, status, "Forbidden" if status == 403 else "Not Found")
-                o.add(2, "}")
+            by_reason = {}  # paths sharing a reason share a matcher
+            for r in bins.get((m["id"], state), []):
+                by_reason.setdefault(r.get("reason") or "", []).append(
+                    re2_literal(pre + r["path"]) + ("(?:/.*)?" if r["dir"] else ""))
+            first = True
+            for reason, alts in by_reason.items():
+                for i in range(0, len(alts), 200):
+                    n = o.name(state + str(m["id"]))
+                    if first:
+                        o.add(2, "# %s - %s" % (re.sub(r"[\r\n]", " ", m["name"]), what))
+                        first = False
+                    o.matcher(2, n, [host_cond(m["hosts"]), "vars_regexp %s {http.request.orig_uri.path} %s" % (
+                        n, bq("(?i)^(?:%s)$" % "|".join(alts[i:i + 200])))])
+                    o.add(2, "handle @%s {" % n)
+                    reason_vars(o, 3, None, reason_payload(what=reason))
+                    o.add(3, wipe)
+                    error_page(3, page, status, "Forbidden" if status == 403 else "Not Found")
+                    o.add(2, "}")
     o.add(2, "handle {")
     error_page(3, S.get("error_page"), "{err.status_code}", "{err.status_code} {err.status_text}")
     o.add(2, "}")
@@ -1399,10 +1503,30 @@ def render(db):
         no_store(2)
         error_page(2, S["error_page_403"], 403, "Forbidden")
         o.add(1, "}")
-    if em and S.get("error_page_502"):  # a proxied service (or Transform, or the gate) is down or too slow
-        o.add(1, "handle_errors 502 503 504 {")
+    # 5xx: a proxied service (or Transform, or the gate) is down or too slow. 503 / 504 use the 502 page unless set;
+    # codes sharing a page share one block. A drive in maintenance raises `Maintenance` with its code: that error gets
+    # the maintenance page (if set) in the same block
+    maint_codes = {(m.get("maint") or {}).get("code") or 503 for m in mounts if (m.get("maint") or {}).get("on")}
+    maint_page = S.get("error_page_maintenance") if em else ""
+    fives = {}
+    for code in MAINT_CODES:
+        page = S.get("error_page_%d" % code) or (S.get("error_page_502") if code in (503, 504) else "")
+        if em and page or maint_page and code in maint_codes:
+            fives.setdefault(page, []).append(code)
+    for page, codes in fives.items():
+        o.add(1, "handle_errors %s {" % " ".join(map(str, codes)))
         no_store(2)
-        error_page(2, S["error_page_502"], "{err.status_code}", "")
+        if maint_page and maint_codes & set(codes):
+            n = o.name("maint")
+            o.matcher(2, n, ["expression `{err.message} == \"Maintenance\"`"])
+            o.add(2, "handle @%s {" % n)
+            error_page(3, maint_page, "{err.status_code}", "")
+            o.add(2, "}")
+            o.add(2, "handle {")
+            error_page(3, page, "{err.status_code}", "{err.status_code} {err.status_text}")
+            o.add(2, "}")
+        else:
+            error_page(2, page, "{err.status_code}", "")
         o.add(1, "}")
     o.add(1, "handle_errors {")
     no_store(2)
@@ -1567,6 +1691,7 @@ def apply(db, user="", reason="", force=False):
         cur = read_gen()
         if cur == text and not force:
             write_transform_config(core.mounts(refresh=True), db)  # link-preview rules change Transform, not Caddy
+            media("config", core.mounts(), db)  # media settings (tools, tunables) need not change Caddy either
             return {"changed": False}
         sha = hashlib.sha256(text.encode()).hexdigest()[:16]
         try:
@@ -1576,7 +1701,7 @@ def apply(db, user="", reason="", force=False):
                        [now(), user, reason, text, sha, str(e)])
             raise
         write_transform_config(core.mounts(refresh=True), db)
-        media("config", core.mounts(), db)  # Strata Media: media/media.json (no-op while media is off)
+        media("config", core.mounts(), db)  # Corium Media: media/media.json (no-op while media is off)
         tmp = GEN_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(text)
@@ -1640,7 +1765,7 @@ def gate_users(mid, g, old):
         if u["totp"]:
             totp = prev[1] if prev and prev[1] else auth.totp_secret()
             if not (prev and prev[1]):
-                uri = auth.totp_uri(totp, u["user"], issuer="Strata gate")
+                uri = auth.totp_uri(totp, u["user"], issuer="Corium gate")
                 enrol.append({"user": u["user"], "secret": totp, "uri": uri, "qr": auth.qr_svg(uri)})
         rows.append((mid, u["user"], h, totp))
     if g["mode"] == "login" and not rows:
@@ -1654,7 +1779,7 @@ def save_mount(user, d):
         import accounts
         if not accounts.has(user, "code.write"):
             # Choosing an arbitrary filesystem root would bypass the owner's code/secrets permissions:
-            # an administrator could mount Strata itself, then edit it through the ordinary Files API.
+            # an administrator could mount Corium itself, then edit it through the ordinary Files API.
             roots = list(CFG.get("storage_paths") or []) + [m["path"] for m in core.file_mounts(enabled_only=False)]
             target = os.path.normcase(os.path.realpath(c["path"]))
             approved = False
@@ -1724,6 +1849,20 @@ def save_mount(user, d):
     res = mutate(user, "drive %s saved" % c["name"], fn, d.get("preview"))
     res["enrol"] = enrol
     return res
+
+
+def set_maintenance(user, d):
+    """Turn a drive's maintenance mode on or off: its hosts / prefix answer the chosen 5xx with the maintenance page,
+    which shows what happened, who is affected and when it returns."""
+    m = core.mount(int(d.get("id") or 0))
+    if not m:
+        raise ServeError("unknown drive")
+    mt = clean_maint(d)
+
+    def fn(db):
+        db.execute("UPDATE mount SET maint=?, updated=? WHERE id=?", [json.dumps(mt), now(), m["id"]])
+        return mt
+    return mutate(user, "drive %s maintenance %s" % (m["name"], "on" if mt["on"] else "off"), fn, d.get("preview"))
 
 
 def delete_mount(user, mid):
@@ -1906,19 +2045,59 @@ def save_site(user, d):
                 raise ServeError("the unknown-host text cannot contain { or }")
             bq(v)
             s["unknown_host"] = v
-        for k in ("error_page", "error_page_403", "error_page_502"):
-            if k in d:
-                v = str(d[k] or "")
-                if v and not PATH_PAT_RE.match(v):
-                    raise ServeError("error page must be a path like /404/404.html")
-                if v:
-                    v = norm_path(v, "error page must be a valid path like /404/404.html")
-                s[k] = v
+        for k in ("error_page", "error_page_403", "error_page_500", "error_page_502", "error_page_503", "error_page_504",
+                  "error_page_maintenance"):
+            if k in d:  # several paths separated by spaces: the first that exists is served, the others are fallbacks
+                vs = str(d[k] or "").split()
+                if len(vs) > 4 or not all(PATH_PAT_RE.match(v) for v in vs):
+                    raise ServeError("error page must be a path like /404/404.html (up to 4, separated by spaces)")
+                s[k] = " ".join(norm_path(v, "error page must be a valid path like /404/404.html") for v in vs)
+        if "error_assets" in d:
+            v = str(d["error_assets"] or "").strip().rstrip("/")
+            if v and not PREFIX_RE.match(v):
+                raise ServeError("assets folder must be a path like /_errors")
+            s["error_assets"] = v
         if "error_mount" in d:
             s["error_mount"] = int(d["error_mount"]) if d["error_mount"] else None
         set_meta(db, "site", s)
         return s
     return mutate(user, "site settings", fn, d.get("preview"))
+
+
+# ---------------------------------------------------------------- stock error pages
+STOCK_ERRORS = os.path.join(core.ROOT, "static", "errors")
+ERROR_SLUGS = {"404": "not-found", "403": "forbidden", "500": "server-error", "502": "bad-gateway",
+               "503": "service-unavailable", "504": "gateway-timeout", "maintenance": "maintenance"}
+
+
+def install_error_pages(mid, folder):
+    """Copies the stock error pages (static/errors: a page, its texts in info.md, shared script, style and images) into
+    `folder` on a drive. Files already there are kept, so edited texts are never overwritten. Returns the folder, the
+    files it added and the page path per status."""
+    folder = "/" + str(folder or "/_errors").strip().strip("/")
+    if folder == "/" or not PREFIX_RE.match(folder):
+        raise ServeError("assets folder must be a path like /_errors")
+    m = files.get_mount(mid)
+    created = []
+    for dirpath, _dirs, names in os.walk(STOCK_ERRORS):
+        for name in sorted(names):
+            src = os.path.join(dirpath, name)
+            rel = os.path.relpath(src, STOCK_ERRORS).replace(os.sep, "/")
+            full, _ = files.resolve(m, folder + "/" + rel)
+            if os.path.lexists(full):
+                continue
+            with open(src, "rb") as f:
+                data = f.read()
+            if name == "index.html":  # the page is served at the failed URL: its links resolve from <base>
+                data = data.replace(b'<base href="/_errors/', ('<base href="%s/' % folder).encode("ascii"))
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            tmp = full + ".part"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, full)
+            created.append(rel)
+    return {"folder": folder, "created": created,
+            "pages": {code: "%s/%s/index.html" % (folder, slug) for code, slug in ERROR_SLUGS.items()}}
 
 
 def rollback(user, hid):
@@ -2558,7 +2737,7 @@ def migrate_caddyfile(user="strata"):
             break
     if end is None:
         raise ServeError("could not find the end of the %s block" % listen)
-    new = ("".join(lines[:start]) + "# %s CDN site - rendered by Strata from its database (Strata > Serving).\n"
+    new = ("".join(lines[:start]) + "# %s CDN site - rendered by Corium from its database (Corium > Serving).\n"
            "# The hand-written original is in the backups folder next to the Caddyfile.\n" % listen
            + IMPORT_LINE + "\n" + "".join(lines[end + 1:]))
     bdir = os.path.join(os.path.dirname(path), "backups")
@@ -2695,7 +2874,7 @@ def test_url(url, ip="", ua="", country="", referer=""):
         if g["mode"] == "login":
             return {"result": "302 → %s%s/login unless signed in, then proxied to %s" % (
                 "" if m_hit["prefix"] == "/" else m_hit["prefix"], gate.PATH, m_hit["path"]),
-                "steps": steps + ["→ Strata gate: login required (session cookie for this service and hostname, %d h)"
+                "steps": steps + ["→ Corium gate: login required (session cookie for this service and hostname, %d h)"
                                   % g["hours"], "→ response is sent with Cache-Control: private, no-store"]}
         return {"result": "proxied to %s (public)" % m_hit["path"], "steps": steps}
     lp = D["site"]["link_prefix"]
@@ -2724,9 +2903,9 @@ def test_url(url, ip="", ua="", country="", referer=""):
                           "link previews and ?raw=1)",
                 "steps": steps + ["→ the bare URL is never cached by Cloudflare; ?raw=1 keeps the drive's edge cache"]}
     if query.get("ver"):
-        steps.append("?ver=%s → served from the version store by Strata Transform" % query["ver"][0])
+        steps.append("?ver=%s → served from the version store by Corium Transform" % query["ver"][0])
     elif re.search(IMAGE_RX, path) and any(k in query for k in ("w", "h", "fm", "q", "fit")):
-        steps.append("image modifiers → resized/converted by Strata Transform")
+        steps.append("image modifiers → resized/converted by Corium Transform")
     if query.get("dl") == ["1"]:
         steps.append("?dl=1 → Content-Disposition: attachment")
     exists = os.path.isfile(full) if m_hit["kind"] == "files" else os.path.isfile(os.path.join(m_hit["path"], "index.html"))

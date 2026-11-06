@@ -1,5 +1,5 @@
 'use strict';
-/* Strata layout: resizable side panels. Every view laid out as .split with an inline "1fr <N>px" template (the
+/* Corium layout: resizable side panels. Every view laid out as .split with an inline "1fr <N>px" template (the
    request inspector, file/folder inspector, gauges + log asides, blacklist and alert panels) gets a grip on the
    divider: drag it to widen or narrow the panel, double-click to reset, or focus it and use the arrow keys.
    Widths are remembered per view and panel in this browser. Loaded last; app.js re-renders #main on every poll,

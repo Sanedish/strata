@@ -26,7 +26,7 @@ static/vendor/codemirror/**/*.css
 !static/vendor/codemirror/**/*.min.js
 !static/vendor/codemirror/**/*.min.css
 
-# local sample audio, not part of Strata
+# local sample audio, not part of Corium
 static/media/*.mp3
 
 # dev-only extensions: loaded by strata.py when present (see its "import local"), never published

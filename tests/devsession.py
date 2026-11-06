@@ -1,5 +1,5 @@
 """devsession.py <db> <user> - mint a session for the DEV instance only and print the cookie token.
-Inserts sha256(token) into the dev DB's session table, exactly what Strata stores after a real login."""
+Inserts sha256(token) into the dev DB's session table, exactly what Corium stores after a real login."""
 import hashlib
 import secrets
 import sqlite3

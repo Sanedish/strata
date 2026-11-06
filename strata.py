@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strata - CDN analytics, storage manager, serving control and precompression for Caddy + cloudflared.
+"""Corium - CDN analytics, storage manager, serving control and precompression for Caddy + cloudflared.
 
 One code folder serves several sites; each runs as its own process with its own instance home (instance.py):
 
@@ -8,9 +8,9 @@ One code folder serves several sites; each runs as its own process with its own 
 
 Processes / ports per instance (everything here is loopback or LAN - never published), with the default ports:
     listen            127.0.0.1:8090  admin UI + API (login + optional TOTP)   <- Caddy exposes it to the LAN on :8091
-    feed_listen       127.0.0.1:8081  redacted feed for Strata Telemetry (loopback + bearer token, see feed.py)
-    transform_listen  127.0.0.1:8083  Strata Transform (transform/transform.py): resize / versions / signed links
-    telemetry.json    127.0.0.1:8082  Strata Telemetry (telemetry/telemetry.py): the public stats page
+    feed_listen       127.0.0.1:8081  redacted feed for Corium Telemetry (loopback + bearer token, see feed.py)
+    transform_listen  127.0.0.1:8083  Corium Transform (transform/transform.py): resize / versions / signed links
+    telemetry.json    127.0.0.1:8082  Corium Telemetry (telemetry/telemetry.py): the public stats page
 
 Config: <home>/strata.json (see core.DEFAULTS). First run: `python setup.py`, or open /setup from this machine.
 """
@@ -28,7 +28,7 @@ import tempfile
 import time
 import traceback
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import alerts
 import analyze
@@ -41,7 +41,9 @@ import compress
 import core
 import feed
 import files
+import instance
 import gate
+import mailtpl
 import media_bridge
 import network
 import office
@@ -54,6 +56,10 @@ try:  # dev-only extensions in the git-ignored local/ folder: production has non
 except ModuleNotFoundError as e:
     if e.name != "local":
         raise
+    local = None
+if local is not None and getattr(local, "__file__", None) is None:
+    # a local/ folder without __init__.py imports as an empty namespace package (demo.py --dev leaves local/demo
+    # behind): that is no extension, and treating it as one stops Corium at start-up
     local = None
 
 STATIC = os.path.join(core.ROOT, "static")
@@ -248,8 +254,8 @@ def instance_info():
         cdn = rules.preferred_host(rules.cdn_hosts(core.mounts())) if core.mounts() else ""
     except Exception:
         cdn = ""
-    return {"id": inst.get("id") or "", "name": inst.get("name") or CFG["cloudflare"].get("zone_name") or "Strata",
-            "brand": inst.get("brand") or "Strata", "login_text": inst.get("login_text") or "",
+    return {"id": inst.get("id") or "", "name": inst.get("name") or CFG["cloudflare"].get("zone_name") or "Corium",
+            "brand": inst.get("brand") or "Corium", "login_text": inst.get("login_text") or "",
             "accent": inst.get("accent") or "", "siblings": inst.get("siblings") or [],
             "zone": CFG["cloudflare"].get("zone_name") or "", "hosts": hosts,
             "cdn_host": cdn or next((h for h in hosts if h.startswith("cdn.")), hosts[0] if hosts else ""),
@@ -295,7 +301,7 @@ def page_vars():
             "{{ACCENT}}": html.escape(info["accent"] or ""), "{{BRAND}}": html.escape(info["brand"]),
             "<!--LOCAL-->": local_assets(),
             "<!--LOGIN_TEXT-->": '<p class="foot">%s</p>' % html.escape(info["login_text"]) if info["login_text"] else "",
-            "<!--VERSION-->": "Strata %s%s" % (html.escape(info["version"]), ' · <a href="%s" target="_blank" rel="noopener">%s available</a>' % (
+            "<!--VERSION-->": "Corium %s%s" % (html.escape(info["version"]), ' · <a href="%s" target="_blank" rel="noopener">%s available</a>' % (
                 html.escape(info["update"]["url"]), html.escape(info["update"]["tag"])) if info["update"] else "")}
 
 
@@ -397,10 +403,12 @@ ROUTE_CAPS = {
     "/api/serving/link": "files.share", "/api/serving/link/delete": "files.share", "/api/serving/link/alias": "files.share",
     "/api/serving/sign": "files.share",
     "/api/serving/mount": "serving.drives", "/api/serving/mount/delete": "serving.drives",
+    "/api/serving/maintenance": "serving.drives",
     "/api/serving/rule": "serving.rules", "/api/serving/rule/delete": "serving.rules", "/api/serving/rule/move": "serving.rules",
     "/api/serving/bl": "serving.blacklist", "/api/serving/bl/bulk": "serving.blacklist",
     "/api/serving/bl/delete": "serving.blacklist", "/api/serving/bl/toggle": "serving.blacklist",
-    "/api/serving/site": "serving.site", "/api/serving/rollback": "serving.apply", "/api/serving/apply": "serving.apply",
+    "/api/serving/site": "serving.site", "/api/serving/errors/install": "serving.site",
+    "/api/serving/rollback": "serving.apply", "/api/serving/apply": "serving.apply",
     # network and CDN
     "/api/cloudflare": "network.read", "/api/network/setting": "network.zone", "/api/network/dns/delete": "network.dns",
     "/api/network/ingress/add": "network.ingress", "/api/network/ingress/delete": "network.ingress",
@@ -426,6 +434,8 @@ def route_cap(path, method, q, body):
     if path == "/api/alerts/config":  # the sender that delivers sign-in codes: whoever controls it can read them
         # webhooks too: a URL of the owner's choosing receives every security alert
         return "mail.manage" if any(k in body for k in ("resend_api_key", "clear_key", "from", "webhooks", "smtp", "provider")) else "alerts.config"
+    if path.startswith("/api/emails"):  # a template sees the sign-in codes and reset links it carries
+        return "mail.manage"
     if path == "/api/logs":
         return {"access": "logs.access", "activity": "audit.read"}.get(q.get("source"), "logs.runtime")
     if path.startswith("/api/audit/"):
@@ -486,7 +496,7 @@ def num(b, key, lo, hi, cast=int, default=None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Strata"
+    server_version = "Corium"
     sys_version = ""
 
     def setup(self):
@@ -846,6 +856,10 @@ class Handler(BaseHTTPRequestHandler):
             host = "localhost"
         return ("https" if self.secure() else "http") + "://" + host
 
+    def mail_base(self):
+        """Common e-mail template variables known only during a request: the dashboard's address."""
+        return {"dashboard": self.dashboard_base()}
+
     def cookie(self, name, value, max_age, path="/"):
         return "%s=%s; Path=%s; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
             name, value, path, max_age, "; Secure" if self.secure() else "")
@@ -884,7 +898,7 @@ class Handler(BaseHTTPRequestHandler):
                    "signups_disabled": "Sign-ups are turned off on this site.",
                    "enrolled": "Account set up. Sign in with your new password.",
                    "owner": "Owner created. Sign in to continue.",
-                   "setup_local": "No owner yet. Open /setup in a browser on the machine Strata runs on, "
+                   "setup_local": "No owner yet. Open /setup in a browser on the machine Corium runs on, "
                                   "or run python setup.py there.",
                    "acct_expired": "Your access has ended. Ask an administrator to extend it.",
                    "acct_network": "This account can't sign in from this network."}.get(q.get("e"))
@@ -957,7 +971,7 @@ class Handler(BaseHTTPRequestHandler):
             raise files.FileError(403, "folder traffic needs the 'Traffic statistics' capability")
         if path == "/api/avatar":
             return self.send_avatar(user, q)
-        if path.startswith("/api/media/"):  # Strata Media admin API (media_bridge, DESIGN 13.2)
+        if path.startswith("/api/media/"):  # Corium Media admin API (media_bridge, DESIGN 13.2)
             r = media_bridge.api_get(user, path, q)
             return self.json(r) if r is not None else self.json({"error": "not found"}, 404)
         if path == "/api/live":
@@ -1069,6 +1083,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/me": lambda: self.me(user),
             "/api/instance": instance_info,
             "/api/branding": branding,  # not in ROUTE_CAPS: administrators only
+            "/api/emails": lambda: self.emails_state(user),
             "/api/settings/signups": lambda: {"allowed": accounts.signups_allowed(), "locked_by_env": bool(__import__("os").environ.get("ALLOW_SIGNUPS") is not None or __import__("os").environ.get("STRATA_ALLOW_SIGNUPS") is not None)},
             "/api/accounts": lambda: self.accounts_list(user),
             "/api/office": lambda: self.office_state(user),
@@ -1164,13 +1179,13 @@ class Handler(BaseHTTPRequestHandler):
                 tele = json.load(f)
         except (OSError, ValueError):
             pass
-        procs = [{"name": "Strata admin", "addr": CFG["listen"], "up": True},
+        procs = [{"name": "Corium admin", "addr": CFG["listen"], "up": True},
                  {"name": "Telemetry feed", "addr": CFG["feed_listen"], "up": up(CFG["feed_listen"])},
                  {"name": "Public stats page", "addr": tele.get("listen", ""), "up": up(tele.get("listen", ""))},
-                 {"name": "Strata Transform", "addr": CFG["transform_listen"], "up": up(CFG["transform_listen"])},
+                 {"name": "Corium Transform", "addr": CFG["transform_listen"], "up": up(CFG["transform_listen"])},
                  {"name": "Service gate", "addr": CFG["gate_listen"], "up": up(CFG["gate_listen"])}]
         if CFG["media"].get("enabled"):
-            procs.append({"name": "Strata Media", "addr": CFG["media"]["listen"], "up": up(CFG["media"]["listen"])})
+            procs.append({"name": "Corium Media", "addr": CFG["media"]["listen"], "up": up(CFG["media"]["listen"])})
         db = core.connect()
         try:
             try:
@@ -1268,6 +1283,47 @@ class Handler(BaseHTTPRequestHandler):
             db.close()
         return bool(row and row[0] and row[0].lower() == user.lower())
 
+    # -- Settings › Emails (mailtpl.py): owner only, see route_cap
+    def emails_test_to(self, user):
+        """Test e-mails go to the editor's own address (else the first alert recipient), never one typed in."""
+        email = str((accounts.get(user) or {}).get("email") or "").strip().lower()
+        if accounts.EMAIL_RE.fullmatch(email):
+            return email
+        return next(iter(CFG["alerts"].get("to") or []), "")
+
+    def emails_state(self, user):
+        return {"kinds": mailtpl.catalog(), "mail_ready": mail_configured(), "test_to": self.emails_test_to(user),
+                "fields": list(mailtpl.FIELDS), "max": mailtpl.MAX_FIELD}
+
+    def emails_post(self, path, b, user):
+        kind = str(b.get("kind") or "")
+        if kind not in mailtpl.KINDS:
+            raise files.FileError(400, "unknown kind of e-mail")
+        draft = {f: b[f] for f in mailtpl.FIELDS if f in b}
+        try:
+            if path == "/api/emails/preview":  # sample data, the editor's unsaved text
+                return mailtpl.render(kind, mailtpl.sample(kind), draft, self.mail_base())
+            if path == "/api/emails/save":
+                mailtpl.save(kind, draft)
+                return self.emails_state(user)
+            if path == "/api/emails/reset":
+                mailtpl.reset(kind)
+                return self.emails_state(user)
+            if path == "/api/emails/test":
+                to = self.emails_test_to(user)
+                if not (App.alerts and mail_configured()):
+                    raise files.FileError(400, "set up e-mail delivery first (Alerts › Delivery)")
+                if not to:
+                    raise files.FileError(400, "add an e-mail address to your account first")
+                m = mailtpl.render(kind, mailtpl.sample(kind), draft, self.mail_base())
+                App.alerts.send_to([to], "[Test] " + m["subject"], m["text"], m["html"])
+                return {"sent": True, "to": to}
+        except ValueError as e:
+            raise files.FileError(400, str(e))
+        except RuntimeError as e:  # the mail provider refused or the hourly limit is reached
+            raise files.FileError(502, str(e))
+        raise files.FileError(404, "not found")
+
     def accounts_list(self, user):
         return {"accounts": accounts.all_accounts(),
                 "permissions": [{"id": p, "label": label, "group": g, "description": d} for p, label, g, d in accounts.PERMISSIONS],
@@ -1278,16 +1334,16 @@ class Handler(BaseHTTPRequestHandler):
         rel = str(rel or "").replace("\\", "/").strip("/")
         parts = rel.split("/") if rel else []
         if not parts or any(p in ("", ".", "..") or p.startswith(".") for p in parts):
-            raise files.FileError(400, "choose a source file inside the Strata code folder")
+            raise files.FileError(400, "choose a source file inside the Corium code folder")
         if any(p.lower() in IDE_SKIP for p in parts) or os.path.splitext(parts[-1])[1].lower() not in IDE_EXTS:
             raise files.FileError(403, "this file is outside the web IDE scope")
         root = os.path.realpath(core.ROOT)
         full = os.path.realpath(os.path.join(root, *parts))
         try:
             if os.path.commonpath([root, full]) != root:
-                raise files.FileError(403, "path outside the Strata code folder")
+                raise files.FileError(403, "path outside the Corium code folder")
         except ValueError:
-            raise files.FileError(403, "path outside the Strata code folder")
+            raise files.FileError(403, "path outside the Corium code folder")
         return full, "/".join(parts)
 
     def ide_tree(self):
@@ -1424,7 +1480,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.close()
             gallery = any(rules.rule_matches(dict(r, patterns=rules.gallery_patterns(r["patterns"])), url_path.rstrip("/"))
                           for r in galleries)
-        if native or (is_dir and not gallery):  # crawlers never get a Strata card here
+        if native or (is_dir and not gallery):  # crawlers never get a Corium card here
             if q.get("meta"):
                 return self.json({"native": native, "folder_without_gallery": is_dir and not gallery, "url_path": url_path})
             raise files.FileError(404, "no link preview here")
@@ -1672,7 +1728,7 @@ class Handler(BaseHTTPRequestHandler):
             App.compressor.reindex(mid, (p or "/").rsplit("/", 1)[0] or "/")
 
     def post_routes(self, user, ip, path, b):
-        if path.startswith("/api/media/"):  # Strata Media admin API (validates and audits itself)
+        if path.startswith("/api/media/"):  # Corium Media admin API (validates and audits itself)
             return media_bridge.api_post(user, ip, path, b)
         A = lambda action, target, note="": core.audit(ip, user, action, target, note=note)
         if local and path in local.POST:
@@ -1716,7 +1772,7 @@ class Handler(BaseHTTPRequestHandler):
             if not auth.verify_password(str(b.get("current") or ""), acct.get("password_hash") or ""):
                 raise files.FileError(400, "current password is incorrect")
             email = str(b.get("email") or "").strip().lower()
-            accounts.send_code(user, email, App.alerts, ip, "email-change")
+            accounts.send_code(user, email, App.alerts, ip, "email-change", self.mail_base())
             return {"sent": True, "email": email}
         if path == "/api/account/email/verify":
             email = accounts.verify_code(user, b.get("code"), "email-change")
@@ -1762,11 +1818,10 @@ class Handler(BaseHTTPRequestHandler):
             email_sent = False
             target_email = str(b.get("email") or "").strip().lower()
             if target_email and App.alerts and mail_configured():
-                import html
-                body = "Complete your Strata account setup within 24 hours: " + link
-                html_body = "<p>An administrator invited you to Strata.</p><p><a href=\"%s\">Set your password and review the privacy note</a>. The invite expires in 24 hours.</p>" % html.escape(link, quote=True)
+                m = mailtpl.build("invite", {"user": target_user, "link": link, "hours": "24", "role": invited_role,
+                                             "invited_by": user}, self.mail_base())
                 try:
-                    App.alerts.send_to([target_email], "Your Strata account invitation", body, html_body)
+                    App.alerts.send_to([target_email], m["subject"], m["text"], m["html"])
                     email_sent = True
                 except Exception:
                     pass
@@ -1849,11 +1904,10 @@ class Handler(BaseHTTPRequestHandler):
             email_sent = False
             target_email = str(acct.get("email") or "").strip().lower()
             if target_email and App.alerts and mail_configured():
-                import html
-                body = "Reset your Strata account password: " + link
-                html_body = "<p>An administrator initiated a password reset for your Strata account.</p><p><a href=\"%s\">Set your new password</a>. The link expires in 24 hours.</p>" % html.escape(link, quote=True)
+                m = mailtpl.build("password_reset", {"user": target, "link": link, "hours": "24", "requested_by": user},
+                                  self.mail_base())
                 try:
-                    App.alerts.send_to([target_email], "Strata password reset link", body, html_body)
+                    App.alerts.send_to([target_email], m["subject"], m["text"], m["html"])
                     email_sent = True
                 except Exception:
                     pass
@@ -1932,7 +1986,7 @@ class Handler(BaseHTTPRequestHandler):
             A("fetch-url", "%s:%s" % (mid, b.get("dest")), str(b.get("url"))[:200])
             return r
         if path == "/api/files/trash/delete":
-            r = files.trash_delete(mid, b.get("items") or [])
+            r = files.trash_delete(mid, b.get("items") or [], b.get("reason"))
             A("trash-delete", "%s: %d items" % (mid, r["deleted"]), "%d bytes" % r["freed"])
             return purge_now(r)
         # network: Cloudflare zone settings, DNS, tunnel ingress, expose a service
@@ -2006,7 +2060,7 @@ class Handler(BaseHTTPRequestHandler):
             paths = b.get("paths") or []
             if not isinstance(paths, list) or not paths or len(paths) > 2000:
                 raise files.FileError(400, "nothing to delete")
-            r = files.delete(user, mid, paths)
+            r = files.delete(user, mid, paths, b.get("reason"))
             A("delete", "%s:%s" % (mid, ", ".join(x["path"] for x in r["moved"])[:500]), "batch " + r["batch"])
             self.reindex(mid, *[x["path"] for x in r["moved"]])
             App.compressor.reload_map()
@@ -2067,10 +2121,15 @@ class Handler(BaseHTTPRequestHandler):
             A("scan", "all drives")
             return {"queued": True}
         # serving control
-        if b.get("preview") and path in ("/api/serving/mount", "/api/serving/rule", "/api/serving/site"):
+        if b.get("preview") and path in ("/api/serving/mount", "/api/serving/rule", "/api/serving/site",
+                                         "/api/serving/maintenance"):
             # the diff of the Caddy config the change would produce; nothing is saved, applied or audited
-            save = {"mount": rules.save_mount, "rule": rules.save_rule, "site": rules.save_site}[path.rsplit("/", 1)[1]]
+            save = {"mount": rules.save_mount, "rule": rules.save_rule, "site": rules.save_site,
+                    "maintenance": rules.set_maintenance}[path.rsplit("/", 1)[1]]
             return {"diff": save(user, b)["diff"]}
+        if path == "/api/serving/maintenance":
+            A("drive-maintenance", str(b.get("id")), "on %s" % b.get("code", 503) if b.get("on") else "off")
+            return rules.set_maintenance(user, b)
         if path == "/api/serving/mount":
             r = rules.save_mount(user, b)
             A("drive-save", b.get("name", ""))
@@ -2130,6 +2189,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/serving/site":
             A("site-save", "")
             return rules.save_site(user, b)
+        if path == "/api/serving/errors/install":
+            r = rules.install_error_pages(mid, b.get("folder"))
+            A("error-pages-install", "%s:%s" % (mid, r["folder"]), "%d files added" % len(r["created"]))
+            return r
         if path == "/api/serving/rollback":
             A("config-rollback", str(b.get("id")))
             return rules.rollback(user, b.get("id"))
@@ -2227,10 +2290,15 @@ class Handler(BaseHTTPRequestHandler):
             core.save_config({"alerts": upd})
             A("alerts-config", ", ".join(k for k in upd))
             return alerts.q_alerts({})
+        if path.startswith("/api/emails/"):
+            r = self.emails_post(path, b, user)
+            if not path.endswith("/preview"):
+                A("emails." + path.rsplit("/", 1)[1], str(b.get("kind") or ""))
+            return r
         if path == "/api/alerts/test":
             try:
-                n = App.alerts.notify("[Strata] Test message", "This is a test from Strata.",
-                                      "<p>This is a test from <b>Strata</b>.</p>", "info")
+                m = mailtpl.build("test", {"requested_by": user}, self.mail_base())
+                n = App.alerts.notify(m["subject"], m["text"], m["html"], "info")
             except RuntimeError as e:
                 raise files.FileError(502, str(e))
             if not n:
@@ -2586,7 +2654,7 @@ class Handler(BaseHTTPRequestHandler):
         tok = App.pending.create(username, ip, ttl=600, step="email")
         pending_cookie = self.cookie(auth.PENDING_COOKIE, tok, 600)
         try:
-            accounts.send_code(username, email, App.alerts, ip, "login")
+            accounts.send_code(username, email, App.alerts, ip, "login", self.mail_base())
         except Exception:
             App.pending.drop(tok)
             App.limiter.fail(ip)
@@ -2709,6 +2777,14 @@ class Housekeeping(threading.Thread):
 
 
 def main():
+    # the admin port comes first: a second copy of this instance (a task started twice) stops here, before it touches
+    # the database or starts a thread, instead of sharing the port. Requests wait in the backlog until serve_forever.
+    host, port = CFG["listen"].rsplit(":", 1)
+    try:
+        srv = instance.ExclusiveHTTPServer((host, int(port)), Handler)
+    except OSError as e:
+        log("strata admin: can't listen on %s:%s (%s) - is this instance already running? Exiting." % (host, port, e))
+        raise SystemExit(1)
     core.init_db()
     accounts.bootstrap()
     accounts.office_migrate()
@@ -2744,14 +2820,11 @@ def main():
     for t in (rollup.Worker(), core.Tailer(App.live), App.metrics, App.probes, core.Pruner(), App.compressor, rules.Scheduler(),
               cloudflare.EdgeSync(), cloudflare.Purger(), App.alerts, Housekeeping()):
         t.start()
-    media_bridge.start()  # Strata Media: supervisor, discovery, purges, alerts; no-op while media.enabled is off
+    media_bridge.start()  # Corium Media: supervisor, discovery, purges, alerts; no-op while media.enabled is off
     feed.serve(App.live, App.metrics, App.probes)
     with open(rules.CFG["caddyfile"], encoding="utf-8-sig") as f:
         if rules.IMPORT_LINE not in f.read():
             log("WARNING: the Caddyfile does not import %s yet - serving changes are validated but cannot apply" % rules.GEN_FILE)
-    host, port = CFG["listen"].rsplit(":", 1)
-    srv = ThreadingHTTPServer((host, int(port)), Handler)
-    srv.daemon_threads = True
     log("strata admin on http://%s:%s  (log: %s, db: %s)" % (host, port, CFG["access_log"], core.DB_PATH))
     srv.serve_forever()
 

@@ -6,7 +6,7 @@ Part 1 needs nothing installed. In throwaway instances it checks that with bot p
 exactly what it was before Anubis existed, what the config, the policy file and the key file look like when it is on,
 that bad settings are refused and that challenge pages stay out of the statistics.
 
-Part 2 starts a real Caddy on the generated config, in front of a stub Strata Transform and a stub Anubis, and sends
+Part 2 starts a real Caddy on the generated config, in front of a stub Corium Transform and a stub Anubis, and sends
 requests: a browser gets the puzzle, a link-preview crawler gets its card, a spoofed crawler agent never gets the
 file, a Bearer header doesn't skip the puzzle, a client-sent X-Real-IP is ignored. Without a Caddy (STRATA_CADDY, or
 caddy on the PATH) it is skipped. With STRATA_ANUBIS (or anubis on the PATH) the same requests run again against the
@@ -308,7 +308,7 @@ def part_install(root):
 
 
 class Servers:
-    """The stub Strata Transform and the stub Anubis (HTTP on loopback), and what the stub Anubis saw."""
+    """The stub Corium Transform and the stub Anubis (HTTP on loopback), and what the stub Anubis saw."""
 
     def __init__(self, ports):
         self.seen = []
@@ -389,7 +389,7 @@ class Stack:
         if v.returncode:
             raise SystemExit(1)
         self.log = open(os.path.join(root, "anubis.log"), "w+")
-        if real:  # the argv Strata itself builds (public_url http:// adds the plain-http cookie flags)
+        if real:  # the argv Corium itself builds (public_url http:// adds the plain-http cookie flags)
             self.servers.stop_anubis()
             self.procs.append(subprocess.Popen(self.inst["argv"] + ["--slog-level", "INFO"],
                                                stdout=self.log, stderr=self.log))
@@ -457,7 +457,7 @@ def flow(root, real):
         st, hs, _ = s.get("/note.txt")
         check(st == 307 and location(hs) == "/.within.website/?redir=/note.txt", "%s: a browser opening a file is sent to the puzzle" % name, (st, location(hs)))
         check(py(s.inst, "import anubis, json; print(json.dumps(anubis.probe()))") == [True, True],
-              "%s: Strata's own check recognises Anubis (with the instance's host, a 307 or 401 counts)" % name)
+              "%s: Corium's own check recognises Anubis (with the instance's host, a 307 or 401 counts)" % name)
         st, hs, body = s.get("/.within.website/?redir=/note.txt")
         check(st == 200 and (b"STUB-CHALLENGE" in body or b"anubis_challenge" in body), "%s: the puzzle page is served (not hidden as a dot-file)" % name, st)
         st, _, body = s.get("/note.txt", ua=CRAWLER, nav=False)

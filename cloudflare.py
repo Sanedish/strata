@@ -207,7 +207,7 @@ def sync():
     lst = next((l for l in call("GET", "/accounts/%s/rules/lists" % acct)["result"] if l["name"] == LIST_NAME), None)
     if ips and not lst:
         lst = call("POST", "/accounts/%s/rules/lists" % acct,
-                   {"name": LIST_NAME, "kind": "ip", "description": "Managed by Strata - edits are overwritten"})["result"]
+                   {"name": LIST_NAME, "kind": "ip", "description": "Managed by Corium - edits are overwritten"})["result"]
     if lst:
         op = call("PUT", "/accounts/%s/rules/lists/%s/items" % (acct, lst["id"]),
                   [{"ip": ip, "comment": "strata"} for ip in ips[:10000]])
@@ -217,12 +217,12 @@ def sync():
     ex, sk = expression(block, LIST_NAME if (lst and ips) else None)
     skipped += sk
     if ex:
-        want.append({"ref": REF_BLOCK, "description": "Strata blacklist - block (managed by Strata)", "expression": ex,
+        want.append({"ref": REF_BLOCK, "description": "Corium blacklist - block (managed by Corium)", "expression": ex,
                      "action": "block", "enabled": True})
     ex, sk = expression(chal)
     skipped += sk
     if ex:
-        want.append({"ref": REF_CHALLENGE, "description": "Strata blacklist - challenge (managed by Strata)",
+        want.append({"ref": REF_CHALLENGE, "description": "Corium blacklist - challenge (managed by Corium)",
                      "expression": ex, "action": "managed_challenge", "enabled": True})
     try:
         rs = call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, PHASE))["result"]
@@ -250,14 +250,14 @@ def sync():
 
 
 def sync_previews():
-    """One cache rule: link-preview crawlers skip the edge cache on file types that get a Strata card, so they reach
+    """One cache rule: link-preview crawlers skip the edge cache on file types that get a Corium card, so they reach
     Caddy (which answers them with a preview page) instead of a copy of the file Cloudflare cached for people.
     Pictures, videos and web pages are left alone (the platforms embed those themselves), and the card image
     (?card=1) stays cached. Files for people are unaffected."""
     zone = zone_id()
     bots = " or ".join('lower(http.user_agent) contains %s' % cf_str(b) for b in core.EMBED_RE.pattern.split("|"))
     native = " ".join(cf_str(e) for e in rules.PREVIEW_NATIVE)
-    want = {"ref": REF_PREVIEWS, "description": "Strata link previews - crawlers bypass the cache (managed by Strata)",
+    want = {"ref": REF_PREVIEWS, "description": "Corium link previews - crawlers bypass the cache (managed by Corium)",
             "expression": '(%s) and http.request.uri.path.extension ne "" and not lower(http.request.uri.path.extension) in {%s}'
                           ' and not http.request.uri.query contains "card="' % (bots, native),
             "action": "set_cache_settings", "action_parameters": {"cache": False}, "enabled": True}
@@ -328,7 +328,7 @@ def sync_challenge():
 
 
 def _challenge_rule(zone, ex):
-    want = {"ref": REF_CHALLENGE_CACHE, "description": "Strata bot protection - challenged paths skip the edge cache (managed by Strata)",
+    want = {"ref": REF_CHALLENGE_CACHE, "description": "Corium bot protection - challenged paths skip the edge cache (managed by Corium)",
             "expression": ex, "action": "set_cache_settings", "action_parameters": {"cache": False}, "enabled": True}
     try:
         rs = call("GET", "/zones/%s/rulesets/phases/%s/entrypoint" % (zone, CACHE_PHASE))["result"]

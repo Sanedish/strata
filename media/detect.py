@@ -1,4 +1,4 @@
-"""Strata Media sensitive-data detectors and redaction (DESIGN.md 7.3, 11).
+"""Corium Media sensitive-data detectors and redaction (DESIGN.md 7.3, 11).
 
 scan.py runs these over text files, OCR output of images and PDF pages, document XML and archive members before
 a file may be published. Two rules shape everything here:

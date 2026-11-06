@@ -1,4 +1,4 @@
-/* Strata dashboard styles, loaded after styles.css (which the sign-in pages share).
+/* Corium dashboard styles, loaded after styles.css (which the sign-in pages share).
    1. Layout and components (until this release the <style> block in index.html)
    2. Refinement layer: quieter chrome, clearer surfaces, responsive Network controls
    3. Helpers in place of the one-off style="" attributes the views used to carry */
@@ -1479,7 +1479,7 @@ main { background: var(--color-bg); }
 .set-head .hubtabs button { margin-bottom: 0; }
 .set-q { position: relative; display: flex; align-items: center; flex: 0 1 260px; }
 .set-q .ic { position: absolute; left: 9px; opacity: .55; pointer-events: none; }
-#setq { width: 100%; height: var(--ctl); min-height: var(--ctl); font-size: 12.5px; padding: 4px 10px 4px 30px; }
+#setq, .tbar .set-q .input { width: 100%; height: var(--ctl); min-height: var(--ctl); font-size: 12.5px; padding: 4px 10px 4px 30px; }
 .settings [hidden] { display: none !important; }
 
 /* ---- sidebar drop-downs: the header carries a chevron (right = folded, down = open); its entries hang below it,
@@ -1823,4 +1823,41 @@ button.dv-col:hover .dv-bar, button.dv-col:focus-visible .dv-bar { outline: 2px 
   .an-type .dv-donut { height: 150px; }
   .an-bottom { flex: none; }
   .antab { min-height: 320px; }
+}
+
+/* Settings › E-mails (emails.js): the list, and the editor sheet with its live preview */
+.em-intro { margin: 0 0 6px; }
+.em-state { margin-right: 6px; font-size: 11.5px; color: var(--color-neutral-600); white-space: nowrap; }
+.em-state.on { color: var(--color-accent-700); font-weight: 700; }
+.sheet.em-sheet { width: min(1320px, calc(96 * var(--vw))); }
+.em-ed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.em-src, .em-prev { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.em-bar { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.em-bar .grow { flex: 1; }
+.em-subj { flex: 1; display: grid; gap: 4px; min-width: 0; font: 800 10px var(--font-heading); letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+.em-subj .input { width: 100%; box-sizing: border-box; margin: 0; font: 13px var(--font-body); letter-spacing: 0; text-transform: none; }
+.em-dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--color-accent); vertical-align: middle; }
+.em-dot[hidden] { display: none; }
+.em-cm .CodeMirror, .em-ta { height: 44vh; min-height: 260px; border: 1px solid var(--color-divider); color: var(--color-text); background: var(--color-raised); font: 12px/1.5 var(--font-mono); }
+.em-ta { width: 100%; box-sizing: border-box; resize: vertical; }
+.em-cm .CodeMirror-gutters { border-right: 1px solid var(--color-divider); background: var(--color-neutral-100); }
+.em-cm .CodeMirror-linenumber { color: var(--color-neutral-600); }
+.em-help summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.em-help p { margin: 6px 0 0; }
+.em-vars { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px; max-height: 160px; margin-top: 6px; overflow: auto; }
+.em-var { display: grid; gap: 1px; padding: 4px 7px; border: 1px solid var(--color-divider); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); text-align: left; cursor: pointer; }
+.em-var:hover, .em-var:focus-visible { border-color: var(--color-accent); }
+.em-var code { font: 11.5px var(--font-mono); color: var(--color-accent-700); overflow-wrap: anywhere; }
+.em-var span { font-size: 11px; line-height: 1.35; color: var(--color-neutral-600); }
+.em-psubj { padding: 6px 8px; border: 1px solid var(--color-divider); background: var(--color-surface); font-size: 13px; overflow-wrap: anywhere; }
+.em-psubj b { margin-right: 8px; font: 800 10px var(--font-heading); letter-spacing: .12em; text-transform: uppercase; color: var(--color-neutral-600); }
+.em-warn { font-size: 12px; color: var(--color-warn); }
+.em-frame { display: flex; justify-content: center; min-height: 0; border: 1px solid var(--color-divider); background: var(--color-neutral-100); overflow: auto; }
+.em-frame iframe { width: 100%; height: calc(44vh + 150px); min-height: 400px; border: 0; background: #fff; }
+.em-frame iframe.phone { flex: none; width: 375px; }
+.em-frame iframe[hidden], .em-frame pre[hidden] { display: none; }
+.em-frame pre { width: 100%; margin: 0; padding: 12px 14px; white-space: pre-wrap; font: 12px/1.55 var(--font-mono); color: var(--color-text); }
+@media (max-width: 900px) {
+  .em-ed { grid-template-columns: 1fr; }
+  .em-cm .CodeMirror, .em-ta { height: 38vh; }
 }

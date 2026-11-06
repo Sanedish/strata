@@ -1,4 +1,4 @@
-"""Strata Media - Caddy rendering for the CDN site (media/DESIGN.md sections 4-6, 11-13).
+"""Corium Media - Caddy rendering for the CDN site (media/DESIGN.md sections 4-6, 11-13).
 
 All media-specific Caddyfile rendering lives here; rules.py only has tiny guarded hooks that go through
 rules.media() -> hook() below. Everything is a no-op unless CFG["media"]["enabled"] is on, so with media off
@@ -236,7 +236,7 @@ def render_file_policy(o, mounts, allows):
     on = bool(fp.get("enabled"))
     dang, safe = dangerous_regex(fp), safe_regex(fp)
     if on:
-        o.add(2, "# file policy (Strata Media): dangerous -> 404, unknown type -> 403")
+        o.add(2, "# file policy (Corium Media): dangerous -> 404, unknown type -> 403")
     for b in blocks:
         mine = [a for a in allows if not a.get("mount") or a["mount"] in b["ids"]]
         if on and dang:
@@ -329,7 +329,7 @@ def render_media_routes(o, m, up, db=None, negotiation=None):
                  media answers ?_v=orig until the variant exists.
       `@mv<id>`  media extension AND (`_v` in avif|webp|webm|mp4 OR any of w/h/fm/q/fit): the variant itself.
     In edge mode the canonical original additionally gets `Vary: Accept` (Cloudflare rewrote it by Accept).
-    Returns True so render() skips the old @tf block (explicit ?w= now goes to media); ?ver= stays on Strata
+    Returns True so render() skips the old @tf block (explicit ?w= now goes to media); ?ver= stays on Corium
     Transform. `?_v=orig` alone is deliberately not matched: gate + drive serve the untouched original."""
     import rules
     if not m.get("transforms"):
@@ -383,7 +383,7 @@ def render_gate(o, fmounts):
     fm = [m for m in fmounts if m["kind"] == "files" and m.get("enabled", 1)]
     if not gate.get("enabled") or not rx or not fm:
         return
-    o.add(2, "# scan gate + large-file lane (Strata Media)")
+    o.add(2, "# scan gate + large-file lane (Corium Media)")
     for m in fm:
         hc = rules.host_cond(m["hosts"])
         pc = [] if m["prefix"] == "/" else ["path " + rules.bq(m["prefix"] + "/*")]

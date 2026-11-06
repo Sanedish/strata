@@ -1,4 +1,4 @@
-# Strata Media: server hooks in `strata.py` (`media_bridge.py`)
+# Corium Media: server hooks in `strata.py` (`media_bridge.py`)
 
 All bridge logic is in `strata/media_bridge.py` (DESIGN 13) and `strata/media_edge.py` (DESIGN 9). `strata.py`
 needs **six small anchored edits**, and nothing else changes. Other sessions edit `strata.py` concurrently, so:
@@ -53,7 +53,7 @@ Replace with:
 
 ```python
     def get_routes(self, user, path, q):
-        if path.startswith("/api/media/"):  # Strata Media admin API (media_bridge, DESIGN 13.2)
+        if path.startswith("/api/media/"):  # Corium Media admin API (media_bridge, DESIGN 13.2)
             r = media_bridge.api_get(user, path, q)
             return self.json(r) if r is not None else self.json({"error": "not found"}, 404)
         if path == "/api/live":
@@ -78,7 +78,7 @@ Replace with:
 
 ```python
     def post_routes(self, user, ip, path, b):
-        if path.startswith("/api/media/"):  # Strata Media admin API (validates and audits itself)
+        if path.startswith("/api/media/"):  # Corium Media admin API (validates and audits itself)
             return media_bridge.api_post(user, ip, path, b)
         A = lambda action, target, note="": core.audit(ip, user, action, target, note=note)
         mid = b.get("mount")
@@ -157,7 +157,7 @@ Replace with:
 ```python
               cloudflare.EdgeSync(), cloudflare.Purger(), App.alerts, Housekeeping()):
         t.start()
-    media_bridge.start()  # Strata Media: supervisor, discovery, purges, alerts; no-op while media.enabled is off
+    media_bridge.start()  # Corium Media: supervisor, discovery, purges, alerts; no-op while media.enabled is off
     feed.serve(App.live, App.metrics, App.probes)
 ```
 
@@ -169,11 +169,11 @@ On the first start with media on, the bridge does three things:
 1. It saves `media.cutover` and a generated `media.admin_token` to `strata.json` (`core.save_config`). The token is
    never logged.
 2. It sets `rules.APPLY_SOON`, so `media.json` picks them up.
-3. It starts `media/media.py` (`127.0.0.1:8084`) and `media/worker.py` (BELOW_NORMAL) with Strata's own
+3. It starts `media/media.py` (`127.0.0.1:8084`) and `media/worker.py` (BELOW_NORMAL) with Corium's own
    interpreter (pythonw under the scheduled task), without windows. Their output is appended to
    `data/media.out|err` and `data/worker.out|err`.
 
-A healthy instance the bridge did not start (for example one left running across a Strata restart) is adopted as
+A healthy instance the bridge did not start (for example one left running across a Corium restart) is adopted as
 "external" and is never killed.
 
 ## 7. Verify after applying
@@ -182,14 +182,14 @@ A healthy instance the bridge did not start (for example one left running across
 2. Run the tests (they never touch production):
    `python -m unittest discover -s media\tests -t media\tests -p "test_bridge.py"`
    and the same with `-p "test_edge.py"`.
-3. Restart Strata the usual way (scheduled task "Strata"). With media off, `run.out` shows
+3. Restart Corium the usual way (scheduled task "Strata"). With media off, `run.out` shows
    `media: disabled (media.enabled is off) - bridge not started`.
 4. Check that `GET /api/media/status` (logged in) answers `{"enabled": false, ...}`.
 
 ## 8. Switching on (deployment, not part of these hooks)
 
 1. Set `"media": {"enabled": true}` in `strata.json`.
-2. Restart Strata.
+2. Restart Corium.
 3. Watch `GET /api/media/status` until `processes.media.up` and `processes.worker.up` are both true.
 4. Check `negotiation.effective`:
    * `edge` means the token manages Transform Rules.
@@ -199,9 +199,9 @@ A healthy instance the bridge did not start (for example one left running across
 
 Remove the six edits, or set `media.enabled` to false. With media off, the supervisor never starts anything.
 
-* If `media.enabled` is switched off while Strata runs (through `core.save_config`), the running bridge pauses
+* If `media.enabled` is switched off while Corium runs (through `core.save_config`), the running bridge pauses
   within 30 s and stops the processes it started itself. It resumes when the switch is turned back on.
-* If Strata exits, the bridge stops with it. Its children stay up until they are stopped by hand, because the bridge
+* If Corium exits, the bridge stops with it. Its children stay up until they are stopped by hand, because the bridge
   only ever kills processes it started, and only while it runs. The strata.db meta keys can stay; they are
 ignored while media is off:
 

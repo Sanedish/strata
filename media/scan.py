@@ -1,4 +1,4 @@
-"""Strata Media scan dispatcher: OCR, PDF, archives, documents, text and AV engines (DESIGN.md 7.3, 7.4).
+"""Corium Media scan dispatcher: OCR, PDF, archives, documents, text and AV engines (DESIGN.md 7.3, 7.4).
 
 The worker calls scan_file() for every gated file before it may be published (new files) or while it keeps being
 served (legacy files); the verdict decides whether the gate holds it back from the CDN. Principles:

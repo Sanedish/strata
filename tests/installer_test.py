@@ -1,6 +1,6 @@
 """setup.py end to end, non-interactive: answers piped in, a temp instance folder, the stub Caddy, no service, no
 tunnel (so the machine's real cloudflared config is never read or written). Then checks what it wrote, runs it a
-second time to check it keeps the existing values, and starts Strata on the result."""
+second time to check it keeps the existing values, and starts Corium on the result."""
 import json
 import os
 import shutil
@@ -38,7 +38,7 @@ LIVE_CADDY = live_caddy_config()
 
 
 def config(home):
-    """strata.json with the secrets of data/.env put back, as Strata reads it - and strata.json itself must hold none."""
+    """strata.json with the secrets of data/.env put back, as Corium reads it - and strata.json itself must hold none."""
     sys.path.insert(0, ra.CODE)
     import instance  # here, after the test home exists: it resolves STRATA_HOME when first imported
     with open(os.path.join(home, "strata.json"), encoding="utf-8") as f:
@@ -122,7 +122,7 @@ try:
     check("files folder created", os.path.isdir(cfg["storage_paths"][0]), cfg.get("storage_paths"))
     text = open(caddyfile).read()
     imp = "import " + os.path.join(home, "generated", "cdn.caddy").replace("\\", "/")
-    check("Caddyfile keeps the old site and imports Strata's", "something.example.org {" in text and imp in text, text)
+    check("Caddyfile keeps the old site and imports Corium's", "something.example.org {" in text and imp in text, text)
     check("LAN dashboard block added", ":%s {" % (int(cfg["listen"].rsplit(":", 1)[1]) + 1) in text, text)
     backups = os.listdir(os.path.join(root, "caddy", "backups"))
     check("Caddyfile backed up first", len(backups) == 1 and "something.example.org" in
@@ -134,7 +134,7 @@ try:
     had = os.path.exists(stray)
     r3 = install(["example.com", "", "", "n", "n", "n"], os.path.join(root, "home3"))
     check("a new Caddyfile in the code folder is refused", r3.returncode != 0 and (had or not os.path.exists(stray))
-          and "Strata's code folder" in r3.stdout, (r3.returncode, r3.stdout[-600:]))
+          and "Corium's code folder" in r3.stdout, (r3.returncode, r3.stdout[-600:]))
 
     # second run: Enter everywhere keeps what is there
     r2 = install(["", "", "", "", "n", "", "", "", "", "y"])
@@ -175,7 +175,7 @@ try:
                 break
             import time
             time.sleep(0.25)
-    check("Strata starts on the installed config and shows the sign-in page", up, url)
+    check("Corium starts on the installed config and shows the sign-in page", up, url)
 finally:
     if proc:
         proc.terminate()

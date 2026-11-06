@@ -3,7 +3,7 @@
     python tests/anubis_demo.py --caddy <caddy> --anubis <anubis>    then open http://localhost:8480/ ; Ctrl+C stops it
 
 (--caddy / --anubis default to STRATA_CADDY / STRATA_ANUBIS, then the PATH.) Everything lives in a temp folder; nothing
-of your own installation is touched. The site is what a Strata drive with one "Bot challenge" rule looks like:
+of your own installation is touched. The site is what a Corium drive with one "Bot challenge" rule looks like:
 
     http://localhost:8480/            a page: your browser gets Anubis' puzzle first, then the page
     http://localhost:8480/note.txt    a file: the same
@@ -32,10 +32,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import anubis_test as t  # noqa: E402
 
-PAGE = """<!doctype html><meta charset="utf-8"><title>Strata bot protection demo</title>
+PAGE = """<!doctype html><meta charset="utf-8"><title>Corium bot protection demo</title>
 <style>body{font:15px/1.5 system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem}code{background:#eee;padding:0 .3em}</style>
 <h1>You passed the puzzle</h1>
-<p>This page came from a Strata drive behind Caddy. Before it was sent, Caddy asked Anubis whether your browser had solved
+<p>This page came from a Corium drive behind Caddy. Before it was sent, Caddy asked Anubis whether your browser had solved
 its proof-of-work puzzle; it had, so you got the file.</p>
 <p>The picture below is loaded by this page, so it is not challenged again (the page's pass cookie goes along):</p>
 <p><img src="/pic.png" alt="a picture" width="160" height="90"></p>

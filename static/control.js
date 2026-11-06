@@ -1,12 +1,15 @@
 'use strict';
-/* Strata control: serving (drives, access rules, site, config history), blacklist, links, alerts, security settings.
-   Loaded after app.js and storage.js. Every change goes through Strata's API, which validates the resulting Caddy
+/* Corium control: serving (drives, access rules, site, config history), blacklist, links, alerts, security settings.
+   Loaded after app.js and storage.js. Every change goes through Corium's API, which validates the resulting Caddy
    config before applying it - an invalid change is refused and nothing is touched. */
 
 ['serving', 'blacklist', 'challenger', 'links', 'alerts'].forEach((v) => STATIC_VIEWS.add(v));
 Object.assign(S, { srvTab: store.get('srvTab', 'drives'), blFilter: 'active', blQ: '', alFilter: 'open' });
 Object.assign(D, { serv: null, cf: null, alerts: null, histView: null, testRes: null, twofa: null });
 const CC_RE = /^[A-Z]{2}$/;
+// the default error pages' folders (static/errors/), as rules.ERROR_SLUGS
+const ERROR_SLUGS = { 404: 'not-found', 403: 'forbidden', 500: 'server-error', 502: 'bad-gateway', 503: 'service-unavailable',
+  504: 'gateway-timeout', maintenance: 'maintenance' };
 const EXPIRY = [['', 'never'], ['3600', '1 hour'], ['86400', '24 hours'], ['604800', '7 days'], ['2592000', '30 days'], ['custom', 'custom…']];
 const ACTION_HELP = {
   allow: 'Always serve what matches. Use it for an exception to a broader hide, forbid or protect rule of the same scope.',
@@ -143,13 +146,29 @@ function drivesTab(V) {
       cell(m.hosts.join(', '), 'dim'), cell(m.kind === 'proxy' ? '—' : m.cache + (m.edge_cache ? ' · Cloudflare: ' + m.edge_cache : ''), 'dim'),
       m.kind === 'proxy' ? gateCell(m.gate) : cell([m.precompress ? 'br' : '', m.transforms ? 'modifiers' : '', m.browse ? 'listing' : ''].filter(Boolean).join(', ') || '—', 'dim'),
       cell(m.disk ? fmt.bytes(m.disk.free) + ' free' : m.kind === 'proxy' ? '' : 'offline', m.disk || m.kind === 'proxy' ? 'r dim' : 'r hot'),
-      cell(m.index ? fmt.bytes(m.index.bytes) + ' · ' + fmt.n(m.index.files) : '—', 'r dim'), cell(m.enabled ? 'on' : 'off', m.enabled ? '' : 'hot'),
-      hcell(`<button class="pill" data-act="driveEdit" data-arg="${m.id}">Edit</button> <button class="pill danger" data-act="driveDelete" data-arg="${m.id}">Remove</button>`)],
+      cell(m.index ? fmt.bytes(m.index.bytes) + ' · ' + fmt.n(m.index.files) : '—', 'r dim'),
+      m.maint?.on ? cell('maint', 'hot', 'Maintenance ' + m.maint.code + (m.maint.eta ? ', back ' + fmt.dt(m.maint.eta) : '')) : cell(m.enabled ? 'on' : 'off', m.enabled ? '' : 'hot'),
+      hcell(`<button class="pill" data-act="driveEdit" data-arg="${m.id}">Edit</button> <button class="pill ${m.maint?.on ? 'on' : ''}" data-act="driveMaint" data-arg="${m.id}">Maintenance</button> <button class="pill danger" data-act="driveDelete" data-arg="${m.id}">Remove</button>`)],
   }));
   return `<div class="tbar"><span class="small dim">A drive is a folder (local disk, NAS share…) or a proxied service that Caddy serves on some hostnames. Files drives get precompression, link modifiers and appear in Files / Analyze.</span>
       <div class="grow"></div><button class="pill on" data-act="driveEdit" data-arg="">Add drive</button></div>` +
     table('srv-drives', [{ t: 'Name', w: 150 }, { t: 'Type', w: 60 }, { t: 'Folder / upstream', w: 240 }, { t: 'URL prefix', w: 80 }, { t: 'Hostnames', w: 220 },
-      { t: 'Cache-Control', w: 200 }, { t: 'Features', w: 140 }, { t: 'Disk', w: 100, a: 'r' }, { t: 'Indexed', w: 120, a: 'r' }, { t: 'On', w: 40 }, { t: '', w: 150 }], rows);
+      { t: 'Cache-Control', w: 200 }, { t: 'Features', w: 140 }, { t: 'Disk', w: 100, a: 'r' }, { t: 'Indexed', w: 120, a: 'r' }, { t: 'On', w: 50 }, { t: '', w: 250 }], rows);
+}
+// maintenance mode: the drive's hosts / prefix answer a 5xx with the maintenance page and these texts
+function openMaintEditor(m) {
+  const mt = Object.assign({ on: false, code: 503, what: '', who: '', eta: null, lan: false }, m.maint || {});
+  const local = (t) => new Date(t * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  openSheet('Maintenance', m.name, `
+    <div class="form">
+      <label class="dlg-check wide"><input type="checkbox" id="mt_on" ${mt.on ? 'checked' : ''}> Maintenance on</label>
+      <label>Status<select id="mt_code" class="input">${[[503, '503 Unavailable'], [502, '502 Bad gateway'], [504, '504 Timeout'], [500, '500 Server error']].map(([c, l]) => `<option value="${c}" ${mt.code === c ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label>Back at<input id="mt_eta" class="input" type="datetime-local" value="${mt.eta ? local(mt.eta) : ''}"></label>
+      <label class="wide">What happened?<textarea id="mt_what" class="input" rows="3" maxlength="600" placeholder="e.g. We are moving to a new server">${esc(mt.what)}</textarea></label>
+      <label class="wide">Who is affected?<input id="mt_who" class="input" maxlength="300" value="${esc(mt.who)}" placeholder="e.g. Everyone using ${esc(m.hosts[0] || 'this site')}"></label>
+      <label class="dlg-check wide"><input type="checkbox" id="mt_lan" ${mt.lan ? 'checked' : ''}> Keep serving the LAN normally</label>
+      <div class="wide small dim">Shown on the maintenance page. Set it under Site, error pages.</div>
+    </div>`, `<button class="btn btn-primary" data-act="maintSave" data-arg="${m.id}">Save & apply</button>`, true);
 }
 function gateCell(g) {
   g = g || { mode: 'public', users: [] };
@@ -170,7 +189,7 @@ function rulesTab(V) {
     const detail = r.action === 'password' ? (p.users || []).map((u) => u.user).join(', ') : r.action === 'ip_allow' ? (p.ips || []).join(', ')
       : r.action.startsWith('geo') ? (p.countries || []).join(', ') : r.action === 'hotlink' ? (p.domains || []).join(', ') : r.action === 'cache' ? p.value
       : r.action === 'redirect' ? p.code + ' → ' + p.to : r.action === 'player' && p.placeholders ? 'backgrounds: ' + p.placeholders
-      : r.action === 'challenge' ? (p.downloads ? 'every request' : 'browsers and gallery pages') : '';
+      : r.action === 'challenge' ? (p.downloads ? 'every request' : 'browsers and gallery pages') : p.reason ? '“' + p.reason + '”' : '';
     return {
       cells: [hcell(`<button class="link" data-act="ruleMove" data-arg="${r.id}|-1" ${i ? '' : 'disabled'}>▲</button> <button class="link" data-act="ruleMove" data-arg="${r.id}|1" ${i < V.rules.length - 1 ? '' : 'disabled'}>▼</button>`),
         cell(r.name, 'h800'), cell(mName(r.mount), 'dim'), cell(r.patterns.join('  '), '', r.patterns.join('\n')), hcell(`<span class="acc ${r.action === 'allow' ? 'dim' : 'hot'}">${esc(r.action)}</span>`),
@@ -187,27 +206,33 @@ function rulesTab(V) {
 function siteTab(V) {
   const s = V.site;
   return `<div class="settings cols-2"><section class="panel">
-    <div class="ph"><h5>Error pages</h5></div>
-    <div class="set-row"><div><div class="h800">Drive</div><div class="small dim">Where your error pages are stored.</div></div>
+    <div class="ph"><h5>${icon('circle-alert')}Error pages</h5></div>
+    <div class="set-row"><div><div class="h800">Drive</div><div class="small dim">Where your error pages are stored. More paths after a space are fallbacks.</div></div>
       <div class="set-ctl"><select id="s_emount" class="input">${mountOpts(s.error_mount)}</select></div></div>
+    <div class="set-row"><div><div class="h800">Assets folder</div><div class="small dim">Served on every host: the pages, their texts, styles and images. Edit installs the default pages here.</div></div>
+      <div class="set-ctl"><input id="s_eassets" class="input" value="${esc(s.error_assets || '')}" placeholder="/_errors" style="width:180px"></div></div>
     ${[['s_epage', '404 Not found', 'Missing and hidden files.', s.error_page, '404'], ['s_epage403', '403 Forbidden', 'Blocked requests and files in the trash.', s.error_page_403, '403'],
-      ['s_epage502', '502 Service down', 'A proxied service isn’t answering. Empty: plain text.', s.error_page_502, '502']].map(([id, label, sub, val, code]) => `
+      ['s_epage500', '500 Server error', 'A drive or Corium failed. Empty: plain text.', s.error_page_500, '500'],
+      ['s_epage502', '502 Service down', 'A proxied service isn’t answering. Empty: plain text.', s.error_page_502, '502'],
+      ['s_epage503', '503 Unavailable', 'A service is overloaded. Empty: the 502 page.', s.error_page_503, '503'],
+      ['s_epage504', '504 Timeout', 'A service answers too slowly. Empty: the 502 page.', s.error_page_504, '504'],
+      ['s_epagemaint', 'Maintenance', 'Drives in maintenance mode. Empty: the 5xx page.', s.error_page_maintenance, 'maintenance']].map(([id, label, sub, val, code]) => `
     <div class="set-row"><div><div class="h800">${label}</div><div class="small dim">${sub}</div></div>
-      <div class="set-ctl srow"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/errors/${code}.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
-    <div class="ph"><h5>Other hosts</h5></div>
+      <div class="set-ctl srow"><input id="${id}" class="input" value="${esc(val || '')}" placeholder="/_errors/${ERROR_SLUGS[code]}/index.html" style="width:180px"><button class="pill" data-act="errorPageEdit" data-arg="${id}" data-code="${code}">${icon('pencil', 'sm')} Edit</button><button class="pill" data-act="errorPagePreview" data-arg="${id}" title="Open in a new tab">${icon('external-link', 'sm')} Preview</button></div></div>`).join('')}
+    <div class="ph"><h5>${icon('globe')}Other hosts</h5></div>
     <div class="set-row"><div><div class="h800">Unknown hostname</div><div class="small dim">Text answered for hosts no drive serves.</div></div>
       <div class="set-ctl"><input id="s_unknown" class="input w-240" value="${esc(s.unknown_host)}"></div></div>
-    <div class="ph"><h5>Responses</h5></div>
+    <div class="ph"><h5>${icon('send')}Responses</h5></div>
     <div class="set-row"><div><div class="h800">Response compression</div><div class="small dim">Compress responses on the fly.</div></div>
       <div class="set-ctl"><label class="dlg-check"><input type="checkbox" id="s_gzip" ${s.encode.includes('gzip') ? 'checked' : ''}> gzip</label><label class="dlg-check"><input type="checkbox" id="s_zstd" ${s.encode.includes('zstd') ? 'checked' : ''}> zstd</label></div></div>
     <div class="set-row"><div><div class="h800">Security headers</div><div class="small dim">Send nosniff and hide the Server header.</div></div>
       <div class="set-ctl"><label class="dlg-check"><input type="checkbox" id="s_nosniff" ${s.nosniff ? 'checked' : ''}> nosniff</label><label class="dlg-check"><input type="checkbox" id="s_hide" ${s.hide_server ? 'checked' : ''}> hide Server</label></div></div>
     <div class="act-row"><button class="btn btn-primary" data-act="siteSave">Save & apply</button></div>
   </section><section class="panel">
-    <div class="ph"><h5>Not logged</h5><span class="small dim">polling paths left out of the stats</span></div>
+    <div class="ph"><h5>${icon('eye-off')}Not logged</h5><span class="small dim">polling paths left out of the stats</span></div>
     ${(s.quiet || []).map((q) => `<div class="logline"><span>${esc(q.host)}</span><span>${esc(q.paths.join(' '))}</span></div>`).join('')}
-    <div class="ph smt-3"><h5>Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
-    <div class="ph smt-3"><h5>Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
+    <div class="ph smt-3"><h5>${icon('file-text')}Log</h5></div><div class="small dim">${esc(s.log_file)} · roll ${esc(s.roll_size)} · keep ${esc(s.roll_keep)} files / ${esc(s.roll_keep_for)}</div>
+    <div class="ph smt-3"><h5>${icon('link')}Short-link prefix</h5></div><div class="small dim">${esc(s.link_prefix)}&lt;code&gt; on every CDN hostname</div>
   </section></div>`;
 }
 function configTab(V) {
@@ -217,20 +242,20 @@ function configTab(V) {
   return `<div class="grid2" style="grid-template-columns:1.2fr 1fr;flex:1;min-height:0">
     <section class="panel"><div class="ph"><h5>${D.histView ? 'Revision #' + D.histView.id : 'Live: generated/cdn.caddy'}</h5><span class="srow">${D.histView ? '<button class="pill" data-act="histView" data-arg="">Show live</button>' : ''}<button class="pill" data-act="srvApply">Re-apply now</button><button class="pill" data-act="fcopy" data-arg="${esc(shown)}">Copy</button></span></div>
       <pre class="code" data-scroll="caddytext">${esc(shown)}</pre></section>
-    <section class="panel"><div class="ph"><h5>History</h5><span class="small dim">every change, applied or refused</span></div>
+    <section class="panel"><div class="ph"><h5>${icon('clock')}History</h5><span class="small dim">every change, applied or refused</span></div>
       ${table('srv-hist', [{ t: '#', w: 50 }, { t: 'When', w: 110 }, { t: 'By', w: 80 }, { t: 'Change', w: 220 }, { t: 'SHA', w: 130 }, { t: 'Result', w: 70 }, { t: '', w: 140 }], rows)}</section></div>`;
 }
 function testTab() {
   const R = D.testRes;
   return `<div class="settings cols-2"><section class="panel">
-    <div class="ph"><h5>What would happen?</h5><span class="small dim">evaluated against the current rules</span></div>
+    <div class="ph"><h5>${icon('search')}What would happen?</h5><span class="small dim">evaluated against the current rules</span></div>
     <div class="set-row"><div class="h800">URL</div><div class="set-ctl"><input id="t_url" class="input w-360" value="${esc((R && R.url) || 'https://' + cdnHost() + '/')}"></div></div>
     <div class="set-row"><div class="h800">Client IP</div><div class="set-ctl"><input id="t_ip" class="input w-200" value="${esc((R && R.ip) || '')}" placeholder="e.g. 203.0.113.7"></div></div>
     <div class="set-row"><div class="h800">Country</div><div class="set-ctl"><input id="t_cc" class="input w-80" value="${esc((R && R.cc) || '')}" placeholder="DE"></div></div>
     <div class="set-row"><div class="h800">User agent</div><div class="set-ctl"><input id="t_ua" class="input w-300" value="${esc((R && R.ua) || 'Mozilla/5.0 Chrome/140')}"></div></div>
     <div class="set-row"><div class="h800">Referer</div><div class="set-ctl"><input id="t_ref" class="input w-300" value="${esc((R && R.ref) || '')}" placeholder="https://other.site/page"></div></div>
     <div class="act-row"><button class="btn btn-primary" data-act="srvTest">Test</button></div>
-  </section><section class="panel"><div class="ph"><h5>Result</h5></div>
+  </section><section class="panel"><div class="ph"><h5>${icon('check')}Result</h5></div>
     ${R ? `<div class="big-num fs-24">${esc(R.result)}</div>${(R.steps || []).map((s) => `<div class="logline"><span>${esc(s)}</span><span></span></div>`).join('')}` : '<div class="empty">Enter a URL and press Test.</div>'}
   </section></div>`;
 }
@@ -251,7 +276,7 @@ function driveEditor(m) {
       <label class="wide">Hostnames (space or comma separated)<input id="d_hosts" class="input" value="${esc(m.hosts.join(', '))}"></label>
       <div class="wide d-proxy form" style="padding:0;${m.kind === 'proxy' ? '' : 'display:none'}">
         <label class="dlg-check wide"><input type="checkbox" id="d_strip" ${m.strip === 0 ? '' : 'checked'}> Strip the URL prefix before forwarding. Turn off only for apps set up with that base path (they get /azura/…).</label>
-        <label>Access<select id="g_mode" class="input"><option value="login" ${g.mode !== 'public' ? 'selected' : ''}>Login required (Strata gate)</option><option value="public" ${g.mode === 'public' ? 'selected' : ''}>Public — anyone on the internet</option></select></label>
+        <label>Access<select id="g_mode" class="input"><option value="login" ${g.mode !== 'public' ? 'selected' : ''}>Login required (Corium gate)</option><option value="public" ${g.mode === 'public' ? 'selected' : ''}>Public — anyone on the internet</option></select></label>
         <label>Session length (hours)<input id="g_hours" class="input" type="number" min="1" max="168" value="${esc(g.hours || 12)}"></label>
         <div id="g_login" class="wide" style="${g.mode === 'public' ? 'display:none' : ''}">
           <div class="small dim mb-6">Who may sign in. With 2FA, a QR code shows once after saving.</div>
@@ -283,7 +308,12 @@ async function fsBrowse(path) {
 }
 
 /* rule editor */
+const REASON_ACTIONS = ['hide', 'deny', 'ip_allow', 'geo_allow', 'geo_deny', 'hotlink'];  // rules that answer 403 / 404
 function ruleParams(action, p) {
+  return ruleActionParams(action, p) + (REASON_ACTIONS.includes(action)
+    ? `<label class="wide">Reason, optional. Shown on the error page<input id="p_reason" class="input" maxlength="600" value="${esc((p || {}).reason || '')}" placeholder="e.g. Removed at the owner’s request"></label>` : '');
+}
+function ruleActionParams(action, p) {
   p = p || {};
   if (action === 'password') {
     const users = (p.users && p.users.length ? p.users : [{ user: '' }]);
@@ -344,6 +374,7 @@ function readRule(id) {
     if ($('#p_off').checked) params.off = true;
     for (const [k, id] of [['title', 'p_title'], ['description', 'p_desc'], ['color', 'p_color'], ['kind', 'p_kind'], ['image', 'p_image']]) params[k] = $('#' + id).value;
   }
+  if (REASON_ACTIONS.includes(action)) params.reason = $('#p_reason')?.value || '';
   return { id: id ? +id : undefined, name: $('#r_name').value, mount: $('#r_mount').value || null, action, patterns: $('#r_pats').value,
     params, expires: readExpiry('r'), enabled: $('#r_en').checked, note: $('#r_note').value, purge: $('#r_purge').checked };
 }
@@ -363,7 +394,7 @@ Object.assign(ACT, {
         users: [...document.querySelectorAll('#g_users .g_row')].map((r) => ({ user: r.querySelector('.g_user').value.trim(), password: r.querySelector('.g_pass').value, totp: r.querySelector('.g_totp').checked })).filter((u) => u.user) };
       if (body.gate.mode === 'public') {
         const ok = await ask({ kicker: 'Public service', title: 'Anyone on the internet can open ' + (body.path || 'this service'), danger: true, ok: 'Make it public',
-          text: 'Without the Strata login, anyone with the URL sees what it shows. Only do this for services meant to be public.' });
+          text: 'Without the Corium login, anyone with the URL sees what it shows. Only do this for services meant to be public.' });
         if (!ok) return;
       }
     }
@@ -387,6 +418,15 @@ Object.assign(ACT, {
     if (ok) { try { await mutate('/api/serving/mount/delete', { id: +id }, 'Drive removed'); loadDrives(); } catch { /* shown */ } }
   },
   ruleEdit(id) { openRuleEditor(id ? JSON.parse(JSON.stringify(D.serv.rules.find((r) => r.id === +id))) : null); },
+  driveMaint(id) { const m = (D.serv?.mounts || []).find((x) => x.id === +id); if (m) openMaintEditor(m); },
+  async maintSave(id) {
+    const eta = $('#mt_eta').value;
+    try {
+      await mutate('/api/serving/maintenance', { id: +id, on: $('#mt_on').checked, code: +$('#mt_code').value, what: $('#mt_what').value,
+        who: $('#mt_who').value, eta: eta ? new Date(eta).getTime() / 1000 : null, lan: $('#mt_lan').checked }, $('#mt_on').checked ? 'Maintenance on' : 'Maintenance off', true);
+      closeSheet();
+    } catch { /* shown */ }
+  },
   async ruleSave(id) { try { await mutate('/api/serving/rule', readRule(id), 'Rule saved', true); closeSheet(); if (S.view === 'files') pollFiles(true); } catch { /* shown */ } },
   async ruleDelete(id) {
     const r = D.serv.rules.find((x) => x.id === +id);
@@ -409,28 +449,31 @@ Object.assign(ACT, {
       await mutate('/api/serving/rule', { name: 'Hide everything else', mount: m.mount, action: 'hide', patterns: ['/*'] }, 'Only ' + m.path + ' is served now');
     } catch { /* shown */ }
   },
-  // opens an error page in the Files editor; creates it from the default page if it doesn't exist
+  // opens an error page's texts (info.md) in the Files editor. The default pages (static/errors/) are installed into
+  // the assets folder first; files already there are kept
   async errorPageEdit(id, el) {
     const code = el.dataset.code;
-    const mount = $('#s_emount').value, input = $('#' + id);
-    if (!input.value) input.value = `/errors/${code}.html`;
-    const path = input.value;
+    const mount = $('#s_emount').value, input = $('#' + id), assets = $('#s_eassets');
     if (!mount) return note('Pick a drive first', { err: true });
-    let text;  // the default page from static/errors/, copied to the drive
-    try { const r = await fetch('/errors/' + code + '.html', { cache: 'no-cache' }); if (!r.ok) throw new Error(); text = await r.text(); }
-    catch { return note("Couldn't load the default page. Reload and try again.", { err: true }); }
-    try { await post('/api/files/text', { mount, path, text, create: true }); note(`Created ${path}. Save the site settings to use it.`); }
-    catch (e) { if (!/exists/.test(e.message)) return note(e.message, { err: true }); }
-    openEditor(mount, path);
+    if (!assets.value.trim()) assets.value = '/_errors';
+    let r;
+    try { r = await post('/api/serving/errors/install', { mount, folder: assets.value.trim() }); }
+    catch (e) { return note(e.message, { err: true }); }
+    assets.value = r.folder;
+    if (!input.value.trim()) input.value = r.pages[code];
+    if (r.created.length) note(`Added ${r.created.length} files to ${r.folder}. Save the site settings to use them.`);
+    const page = input.value.trim().split(/\s+/)[0];  // the main page, not its fallbacks
+    // pages from the default set take their texts from info.md next to them
+    openEditor(mount, page.startsWith(r.folder + '/') && page.endsWith('/index.html') ? page.replace(/index\.html$/, 'info.md') : page);
   },
   errorPagePreview(id) {
-    const mount = $('#s_emount').value, path = $('#' + id).value;
+    const mount = $('#s_emount').value, path = $('#' + id).value.trim().split(/\s+/)[0];
     if (!mount || !path) return note('Pick a drive and a page first', { err: true });
     window.open(rawUrl(mount, path), '_blank', 'noopener');
   },
   async siteSave() {
     const enc2 = [$('#s_gzip').checked ? 'gzip' : null, $('#s_zstd').checked ? 'zstd' : null].filter(Boolean);
-    try { await mutate('/api/serving/site', { error_mount: $('#s_emount').value, error_page: $('#s_epage').value, error_page_403: $('#s_epage403').value, error_page_502: $('#s_epage502').value, unknown_host: $('#s_unknown').value, encode: enc2, nosniff: $('#s_nosniff').checked, hide_server: $('#s_hide').checked }, 'Site settings saved', true); } catch { /* shown */ }
+    try { await mutate('/api/serving/site', { error_mount: $('#s_emount').value, error_page: $('#s_epage').value, error_page_403: $('#s_epage403').value, error_page_500: $('#s_epage500').value, error_page_502: $('#s_epage502').value, error_page_503: $('#s_epage503').value, error_page_504: $('#s_epage504').value, error_page_maintenance: $('#s_epagemaint').value, error_assets: $('#s_eassets').value, unknown_host: $('#s_unknown').value, encode: enc2, nosniff: $('#s_nosniff').checked, hide_server: $('#s_hide').checked }, 'Site settings saved', true); } catch { /* shown */ }
   },
   async histView(id) {
     if (!id) { D.histView = null; return render(true); }
@@ -790,7 +833,7 @@ function notifyRows(row) {
   return `${row('To', 'Comma separated.', `<input id="n_to" class="input" value="${esc((cfg.to || []).join(', '))}" style="width:260px">`)}
     ${row('E-mail alerts from', 'Lower levels stay on the Alerts tab.', `<select id="n_sev" class="input">${['info', 'warning', 'critical'].map((s) => `<option ${cfg.min_severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}
     ${row('Summary e-mail', 'A report of the past day or week.', `<select id="n_dig" class="input">${['off', 'daily', 'weekly'].map((s) => `<option ${cfg.digest === s ? 'selected' : ''}>${s}</option>`).join('')}</select> at <input id="n_hour" class="input" value="${esc(cfg.digest_hour ?? 8)}" style="width:44px">:00`)}
-    ${owner ? row('Sender', 'An address your mail provider lets you send from. It also sends sign-in codes, so only the owner can change it.', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Strata &lt;alerts@example.com&gt;" style="width:260px">`) : ''}
+    ${owner ? row('Sender', 'An address your mail provider lets you send from. It also sends sign-in codes, so only the owner can change it.', `<input id="n_from" class="input" value="${esc(cfg.from || '')}" placeholder="Corium &lt;alerts@example.com&gt;" style="width:260px">`) : ''}
     ${owner ? row('E-mail provider', 'Any mail provider’s SMTP server or your own, or the Resend API.',
       `<div class="seg-row" id="n_prov">${[['smtp', 'Custom SMTP'], ['resend', 'Resend']].map(([k, l]) => `<button class="${nProvider === k ? 'on' : ''}" data-act="nProv" data-arg="${k}">${l}</button>`).join('')}</div>`) : ''}
     ${owner ? only('smtp', row('SMTP server', 'Host, port and encryption, from your provider’s settings.',
@@ -828,7 +871,7 @@ function autobanRows(row, toggle) {
 // Security › Challenger › Settings (owner): the values behind the set-up on the page. After a change, Restart Anubis there.
 function botRows(row, toggle) {
   const b = D.bots;
-  return `${row('Address', 'Where Anubis listens on this PC. Another instance of Strata needs its own.', numIn('bt_bind', b.bind, 150))}
+  return `${row('Address', 'Where Anubis listens on this PC. Another instance of Corium needs its own.', numIn('bt_bind', b.bind, 150))}
     ${row('Program', 'anubis.exe (anubis on Linux). Filled in by Install; set it by hand to use an Anubis you installed yourself.', numIn('bt_exe', b.exe, 300))}
     ${row('Difficulty', 'Leading zeros the puzzle needs: 4 is Anubis’ default; each step is about 16 times more work for the visitor.', numIn('bt_diff', b.difficulty, 48))}
     ${row('Anubis’ own lists', 'Also deny known AI scrapers and let real search engines through.', toggle(b.defaults, 'botDefaults'))}
@@ -883,11 +926,11 @@ function vChallenger() {
   // Anubis not answering, a path you installed yourself). The rule row links to Serving › Rules.
   const advanced = `<section class="panel challenger-advanced">
     <div class="ph"><h5>${icon('settings')}Setup &amp; diagnostics</h5><span class="small dim">Service details and manual controls</span></div>
-    ${step(1, 'Program', b.exe ? b.exe : b.asset ? `Anubis ${b.tested} from github.com, about 25 MB. Strata checks the file against the SHA-256 GitHub publishes for it and unpacks only the program and its licence into this instance’s .private folder.`
+    ${step(1, 'Program', b.exe ? b.exe : b.asset ? `Anubis ${b.tested} from github.com, about 25 MB. Corium checks the file against the SHA-256 GitHub publishes for it and unpacks only the program and its licence into this instance’s .private folder.`
       : 'There is no Anubis download for this system. Install it yourself and set its path under Settings.',
     b.exe ? `<span class="h800 ${b.version ? '' : 'hot'}">${esc(b.version || 'file missing')}</span>`
       : `<button class="pill on" data-act="botInstall" ${dis || (b.asset ? '' : 'disabled')}>Install Anubis ${esc(b.tested)}</button>`)}
-    ${step(2, 'Key and policy', 'A signing key for the pass cookies (never shown or logged) and the rules Anubis follows. Strata writes both, and rewrites the policy when you change settings.',
+    ${step(2, 'Key and policy', 'A signing key for the pass cookies (never shown or logged) and the rules Anubis follows. Corium writes both, and rewrites the policy when you change settings.',
       `<span class="h800 ${b.key_exists && b.policy_exists ? '' : 'dim'}">${b.key_exists && b.policy_exists ? 'ready' : 'made by activation'}</span>`)}
     ${step(3, 'Start-up task', b.dry_run ? 'Demo instance: nothing is registered or started here.' : b.task_installed ? `Registered as “${b.task}”. Anubis starts with this PC and again after a failure.`
       : `Registers “${b.task}” so Anubis starts with this PC, and starts it now.`,
@@ -912,7 +955,7 @@ function vChallenger() {
     </section>
     ${b.enabled && !b.answers && !b.dry_run ? '<div class="challenger-warning">Anubis is not responding. Challenged pages currently return a 502 error. Check the service below.</div>' : ''}
     ${advanced}
-    ${D.botLog?.length ? `<section class="panel challenger-log"><div class="ph"><h5>Last setup</h5></div><pre>${D.botLog.map(esc).join('\n')}</pre></section>` : ''}
+    ${D.botLog?.length ? `<section class="panel challenger-log"><div class="ph"><h5>${icon('info')}Last setup</h5></div><pre>${D.botLog.map(esc).join('\n')}</pre></section>` : ''}
     <div class="challenger-note">${icon('info')}<p>Challenged files bypass Cloudflare’s cache, so more requests reach your server. Link previews, signed links and Allow rules are exempt. Challenges slow scrapers; they do not restrict access.</p></div>
   </div>`;
 }
@@ -945,10 +988,10 @@ function cloudflarePanel(row, toggle) {
 // Settings › Branding: one name, sign-in line, logo and stylesheet for everyone on this site (administrators only)
 function brandingRows() {
   const b = D.branding;
-  return `<div class="form"><label class="wide">Dashboard name<input id="br_name" class="input" value="${esc(b.brand)}" maxlength="40" placeholder="Strata"></label>
+  return `<div class="form"><label class="wide">Dashboard name<input id="br_name" class="input" value="${esc(b.brand)}" maxlength="40" placeholder="Corium"></label>
     <label class="wide">Sign-in text, shown under the form<input id="br_login" class="input" value="${esc(b.login_text)}" maxlength="300"></label>
     <label class="wide">Logo: a square PNG up to 256 KB<input id="br_logo" class="input" type="file" accept="image/png"></label>
-    ${b.logo ? '<label class="dlg-check wide"><input type="checkbox" id="br_logo_reset"> Back to the Strata logo</label>' : ''}
+    ${b.logo ? '<label class="dlg-check wide"><input type="checkbox" id="br_logo_reset"> Back to the Corium logo</label>' : ''}
     <label class="wide">Custom CSS, loaded after the built-in styles<textarea id="br_css" class="input mono" rows="14" spellcheck="false" placeholder=":root { --color-accent: #0a7; }">${esc(b.css)}</textarea></label></div>`;
 }
 Object.assign(ACT, {
@@ -1125,7 +1168,7 @@ Object.assign(ACT, {
   async botTask() {
     const b = D.bots;
     const ok = await ask({ kicker: 'Challenger', title: (b.task_installed ? 'Register Anubis again?' : 'Register Anubis to start with this PC?'), ok: 'Register and start',
-      text: 'Runs ' + b.exe + ' at boot, as the other Strata services do, and starts it now' + (b.task_installed ? ' (it restarts if it is running)' : '') + '.' });
+      text: 'Runs ' + b.exe + ' at boot, as the other Corium services do, and starts it now' + (b.task_installed ? ' (it restarts if it is running)' : '') + '.' });
     if (ok) await ACT.botRun('Registering and starting Anubis…', async () => { await post('/api/bots/task', {}); note('Start-up task registered'); });
   },
   async botTaskRemove() {

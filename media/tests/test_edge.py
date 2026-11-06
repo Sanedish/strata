@@ -113,7 +113,7 @@ class RuleStrings(unittest.TestCase):
             self.assertEqual(r["action"], "rewrite")
             self.assertEqual(r["action_parameters"], {"uri": {"query": {"value": "_v=" + v}}})
             self.assertTrue(r["enabled"])
-            self.assertIn("managed by Strata", r["description"])
+            self.assertIn("managed by Corium", r["description"])
             self.assertLess(len(r["expression"]), 4096)
 
     def test_mp4_video_rule(self):

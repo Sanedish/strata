@@ -1,4 +1,4 @@
-"""Strata Media imaging - probe, format choice, AVIF/WebP encoding, cost model and the legacy ?w=/?fm= transforms.
+"""Corium Media imaging - probe, format choice, AVIF/WebP encoding, cost model and the legacy ?w=/?fm= transforms.
 
 Why it looks like this (media/DESIGN.md 6.2 / 6.3):
   * The hot path must decide *before* decoding whether an encode fits the sync budget, so probe() only reads the

@@ -1,4 +1,4 @@
-"""Redacted statistics feed for Strata Telemetry - served on feed_listen (loopback only), behind a bearer token.
+"""Redacted statistics feed for Corium Telemetry - served on feed_listen (loopback only), behind a bearer token.
 
 The feed is *built* from aggregate SQL, it is never a filtered copy of raw rows:
   * no query here selects ip, ua, ref, or a full path - so none of them can leak by omission
@@ -6,7 +6,7 @@ The feed is *built* from aggregate SQL, it is never a filtered copy of raw rows:
     category, threat category) or passes a strict pattern (single folder name, 3-letter edge code)
   * countries, edge locations and folders are only named when >= k distinct visitors were seen
   * requests from the LAN / direct to Caddy and to hosts outside `public.hosts` are not counted at all
-Strata Telemetry then re-validates everything it receives against its own schema (defence in depth).
+Corium Telemetry then re-validates everything it receives against its own schema (defence in depth).
 """
 import collections
 import hmac
@@ -17,7 +17,7 @@ import secrets
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import core
 import instance
@@ -389,7 +389,7 @@ TELEMETRY_CONFIG = os.path.join(core.HOME, "telemetry", "telemetry.json")
 def ensure_token():
     """Generate the feed token on first start: token and its hash -> data/.env (STRATA_FEED_TOKEN,
     STRATA_FEED_TOKEN_HASH); telemetry/telemetry.json keeps only the feed address. A token left in telemetry.json by
-    an older Strata moves to data/.env."""
+    an older Corium moves to data/.env."""
     tele = {}
     if os.path.exists(TELEMETRY_CONFIG):
         with open(TELEMETRY_CONFIG, encoding="utf-8-sig") as f:
@@ -487,7 +487,11 @@ def serve(live, metrics, probes):
     host, port = CFG["feed_listen"].rsplit(":", 1)
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise SystemExit("feed_listen must be a loopback address")
-    srv = ThreadingHTTPServer((host, int(port)), FeedHandler)
-    srv.daemon_threads = True
+    try:
+        srv = instance.ExclusiveHTTPServer((host, int(port)), FeedHandler)
+    except OSError as e:   # the admin UI keeps running; Telemetry just gets no data
+        log("feed: can't listen on %s:%s (%s) - is another program or a second copy of this instance using it?"
+            % (host, port, e))
+        return
     threading.Thread(target=srv.serve_forever, name="feed", daemon=True).start()
     log("feed listening on http://%s:%s (loopback only, token required)" % (host, port))

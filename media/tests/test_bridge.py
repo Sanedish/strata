@@ -712,6 +712,33 @@ class Api(Base):
                                                                       "min_saving": 0.2}})
         self.assertEqual(self.saves[-1], {"media": {"video": {"format": "mp4", "encoder": "nvenc",
                                                                "nvenc_cq": 27, "min_saving": 0.2}}})
+        # every GPU backend, and a pinned GPU by its id
+        for enc in ("qsv", "amf", "vaapi", "auto", "cpu"):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "mp4", "video": {"encoder": enc}})
+            self.assertEqual(self.saves[-1]["media"]["video"]["encoder"], enc)
+        mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu": "nvenc:1"}})
+        self.assertEqual(self.saves[-1], {"media": {"video": {"gpu": "nvenc:1"}}})
+        mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu": "vaapi:renderD128"}})
+        for bad in ("nvenc:1 -y", "cuda:0", 1, "", "../x"):
+            with self.assertRaises(ValueError):
+                mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu": bad}})
+        # parallel encodes per GPU: one number, or per GPU id / backend
+        for ok in (2, {"nvenc:1": 3, "vaapi": 2, "*": 1}):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu_jobs": ok}})
+            self.assertEqual(self.saves[-1], {"media": {"video": {"gpu_jobs": ok}}})
+        for bad in (0, 9, True, "2", 1.5, {}, {"cuda:0": 2}, {"nvenc:0": 0}, {"nvenc": "2"}):
+            with self.assertRaises(ValueError):
+                mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu_jobs": bad}})
+        mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu_decode": False}})
+        self.assertEqual(self.saves[-1], {"media": {"video": {"gpu_decode": False}}})
+        for bad in (0, "off", None):
+            with self.assertRaises(ValueError):
+                mb.api_post("admin", "ip", "/api/media/settings", {"video": {"gpu_decode": bad}})
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video": {"encoder": "cuda"}})
+        with self.assertRaises(ValueError):
+            mb.api_post("admin", "ip", "/api/media/settings", {"video_format": "webm",
+                                                                "video": {"encoder": "qsv"}})
         with self.assertRaises(ValueError):
             mb.api_post("admin", "ip", "/api/media/settings", {"image": {"webp_quality": 200}})
         mb.api_post("admin", "ip", "/api/media/settings", {"image": {"webp_quality": 80,
@@ -845,7 +872,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.events[1][2]["reason"], "exited (rc=3)")
         self.assertEqual(s.status()["media"]["restarts"], 1)
         with open(os.path.join(self.tmp, "m.out"), encoding="utf-8") as f:
-            self.assertEqual(f.read().count("started by the Strata supervisor"), 2)
+            self.assertEqual(f.read().count("started by the Corium supervisor"), 2)
         proc = c.proc
         s.stop()
         self.assertIsNotNone(proc.poll())

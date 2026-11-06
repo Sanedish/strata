@@ -1,4 +1,4 @@
-"""Run every Strata test suite against a fresh, throwaway instance. Nothing outside a temp folder is touched.
+"""Run every Corium test suite against a fresh, throwaway instance. Nothing outside a temp folder is touched.
 
     python tests/run_all.py            all suites
     python tests/run_all.py --keep     leave the temp instance (and its server) running afterwards for poking around
@@ -154,7 +154,7 @@ def main():
     db = os.path.join(home, "data", "strata.db")
     log = open(os.path.join(root, "server.log"), "w")
     env = dict(os.environ, STRATA_HOME=home, PYTHONIOENCODING="utf-8")
-    # the media unit tests expect default settings and a database as Strata leaves it after its first start
+    # the media unit tests expect default settings and a database as Corium leaves it after its first start
     # (one production drive on its own hostname, the built-in rules): they copy it and add their own test drive
     media_home = os.path.join(root, "media-home")
     os.makedirs(os.path.join(media_home, "files"))
@@ -223,6 +223,7 @@ def main():
             ("installer", py + [os.path.join(TESTS, "installer_test.py")]),
             ("auto-ban ranges", py + [os.path.join(TESTS, "autoban_test.py")]),
             ("secrets in data/.env", py + [os.path.join(TESTS, "secrets_test.py")]),
+            ("e-mail templates", py + [os.path.join(TESTS, "emails_test.py"), db]),
         ]
         local = os.path.join(CODE, "local")   # dev-only, git-ignored: absent in production checkouts
         if os.path.isdir(local):

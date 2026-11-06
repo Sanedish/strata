@@ -1,4 +1,4 @@
-// Match the interface scale chosen in Strata's Settings (saved by app.js) on the sign-in page too.
+// Match the interface scale chosen in Corium's Settings (saved by app.js) on the sign-in page too.
 try {
   const z = JSON.parse(localStorage.getItem('strata:zoom') || '1');
   if (typeof z === 'number' && z >= 0.5 && z <= 3 && z !== 1) {

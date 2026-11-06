@@ -1,4 +1,4 @@
-# Strata Media — edge processing for the :8080 CDN
+# Corium Media — edge processing for the :8080 CDN
 
 Status: design contract (v1). Every module below is implemented against this document; if code and this
 file disagree, fix one of them in the same change.
@@ -42,7 +42,7 @@ file disagree, fix one of them in the same change.
 
 ## 1. Existing system (do not break)
 
-Strata (`<home>`) is the control plane:
+Corium (`<home>`) is the control plane:
 
 | process | port | owns |
 |---|---|---|
@@ -60,15 +60,15 @@ reload (rules.apply), 4-space Python, comment density like the existing files.
 
 | process | file | port | privileges |
 |---|---|---|---|
-| **Strata Media** (hot path) | `media/media.py` | 127.0.0.1:8083 (replaces transform.py, same port, same features) | reads mounts, `media.db`, writes `<cache_root>/cache`. No strata.db, no CF token. |
-| **Strata Media Worker** (background) | `media/worker.py` | none | BELOW_NORMAL priority; reads mounts, `media.db`, writes cache + sandbox. No strata.db, no CF token. |
+| **Corium Media** (hot path) | `media/media.py` | 127.0.0.1:8083 (replaces transform.py, same port, same features) | reads mounts, `media.db`, writes `<cache_root>/cache`. No strata.db, no CF token. |
+| **Corium Media Worker** (background) | `media/worker.py` | none | BELOW_NORMAL priority; reads mounts, `media.db`, writes cache + sandbox. No strata.db, no CF token. |
 | bridge (thread inside strata.py) | `media_bridge.py` | — | has strata.db + CF token: supervision, discovery, purge, alerts, capacity advice, admin API |
 
 `transform/transform.py` stays on disk for rollback but is no longer started. `media.py` must stay
 drop-in compatible with it (`/_gate`, `?ver=`, `?w=...`).
 
 Supervision: `media_bridge.Supervisor` (in strata.py) starts `media.py` / `worker.py` with the same
-interpreter that runs Strata (pythonw), restarts them with backoff (10 s, 30 s, 60 s, max 5 min) and records
+interpreter that runs Corium (pythonw), restarts them with backoff (10 s, 30 s, 60 s, max 5 min) and records
 `supervisor.restart` events. Single instance: media.py exits if it cannot bind its port; worker.py holds an
 exclusive lock on `data/media-worker.lock` (msvcrt.locking) and exits if it cannot get it. Health: media =
 `GET /_stats` answers within 2 s; worker = `meta.worker_heartbeat.ts` younger than 30 s.
@@ -76,7 +76,7 @@ Child stdout/stderr -> `data/media.out|err`, `data/worker.out|err` (append).
 
 ## 3. Files and ownership
 
-Other Claude sessions edit Strata concurrently. Therefore **all logic goes into NEW files**; shared files
+Other Claude sessions edit Corium concurrently. Therefore **all logic goes into NEW files**; shared files
 only get tiny anchored hooks (Edit tool, re-read immediately before, never a full-file Write):
 
 ```
@@ -103,7 +103,8 @@ strata/
     breaker.py       resource monitor, circuit breaker, admission, thread/process priority [foundation]
     sandbox.py       Job-Object subprocess runner, tool discovery, safe paths           [foundation]
     imaging.py       image probe, format choice, encode, cost model, legacy transforms   [codecs]
-    video.py         ffprobe/ffmpeg WebM (AV1/VP9 + Opus) transcoding                    [codecs]
+    video.py         ffprobe/ffmpeg WebM (AV1/VP9 + Opus) / MP4 (H.264 + AAC) transcoding [codecs]
+    gpu.py           GPU discovery, per-device test encodes, ffmpeg build choice, failover [codecs]
     detect.py        sensitive-data detectors + redaction                                [scan]
     extract.py       safe archive extraction (zip/tar/7z) with bomb/traversal limits     [scan]
     scan.py          scan dispatcher: OCR, PDF, archives, documents, text, AV engines    [scan]
@@ -113,7 +114,7 @@ strata/
 ```
 
 All `media/*.py` modules import each other as plain modules (`import store`), because media.py and
-worker.py are started with `media/` as the script directory. Strata imports them by adding
+worker.py are started with `media/` as the script directory. Corium imports them by adding
 `os.path.join(core.ROOT, "media")` to `sys.path` inside `media_bridge.py` only.
 
 **Import path fix (mandatory in media.py and worker.py, before importing PIL):** Task Scheduler starts
@@ -169,8 +170,8 @@ media.py never streams large bodies on the hot path. It answers one of:
 | pending | 503 | `Retry-After: <gate.pending_retry_after>`, `Cache-Control: no-store`, text body | passes through |
 | small direct body | 200 | normal headers | passes through (only `?ver=` streaming, `/_stream`, errors) |
 
-**Port decision (after coordination):** Strata Transform stays on 127.0.0.1:8083 as its own scheduled task
-("Strata Transform") and keeps `?ver=` and `/_gate` (signed links). **media.py listens on
+**Port decision (after coordination):** Corium Transform stays on 127.0.0.1:8083 as its own scheduled task
+("Corium Transform") and keeps `?ver=` and `/_gate` (signed links). **media.py listens on
 `CFG.media.listen` = 127.0.0.1:8084** and receives everything else in this document: `?_v=`, explicit
 `?w ?h ?fit ?fm ?q` (now cached + breaker-admitted), negotiation, `/_scan`, the lane. media.py still
 implements `/_gate` and `?ver=` for compatibility, but rules route those to 8083.
@@ -357,18 +358,25 @@ kinds: `scan`, `image` (deferred / prewarm encodes), `video`. Priority (lower = 
 70 prewarm after upload, 80 legacy backfill, 85 popularity prewarm.
 Dedup key `(kind, mount, path, params)`: enqueueing an existing queued/running job only lowers its
 priority number. A `done` job with the same size+mtime is not re-enqueued unless `force`.
-Leases: `claim` sets `lease_until = now + lease_s`; running jobs heartbeat; expired leases are requeued
-(crash safety). Failures retry with backoff 60 s, 10 min, 1 h up to `worker.max_attempts` (3), then
-`failed`.
+Leases: `claim` sets `lease_until = now + lease_s` and a fresh opaque token (`job.lease`); running jobs
+heartbeat; expired leases are requeued (crash safety). `heartbeat` / `finish` / `fail` take the claim's token and
+only touch the job while it is still that claim's, so a run whose lease expired and was re-claimed (by another
+video slot, another worker or later a GPU node, REMOTE_ENCODING.md) can neither extend nor settle the new claim; it
+notices on its next beat (lease lost). The token is never returned by `jobs()` (admin API). Failures retry with
+backoff 60 s, 10 min, 1 h up to `worker.max_attempts` (3), then `failed`.
 
 ### 7.2 Worker loop
 
-Two lanes (threads): **scan lane** (`scan` jobs — they gate content, never starved by video) and
-**encode lane** (`image`, `video`). Before each claim a lane checks: `cpu_ewma < worker.cpu_max` (65),
+Lanes (threads): **scan lane** (`scan` jobs — they gate content, never starved by video), **encode lane**
+(`image`, and `video` while no GPU is in use for video) and the **video lane**: one slot thread per GPU encode
+slot (7.6). Before each claim a lane checks: `cpu_ewma < worker.cpu_max` (65),
 `mem_avail > worker.mem_min_mb`, media breaker (`meta.breaker.state`) not `open`. Otherwise it sleeps
-5 s and emits `worker.paused` (at most once per 5 min per reason). Process priority BELOW_NORMAL; every
-external tool runs through `sandbox.run` with IDLE priority, a CPU hard cap (`video.cpu_pct` 50 % for
-ffmpeg, 35 % for others) and a memory cap.
+5 s and emits `worker.paused` (at most once per 5 min per reason). An encode that would run next to others
+(any image / video job holding a slot) also needs `cpu_ewma < cpu_max - 10` and 2048 MB more than `mem_min_mb`;
+otherwise the lane waits quietly ("busy"), so parallel GPU jobs never drive the machine to where the scan lane
+pauses. Process priority BELOW_NORMAL; every external tool runs through `sandbox.run` with IDLE priority, a CPU
+hard cap (`video.cpu_pct` 50 % for each ffmpeg, 35 % for others) and a memory cap. `--lanes` (default
+`scan,encode,video`) picks the lanes; without `video` the encode lane runs every video job, GPU or not.
 
 ### 7.3 Scan pipeline (`scan.scan_file(full, name, conf, tools, cancel) -> ScanResult`)
 
@@ -424,6 +432,59 @@ Hot path for `_v=webm` (and `fm=webm`): variant ready & beneficial -> accel; oth
 and answer `302 ?_v=orig` (`private, no-store`). Never serves mp4 bytes under the webm URL (a playback that
 spans the moment the variant appears would mix byte ranges of two different files).
 
+**GPUs (`gpu.py`, MP4 only).** `video.encoder` = `cpu` | `auto` | `nvenc` | `qsv` | `amf` | `vaapi`; `video.gpu` =
+`auto` (every usable GPU) or one device id (`nvenc:1`, `vaapi:renderD128`, ...). Devices per backend: NVIDIA cards from
+`nvidia-smi` (PCI bus order; ffmpeg runs with `CUDA_DEVICE_ORDER=PCI_BUS_ID` so `-gpu N` is the same card),
+Quick Sync and AMF as one device each (Windows; QSV on Linux too), VAAPI one per `/dev/dri/renderD*` (Linux).
+`ffmpeg -encoders` only proves a build was compiled with an encoder, so every device gets a one-frame test encode with
+the real settings; failures keep the ffmpeg message plus a hint (driver too old for this ffmpeg's NVENC API, no
+driver, session limit, render-group permission). While `media.tools.ffmpeg` is empty, every installed build is tried
+(PATH, winget, `C:\ffmpeg*`, Program Files, Chocolatey, Scoop, `/usr/lib/jellyfin-ffmpeg`, ...) and the first that
+drives a GPU is used for GPU jobs, so a driver older than the newest ffmpeg still gets hardware encoding from an older
+build; a configured path is never second-guessed. Discovery is cached 10 min (driver updates are picked up) and
+published by the worker in meta `tools`.video.gpu (dashboard: Tools > GPUs, Video settings). Jobs are spread over the
+selected devices round-robin; a device that fails a real job is benched for 10 min, the job retries on the next GPU and
+in `auto` finally on the CPU (event `video.gpu_fallback`). An explicit backend never silently uses the CPU; its
+hardware failures are not recorded as "original only", so the job succeeds once the GPU is back. Quality / speed:
+`nvenc_cq` (0-51) and `nvenc_preset` (p1-p7) apply to every backend (QSV `-global_quality` + preset, AMF CQP + quality,
+VAAPI `-qp`). `video.gpu` is not part of the variant spec (the same settings on another card are the same variant).
+A GPU that passed its test but goes away shows up as `tool.missing` key `gpu` when Auto would quietly use the CPU.
+
+**GPU decoding (`video.gpu_decode`, default on).** While GPU compute is on (`video.encoder` not `cpu`) the source is
+decoded on a GPU as well; with only the encoder on the GPU, software decoding of large sources is most of a job's
+CPU time. NVENC jobs keep the frames on the card (`-hwaccel cuda -hwaccel_output_format cuda`,
+`scale_cuda=...:format=yuv420p` for even sizes and 8-bit 4:2:0, mode `gpu`) when the build has `scale_cuda` (checked
+in `ffmpeg -filters`; many builds decode with CUDA but lack it); otherwise, for rotated sources and for the other
+backends the frames come back to system memory (`gpu_copy`: ffmpeg's autorotate and the CPU filters need them there;
+Quick Sync / AMF decode through D3D11 on Windows, VAAPI through its render node).
+WebM jobs in `auto` are still encoded on the CPU but decoded on a selected GPU when the build that drives it also has
+the software encoders. Decoders lack some formats (ProRes, 4:4:4 H.264, AV1 on older cards, ...), and ffmpeg
+then fails or quietly decodes on the CPU, so a GPU-decoded run that fails (other than by timeout) is repeated with
+CPU decoding: a decoder limit never benches the GPU, and when the second run works that device + `<codec>/<pix_fmt>`
++ mode is planned with CPU decoding for an hour (`gpu.decode_failed`). The job result says which one made it
+(`decode`: `gpu` | `gpu_copy` | `cpu`). Not part of the variant spec. Images stay on the CPU: AVIF / WebP have no
+hardware encoder on most GPUs (hardware AV1 still images are larger at the same quality) and resizing is a small
+share of an image encode.
+
+**Parallel encodes (worker.py).** Every encode holds a slot while it runs: `cpu` (capacity 1: images and software
+video share it, one CPU encode at a time as with the old single encode lane) or a GPU id (capacity
+`video.gpu_jobs`: one number for every GPU, or `{"nvenc:1": 2, "vaapi": 2, "*": 1}` by device id, backend or
+default; 1 by default, at most 8; not part of the variant spec). While video goes to GPUs (format `mp4`, encoder
+not `cpu`, at least one usable device that is not benched), the video lane runs one slot thread per GPU slot (the
+selected devices' capacities added up, at most 16; the count grows when GPUs appear and never shrinks, surplus
+threads find no free GPU). A slot takes a free GPU (the least busy, ties round-robin) before it claims a `video`
+job, so N GPUs encode N videos at once; the encode lane then only claims images. Without GPUs the encode lane takes
+video as before and no slot runs. A job whose plan needs another resource (a `want: webm` job claimed by a GPU slot,
+GPU failover) gives its slot back and waits for the new one ahead of new claims. Failover: the failed device is
+benched (no slot takes it again until the bench runs out), the job waits for another free GPU, and in `auto` takes
+the CPU slot if that frees up first. A session-cap refusal (`OpenEncodeSessionEx ... out of memory`,
+`incompatible client key`) while other jobs of ours run on that GPU is not a broken device: its capacity drops to
+the jobs it carries for 10 min and the job fails over without benching. GeForce drivers cap parallel NVENC sessions
+per system, and the 10-minute rediscovery's test encode needs a session as well, so keep `gpu_jobs` below that cap.
+Each GPU job still runs under `video.cpu_pct` (decoding and audio stay on the CPU); the headroom rule (7.2) keeps
+parallel jobs from starving scans. Rediscovery is single-flight (one round of test encodes for all slots). The
+worker heartbeat lists the slots (`lanes.video-N.job.on` = device) and the held resources (`slots`).
+
 Edge rule for video (edge mode only): query-less `mp4|m4v|mov` with `Sec-Fetch-Dest: video` and a Chromium or
 Firefox UA (not `CriOS`/`FxiOS` = iOS WebKit) -> `_v=webm`. `mkv avi wmv flv` are never auto-swapped (they
 are downloads); `?fm=webm` makes them playable in browsers explicitly.
@@ -458,7 +519,7 @@ Current token: purge/WAF/lists missing. Needed (all zone-scoped to example.com):
 |---|---|---|
 | Zone › Transform Rules › Edit | edge negotiation rules (6.1, 7.6) | redirect mode (one extra tiny round trip per image view) |
 | Zone › Cache Purge › Purge | purge a file (and its `?_v=` variants) the moment a scan holds it or it is replaced | a legacy file flagged after Cloudflare cached it stays at the edge until its TTL (1 year!) |
-| (existing) Zone WAF Edit, Account Filter Lists Edit | Strata's edge blacklist | unchanged |
+| (existing) Zone WAF Edit, Account Filter Lists Edit | Corium's edge blacklist | unchanged |
 
 Recommended dashboard toggles (no API permission needed): Caching › Tiered Cache › Smart Tiered Cache
 (fewer origin fetches across colos), Speed › Optimization › Polish **off** (we already optimize).
@@ -632,6 +693,7 @@ CONTENT_TYPE = {"avif": "image/avif", "webp": "image/webp", "jpeg": "image/jpeg"
 # video.py
 def available(conf) -> dict; def probe(path, conf) -> dict; def plan(info, conf) -> dict | None
 def transcode(src, dst, plan, conf) -> sandbox.Result
+def hardware_status(conf) -> dict; def bench(device_id, error)              # GPUs (gpu.py)
 
 # detect.py
 SEVERITY = {"low": 1, "medium": 2, "high": 3}
@@ -677,6 +739,7 @@ def ocr_image(img_or_path, conf, tools, where="") -> tuple[str, dict]
               "speed_bg": 5, "threads": 2, "min_saving": 0.10, "short_ttl": "public, max-age=60",
               "prewarm_uploads": True, "prewarm_popular": 200, "max_dim": 4096},
     "video": {"enabled": True, "codec": "av1", "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32,
+              "encoder": "cpu", "gpu": "auto", "nvenc_cq": 25, "nvenc_preset": "p5",
               "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
               "min_saving": 0.10, "timeout_factor": 15},
     "scan": {"hold_threshold": "medium", "av_engines": ["defender", "clamav"], "require_av": True,

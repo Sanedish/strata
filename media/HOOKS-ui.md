@@ -1,4 +1,4 @@
-# Strata Media: UI hooks (`static/media.js`)
+# Corium Media: UI hooks (`static/media.js`)
 
 The Media view is complete in `static/media.js`, and every piece of logic lives there. Integration needs **one
 line in `index.html`** and nothing else in the shared front-end files. The server side (`strata.py` dispatching

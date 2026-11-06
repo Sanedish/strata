@@ -1,13 +1,19 @@
-"""Strata Media Worker - background scans, deferred image encodes and WebM transcodes (DESIGN.md section 7).
+"""Corium Media Worker - background scans, deferred image encodes and WebM transcodes (DESIGN.md section 7).
 
 Started by media_bridge.Supervisor (pythonw, BELOW_NORMAL priority); `--once` drains the claimable jobs and exits
 (tests, manual backfills). Why it looks like this:
-  * Two lanes (threads). Scans gate what may be published, so they get their own lane and never wait behind an
-    hour-long transcode; the encode lane takes image and video jobs in priority order.
+  * Lanes (threads). Scans gate what may be published, so they get their own lane and never wait behind an
+    hour-long transcode. The encode lane takes image jobs and software (CPU) video in priority order, one at a time.
+    The video lane has one thread per GPU encode slot (each usable GPU x video.gpu_jobs), so several GPUs encode at
+    the same time; while no GPU is in use for video, the encode lane takes the video jobs as before (7.6).
+  * Encodes hold a resource while they run (_Slots): "cpu" (one at a time) or a GPU id (up to its capacity). A
+    job never starts on a benched or full GPU; GPU failover waits for a free GPU / the CPU ahead of new claims.
   * Before every claim a lane checks the machine (cpu_ewma, free RAM) and media.py's breaker (meta 'breaker'):
-    the CDN hot path always wins, the worker only uses what is left (7.2).
-  * Jobs are leased (store.claim). A heartbeat thread extends the leases of running jobs, so a crashed or hung
-    worker's jobs come back via requeue_expired(), and a job the bridge cancelled is noticed (lease lost).
+    the CDN hot path always wins, the worker only uses what is left (7.2). A second (third ...) parallel encode
+    needs extra headroom, so the GPU slots never push the machine to where the scan lane has to pause.
+  * Jobs are leased (store.claim) with a token per claim. A heartbeat thread extends the leases of running jobs, so a
+    crashed or hung worker's jobs come back via requeue_expired(), and a job the bridge cancelled or another lane
+    re-claimed after expiry is noticed (lease lost); finish / fail only ever settle the claim that ran.
   * Failures retry with backoff (store.fail: 60 s, 10 min, 1 h, then failed); a missing tool is not retried until
     the tools change (7.4). A final decode/encode failure records a not-beneficial variant so the hot path stops
     deferring that file and serves the original.
@@ -40,6 +46,7 @@ import breaker
 import cache
 import config
 import events
+import gpu
 import imaging
 import sandbox
 import scan
@@ -53,12 +60,18 @@ except ImportError:  # not Windows (tests elsewhere)
     msvcrt = None
     import fcntl
 
-LANES = {"scan": ("scan",), "encode": ("image", "video")}
+LANES = {"scan": ("scan",), "encode": ("image", "video"), "video": ("video",)}
+LANE_RES = {"scan": None, "encode": "cpu", "video": "gpu"}   # what a lane's jobs hold while they run (_Slots)
 LOCK_NAME = "media-worker.lock"     # next to media.db (DESIGN 2: data/media-worker.lock)
 IDLE_S = 2.0                        # queue empty: claim again after this
+BUSY_S = 1.0                        # no free CPU / GPU slot (or no headroom for one more encode): look again
 PAUSE_S = 5.0                       # paused: re-check after this (7.2)
+MAX_VIDEO_SLOTS = 16                # video lane threads at most (GPUs x video.gpu_jobs)
+PARALLEL_CPU_HEADROOM = 10          # an encode next to running ones needs cpu_ewma < worker.cpu_max - this ...
+PARALLEL_MEM_MB = 2048              # ... and this much more free memory than worker.mem_min_mb
 PAUSED_EVERY = 300                  # worker.paused at most once per 5 min per reason
 HEARTBEAT_S = 5                     # meta worker_heartbeat; the bridge calls us healthy while it is < 30 s old
+GPU_RETRIES = 4                      # a failed GPU job moves to another GPU / the CPU at most this often
 TOOLS_EVERY = 600                   # tool discovery + tool.missing events
 REQUEUE_EVERY = 60
 EVICT_EVERY = 60
@@ -191,8 +204,9 @@ class InstanceLock:
 
 
 class _Lane:
-    def __init__(self, name, kinds, wid):
+    def __init__(self, name, kinds, wid, res=None):
         self.name, self.kinds, self.wid = name, tuple(kinds), wid
+        self.res = res                   # LANE_RES: None (scan), "cpu" (encode), "gpu" (a video slot)
         self.paused = None               # reason while paused
         self.paused_since = None
         self.job = None                  # _Run while a job runs
@@ -203,8 +217,10 @@ class _Lane:
 class _Run:
     """A claimed job while it runs: lease bookkeeping and the cancel flag scan.scan_file polls."""
 
-    def __init__(self, job, lane):
+    def __init__(self, job, lane, res=None):
         self.job, self.lane, self.id = job, lane, job["id"]
+        self.token = job.get("lease")    # this claim's lease token (store.claim)
+        self.res = res                   # the _Slots resource held: "cpu", a GPU id or None
         self.started = time.time()
         self.beat = time.monotonic()
         self.lost = False                # lease gone: cancelled by the bridge or re-leased after expiry
@@ -212,14 +228,78 @@ class _Run:
     def info(self):
         j = self.job
         return {"id": self.id, "kind": j.get("kind"), "mount": j.get("mount"), "path": j.get("path"),
-                "attempts": j.get("attempts"), "started": self.started}
+                "attempts": j.get("attempts"), "started": self.started, "on": self.res}
+
+
+class _Slots:
+    """What encodes run on: "cpu" (capacity 1: images and software video, one at a time as the single encode lane
+    always did) and one entry per GPU id (capacity video.gpu_jobs). A thread holds at most one resource and lets go
+    before it waits for another, so nothing can deadlock. A running job that waits (GPU failover, a format only the
+    CPU makes) goes before new claims: take() without waiting never takes a resource somebody waits for."""
+
+    def __init__(self):
+        self._cv = threading.Condition()
+        self.busy = {}                   # resource -> jobs holding it
+        self.waiting = {}                # resource -> jobs waiting for it
+        self._last = {}                  # resource -> sequence number of its latest take
+        self._seq = 0
+
+    def _pick(self, cands):
+        """A GPU before the CPU, then the least busy (by share of its capacity), ties: least recently taken (jobs
+        spread over equal GPUs round-robin), then the order given."""
+        free = [(rid, cap) for rid, cap in cands if self.busy.get(rid, 0) < cap]
+        if not free:
+            return None
+        rid = min(free, key=lambda f: (f[0] == "cpu", self.busy.get(f[0], 0) / f[1], self._last.get(f[0], -1)))[0]
+        self._seq += 1
+        self._last[rid] = self._seq
+        self.busy[rid] = self.busy.get(rid, 0) + 1
+        return rid
+
+    def take(self, cands, cancel=None, poll=0.5):
+        """One of cands [(resource, capacity)], or None. Without `cancel` it never waits; with it, it waits until one
+        is free or cancel() is true."""
+        with self._cv:
+            if cancel is None:
+                return self._pick([c for c in cands if not self.waiting.get(c[0])])
+            for rid, _cap in cands:
+                self.waiting[rid] = self.waiting.get(rid, 0) + 1
+            try:
+                while True:
+                    rid = self._pick(cands)
+                    if rid is not None or cancel():
+                        return rid
+                    self._cv.wait(poll)
+            finally:
+                for rid, _cap in cands:
+                    self.waiting[rid] -= 1
+                    if not self.waiting[rid]:
+                        del self.waiting[rid]
+
+    def give(self, rid):
+        with self._cv:
+            n = self.busy.get(rid, 0) - 1
+            if n > 0:
+                self.busy[rid] = n
+            else:
+                self.busy.pop(rid, None)
+            self._cv.notify_all()
+
+    def count(self, rid=None):
+        """Jobs holding `rid` (None: holding anything)."""
+        with self._cv:
+            return sum(self.busy.values()) if rid is None else self.busy.get(rid, 0)
+
+    def snapshot(self):
+        with self._cv:
+            return dict(self.busy)
 
 
 class Worker:
     """The job runner. conf: a media.json path (None = config.CONF_PATH, re-read when it changes) or a config dict
     (tests). db / ev / vcache / monitor replace the Store, Events, Cache and breaker.Monitor it would create."""
 
-    def __init__(self, conf=None, *, db=None, ev=None, vcache=None, monitor=None, lanes=("scan", "encode"),
+    def __init__(self, conf=None, *, db=None, ev=None, vcache=None, monitor=None, lanes=("scan", "encode", "video"),
                  once=False):
         self._conf = conf
         c = self.conf
@@ -231,7 +311,12 @@ class Worker:
         self._own_monitor = monitor is None
         self.once = once
         pid = os.getpid()
-        self.lanes = {n: _Lane(n, LANES[n], "worker-%d-%s" % (pid, n)) for n in lanes}
+        # the video lane is a set of slots ("video-0", "video-1", ...) that ensure_video_slots() adds per GPU slot
+        self.lanes = {n: _Lane(n, LANES[n], "worker-%d-%s" % (pid, n), LANE_RES[n]) for n in lanes if n != "video"}
+        self.gpu_lane = "video" in lanes
+        self.slots = _Slots()
+        self._lanes_lock = threading.Lock()
+        self._cut = {}                   # GPU id -> (monotonic until, capacity) after a session-cap refusal
         self.started = time.time()
         self._stop = threading.Event()
         self._tools = None
@@ -266,9 +351,15 @@ class Worker:
         self._spawn("media-worker-keeper", self._keeper)
         if not self.once:
             self._spawn("media-worker-housekeeping", self._housekeeper)
-        for lane in self.lanes.values():
-            lane.thread = self._spawn("media-worker-" + lane.name, self._lane_loop, lane)
+        for lane in self._lane_list():
+            if lane.thread is None:          # video slots already run (housekeeping started them)
+                lane.thread = self._spawn("media-worker-" + lane.name, self._lane_loop, lane)
+        self.ensure_video_slots()
         return self
+
+    def _lane_list(self):
+        with self._lanes_lock:
+            return list(self.lanes.values())
 
     def _spawn(self, name, fn, *args):
         t = threading.Thread(target=fn, args=args, name=name, daemon=True)
@@ -285,10 +376,11 @@ class Worker:
         rc = 0
         try:
             while not self._stop.is_set():
-                alive = [ln for ln in self.lanes.values() if ln.thread is not None and ln.thread.is_alive()]
+                lanes = self._lane_list()
+                alive = [ln for ln in lanes if ln.thread is not None and ln.thread.is_alive()]
                 if self.once and not alive:
                     break
-                if not self.once and len(alive) < len(self.lanes):
+                if not self.once and len(alive) < len(lanes):
                     log("a lane thread died - exiting so the supervisor restarts the worker")
                     rc = 1
                     break
@@ -304,13 +396,15 @@ class Worker:
         (a transcode cannot be interrupted) go back to the queue - our exit then kills their sandboxed tool."""
         self._stop.set()
         deadline = time.monotonic() + timeout
-        for lane in self.lanes.values():
+        lanes = self._lane_list()
+        for lane in lanes:
             if lane.thread is not None:
                 lane.thread.join(max(0.0, deadline - time.monotonic()))
-        for lane in self.lanes.values():
+        for lane in lanes:
             run = lane.job
             if run is not None and not run.lost:
                 self._requeue(run)
+                run.lost = True              # a transcode that still finishes must not adopt its output
         if self._running:
             try:
                 self.heartbeat(stopping=True)
@@ -348,8 +442,75 @@ class Worker:
                 return "breaker"
         return None
 
+    def parallel_ok(self):
+        """Room for one more encode next to those running: cpu_ewma below worker.cpu_max - PARALLEL_CPU_HEADROOM and
+        PARALLEL_MEM_MB more free memory than worker.mem_min_mb. The first encode starts as it always did; parallel
+        GPU jobs never push the machine to where the scan lane (which pauses at cpu_max) would starve."""
+        wc = self.conf.get("worker") or {}
+        try:
+            snap = self.monitor.snapshot() or {}
+        except Exception:
+            snap = {}
+        cpu, mem = snap.get("cpu_ewma"), snap.get("mem_avail_mb")
+        if cpu is not None and cpu >= float(wc.get("cpu_max", 65)) - PARALLEL_CPU_HEADROOM:
+            return False
+        return mem is None or mem >= float(wc.get("mem_min_mb", 1024)) + PARALLEL_MEM_MB
+
+    def gpu_targets(self, conf=None):
+        """GPUs background video runs on right now, best first ([] = video runs on the CPU, in the encode lane):
+        video.format mp4, a hardware encoder (auto or a backend) and usable devices that are not benched."""
+        conf = conf or self.conf
+        vc = video.video_conf(conf)
+        if not vc["enabled"] or vc["format"] != "mp4" or vc["encoder"] == "cpu":
+            return []
+        try:
+            avail = video.available(conf, "mp4")
+        except Exception:
+            return []
+        if not avail.get("ok") or avail.get("codec") not in video.HW_CODECS:
+            return []
+        return list(avail.get("devices") or ())
+
+    def capacity(self, dev, vc):
+        """Jobs this GPU takes at once: video.gpu_jobs, lowered for a while after a session-cap refusal."""
+        n = gpu.capacity(dev, vc)
+        with self._lanes_lock:
+            cut = self._cut.get(dev.get("id"))
+            if cut and cut[0] <= time.monotonic():
+                del self._cut[dev["id"]]
+            elif cut:
+                n = min(n, cut[1])
+        return n
+
+    def _video_slots(self):
+        with self._lanes_lock:
+            return [ln for ln in self.lanes.values() if ln.res == "gpu"]
+
+    def ensure_video_slots(self):
+        """One video lane thread per GPU slot (the selected GPUs' capacities added up). It grows when GPUs appear or
+        video.gpu_jobs rises and never shrinks: a surplus slot just finds no free GPU. Returns the number of slots."""
+        if not self.gpu_lane or not self._running or self._stop.is_set():
+            return len(self._video_slots())
+        vc = video.video_conf(self.conf)
+        want = min(MAX_VIDEO_SLOTS, sum(self.capacity(d, vc) for d in self.gpu_targets()))
+        have = len(self._video_slots())
+        for i in range(have, want):
+            name = "video-%d" % i
+            lane = _Lane(name, LANES["video"], "worker-%d-%s" % (os.getpid(), name), "gpu")
+            lane.thread = self._spawn("media-worker-" + name, self._lane_loop, lane)
+            with self._lanes_lock:            # listed once its thread runs: run() counts dead lanes
+                self.lanes[name] = lane
+        if want > have:
+            log("video lane: %d GPU slot(s)" % want)
+        return max(want, have)
+
+    def _gpu_takes_video(self):
+        """Video slots exist and a GPU is in use: the encode lane leaves video jobs to them."""
+        return bool(self._video_slots()) and bool(self.gpu_targets())
+
     def lane_step(self, lane):
-        """One iteration: pause check, claim, run. Returns "paused", "idle" or "ran"."""
+        """One iteration: pause check, encode resource, claim, run. Returns "paused", "busy" (no free CPU / GPU slot,
+        or no headroom for one more parallel encode), "idle" or "ran"."""
         reason = self.pause_reason()
         if reason:
             if lane.paused != reason:
@@ -365,10 +526,33 @@ class Worker:
                 log("%s lane paused (%s)" % (lane.name, reason))
             return "paused"
         lane.paused = lane.paused_since = None
-        job = self.store.claim(lane.wid, lane.kinds, lease_s=self.lease_s)
+        res, kinds = None, lane.kinds
+        if lane.res is not None:
+            if self.slots.count() and not self.parallel_ok():
+                return "busy"
+            if lane.res == "gpu":
+                targets = self.gpu_targets()
+                if not targets:
+                    return "idle"
+                vc = video.video_conf(self.conf)
+                res = self.slots.take([(d["id"], self.capacity(d, vc)) for d in targets])
+            else:
+                res = self.slots.take([("cpu", 1)])
+                if "video" in kinds and self._gpu_takes_video():
+                    kinds = tuple(k for k in kinds if k != "video")
+            if res is None:
+                return "busy"
+        try:
+            job = self.store.claim(lane.wid, kinds, lease_s=self.lease_s)
+        except BaseException:
+            if res is not None:
+                self.slots.give(res)
+            raise
         if job is None:
+            if res is not None:
+                self.slots.give(res)
             return "idle"
-        self.run_job(lane, job)
+        self.run_job(lane, job, res)
         return "ran"
 
     def _lane_loop(self, lane):
@@ -386,10 +570,11 @@ class Worker:
                 if r == "paused" and time.monotonic() - (lane.paused_since or 0) > ONCE_PAUSE_MAX:
                     log("--once: %s lane paused too long (%s), leaving its jobs queued" % (lane.name, lane.paused))
                     break
-            self._stop.wait(IDLE_S if r == "idle" else PAUSE_S)
+            self._stop.wait(IDLE_S if r == "idle" else BUSY_S if r == "busy" else PAUSE_S)
 
-    def run_job(self, lane, job):
-        run = _Run(job, lane.name)
+    def run_job(self, lane, job, res=None):
+        """Run a claimed job; `res` is the _Slots resource taken for it (given back here, whatever it is by then)."""
+        run = _Run(job, lane.name, res)
         lane.job = run
         try:
             handler = self._handlers.get(job.get("kind"))
@@ -403,10 +588,16 @@ class Worker:
             self._fail(run, "%s: %s" % (e.__class__.__name__, e), "exception")
         finally:
             lane.job = None
+            self._give(run)
+
+    def _give(self, run):
+        if run.res is not None:
+            self.slots.give(run.res)
+            run.res = None
 
     # ------------------------------------------------------------ job bookkeeping
     def _finish(self, run, result=None):
-        ok = self.store.finish(run.id, result)
+        ok = self.store.finish(run.id, result, token=run.token)
         if ok:
             self.lanes[run.lane].done += 1
         else:
@@ -416,7 +607,7 @@ class Worker:
     def _fail(self, run, error, kind, retry_in=None, final=False):
         """store.fail with the configured attempts; returns the new state. A final failure is an event."""
         max_attempts = 1 if final else int((self.conf.get("worker") or {}).get("max_attempts") or 3)
-        state = self.store.fail(run.id, error, kind, retry_in=retry_in, max_attempts=max_attempts)
+        state = self.store.fail(run.id, error, kind, retry_in=retry_in, max_attempts=max_attempts, token=run.token)
         if state == "failed":
             j = run.job
             self.lanes[run.lane].failed += 1
@@ -428,7 +619,7 @@ class Worker:
     def _requeue(self, run):
         """Back to the queue right away (stop / cancelled scan); the attempt this claim cost stays counted."""
         return self.store.fail(run.id, "worker stopped", "stopped", retry_in=0,
-                               max_attempts=int(run.job.get("attempts") or 0) + 1)
+                               max_attempts=int(run.job.get("attempts") or 0) + 1, token=run.token)
 
     def _source(self, run, on_missing=None):
         """(mount, full path, stat) of the job's file, or None when the job was settled here: mount gone or unsafe
@@ -723,6 +914,43 @@ class Worker:
             log("cost model not saved: %s" % e)
 
     # ------------------------------------------------------------ video jobs (7.6)
+    def _targets(self, avail, vc):
+        """[(resource, capacity, device)] a plan from `avail` can run on: its GPUs (an avail without a device list
+        means the backend's default device), or the CPU (device None)."""
+        codec = avail.get("codec")
+        if codec not in video.HW_CODECS:
+            return [("cpu", 1, None)]
+        backend = next(b for b, c in gpu.ENCODER.items() if c == codec)
+        devs = [d for d in avail.get("devices") or () if d.get("backend") == backend] or [
+            {"id": backend + ":0", "backend": backend, "index": None}]
+        return [(d["id"], self.capacity(d, vc), d) for d in devs]
+
+    def _place(self, run, cands):
+        """Hold one of cands for this job: what it holds already when that is one of them, else (letting go of its
+        resource first) the best free one, waiting ahead of new claims. Returns (resource, device), or None when
+        the worker stops or the job's lease is lost meanwhile."""
+        for rid, _cap, dev in cands:
+            if rid == run.res:
+                return rid, dev
+        self._give(run)
+        rid = self.slots.take([(r, c) for r, c, _d in cands], cancel=lambda: self._stop.is_set() or run.lost)
+        if rid is None:
+            return None
+        run.res = rid
+        return rid, next(d for r, _c, d in cands if r == rid)
+
+    def _gpu_full(self, dev_id, err):
+        """The driver refused one more encode session while other jobs of ours run on this GPU: it is full, not
+        broken. Its capacity drops to what it carries for gpu.BENCH_S instead of benching it (which would also keep
+        those jobs' successors off it)."""
+        others = self.slots.count(dev_id) - 1
+        if others < 1 or not gpu.session_limited(err):
+            return False
+        with self._lanes_lock:
+            self._cut[dev_id] = (time.monotonic() + gpu.BENCH_S, others)
+        log("%s refused a parallel encode session: %d job(s) at a time for %d s" % (dev_id, others, gpu.BENCH_S))
+        return True
+
     def do_video(self, run):
         j = run.job
         src = self._source(run)
@@ -730,11 +958,12 @@ class Worker:
             return
         _m, full, st = src
         conf = self.conf
-        if not video.video_conf(conf)["enabled"]:
+        vc = video.video_conf(conf)
+        if not vc["enabled"]:
             self._finish(run, {"skipped": "disabled"})
             return
         jp = _job_params(j.get("params"))
-        fmt = jp.get("want") if jp.get("want") in video.FORMATS else video.video_conf(conf)["format"]
+        fmt = jp.get("want") if jp.get("want") in video.FORMATS else vc["format"]
         spec = jp.get("spec") or video.spec(fmt, conf)
         key = self.cache.key(j["mount"], j["path"], st.st_size, st.st_mtime, spec)
         if self._cached(key):
@@ -748,21 +977,48 @@ class Worker:
             if not avail.get("ok"):
                 raise video.VideoError("tool_missing", avail.get("error") or "ffmpeg missing")
             info = video.probe(full, conf)
-            plan = video.plan(info, conf, avail, fmt)
-            if plan is None:
-                reason = video.skip_reason(info, conf, fmt)
+            reason = video.skip_reason(info, conf, fmt)
+            if reason:
                 self._not_beneficial(key, j, st, spec, "vid")
                 self._finish(run, {"variant": "orig", "reason": reason})
                 return
+            # the job runs where its plan needs it: a free GPU slot (a video slot claimed with one) or the CPU slot
+            here = self._place(run, self._targets(avail, vc))
+            if here is None:
+                if not run.lost:
+                    self._requeue(run)
+                return
+            plan = video.plan(info, conf, dict(avail, devices=[here[1]]) if here[1] else avail, fmt)
             tmp = self.cache.tmp_path("." + fmt)
             r = video.transcode(full, tmp, plan, conf)
             kind = video.result_kind(r)
-            if (kind == "encode_error" and plan.get("codec") == "h264_nvenc"
-                    and video.video_conf(conf).get("encoder") == "auto" and avail.get("h264")):
-                # A build may list NVENC even when the driver/GPU is unavailable at runtime.
-                # Auto mode falls back to software instead of permanently failing the variant.
-                cpu_avail = dict(avail, codec="h264")
-                plan = video.plan(info, conf, cpu_avail, fmt)
+            for _ in range(GPU_RETRIES):
+                # A GPU can pass its test encode and still fail a real job (driver reset, session limit, a stream
+                # it cannot take): bench it, retry on the next free GPU, and in auto mode on the CPU if that is
+                # free first. A GPU that is only full (session cap) is not benched, just given fewer jobs.
+                if kind != "encode_error" or plan.get("codec") not in video.HW_CODECS:
+                    break
+                failed, err = plan.get("device"), ((r.err or "").strip() if r is not None else "")[-300:]
+                full_only = self._gpu_full(failed, err)
+                if not full_only:
+                    video.bench(failed, err)
+                nxt = video.available(conf, fmt)
+                others = [d for d in nxt.get("devices") or () if d.get("id") != failed]
+                cands = self._targets(dict(nxt, devices=others), vc) if (
+                    nxt.get("codec") in video.HW_CODECS and others) else []
+                if vc.get("encoder") == "auto" and avail.get("h264"):
+                    cands.append(("cpu", 1, None))
+                if not cands:
+                    break
+                here = self._place(run, cands)
+                if here is None:
+                    if not run.lost:
+                        self._requeue(run)
+                    return
+                self.events.emit("video.gpu_fallback", "warning", j["mount"], j["path"], device=failed,
+                                 error=err[-200:], next=here[0], **({"reason": "session_limit"} if full_only else {}))
+                nxt = dict(nxt, devices=[here[1]]) if here[1] else dict(avail, codec="h264", devices=[])
+                plan = video.plan(info, conf, nxt, fmt)
                 r = video.transcode(full, tmp, plan, conf)
                 kind = video.result_kind(r)
             if kind:
@@ -783,14 +1039,15 @@ class Worker:
                                    kind="vid", fmt=fmt, spec=spec, file=rel, bytes=out, src_bytes=st.st_size,
                                    secs=round(secs, 3), beneficial=1)
             self._finish(run, {"variant": fmt, "file": rel, "bytes": out, "src_bytes": st.st_size,
-                               "secs": round(secs, 1), "codec": plan.get("codec")})
+                               "secs": round(secs, 1), "codec": plan.get("codec"), "device": plan.get("device"),
+                               "decode": plan.get("decoded")})
         except video.VideoError as e:
             if e.kind == "tool_missing":   # no retry until the tools change (store.NO_RETRY / retry_failed)
                 self.events.emit_every(TOOLS_EVERY, "tool.missing", "warning", key="ffmpeg", tool="ffmpeg",
                                        needed_for="video transcodes (%s variants)" % fmt.upper(), detail=e.detail[:200])
             # A driver/GPU can become available later. Do not record a permanent original-only
             # decision for a hardware initialization failure; retry_failed should be able to recover.
-            hardware_failure = e.kind == "encode_error" and plan is not None and plan.get("codec") == "h264_nvenc"
+            hardware_failure = e.kind == "encode_error" and plan is not None and plan.get("codec") in video.HW_CODECS
             if self._fail(run, str(e), e.kind) == "failed" and e.kind in ("probe_error", "encode_error") and not hardware_failure:
                 self._not_beneficial(key, j, st, spec, "vid", secs=time.monotonic() - t0)
         finally:
@@ -804,25 +1061,25 @@ class Worker:
         lease_s = self.lease_s
         every = max(1.0, min(60.0, lease_s / 3.0))
         now = time.monotonic()
-        for lane in self.lanes.values():
+        for lane in self._lane_list():
             run = lane.job
             if run is None or run.lost or (not force and now - run.beat < every):
                 continue
             run.beat = now
-            if not self.store.heartbeat(run.id, lease_s):
+            if not self.store.heartbeat(run.id, lease_s, token=run.token):
                 run.lost = True
                 log("job %s lost its lease (cancelled or re-leased)" % run.id)
 
     def heartbeat(self, stopping=False):
         lanes = {}
-        for name, ln in self.lanes.items():
+        for ln in self._lane_list():
             run = ln.job
-            lanes[name] = {"kinds": list(ln.kinds), "job": run.info() if run else None, "paused": ln.paused,
-                           "done": ln.done, "failed": ln.failed}
+            lanes[ln.name] = {"kinds": list(ln.kinds), "job": run.info() if run else None, "paused": ln.paused,
+                              "done": ln.done, "failed": ln.failed}
         paused = next((v["paused"] for v in lanes.values() if v["paused"]), None)
         self.store.set_meta("worker_heartbeat", {"ts": time.time(), "pid": os.getpid(), "started": self.started,
                                                  "lanes": lanes, "paused": paused, "once": self.once,
-                                                 "stopping": bool(stopping)})
+                                                 "slots": self.slots.snapshot(), "stopping": bool(stopping)})
 
     def _keeper(self):
         next_hb = time.monotonic() + HEARTBEAT_S
@@ -845,7 +1102,8 @@ class Worker:
         for name, every, fn in (("tools", TOOLS_EVERY, self.check_tools),
                                 ("requeue", REQUEUE_EVERY, self._requeue_expired),
                                 ("evict", EVICT_EVERY, self.cache.maybe_evict),
-                                ("prune", 3600, self._maybe_prune)):
+                                ("prune", 3600, self._maybe_prune),
+                                ("slots", HOUSEKEEP_S, self.ensure_video_slots)):
             last = self._timers.get(name)
             if not force and last is not None and now - last < every:
                 continue
@@ -891,7 +1149,11 @@ class Worker:
         if vc["enabled"] and found.get("ffmpeg") and found.get("ffprobe"):
             v = video.available(conf)
             vid = {k: v.get(k) for k in ("ok", "codec", "av1", "vp9", "opus", "h264", "h264_nvenc",
-                                         "aac", "error")}
+                                         "aac", "error", "nvenc_error")}
+            try:   # GPUs, their test results and which ffmpeg drives them, whatever the encoder setting
+                vid["gpu"] = video.hardware_status(conf)
+            except Exception as e:
+                vid["gpu"] = {"error": "%s: %s" % (e.__class__.__name__, str(e)[:200]), "devices": []}
         sc, oc = conf.get("scan") or {}, conf.get("ocr") or {}
         engines = {"defender": ("mpcmdrun",), "clamav": ("clamscan", "clamdscan")}
         av = [e for e in sc.get("av_engines") or () if any(found.get(t) for t in engines.get(e, ()))]
@@ -902,6 +1164,12 @@ class Worker:
                     missing[t] = "video transcodes (WebM variants)"
             if vid is not None and not vid["ok"]:
                 missing["ffmpeg-encoders"] = "video transcodes: %s" % (vid.get("error") or "no encoder")
+            hw = (vid or {}).get("gpu") or {}
+            if (vc["format"] == "mp4" and vc["encoder"] != "cpu" and hw.get("devices") and not hw.get("selected")):
+                # the case that used to be silent: a GPU is there, Auto quietly encodes on the CPU
+                bad = [d for d in hw["devices"] if not d.get("ok")]
+                missing["gpu"] = "hardware video encoding (%s)" % ("; ".join(
+                    "%s: %s" % (d["id"], d.get("hint") or d.get("error")) for d in bad)[:300] or "no GPU selected")
         if not found.get("tesseract"):
             missing["tesseract"] = "OCR of images / scanned PDF pages" + (
                 " (required: held as unscannable)" if oc.get("required", True) else " (skipped)")
@@ -930,10 +1198,11 @@ class Worker:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="worker.py", description="Strata Media background worker (DESIGN.md 7)")
+    ap = argparse.ArgumentParser(prog="worker.py", description="Corium Media background worker (DESIGN.md 7)")
     ap.add_argument("--config", help="media.json to use (default: %s)" % config.CONF_PATH)
     ap.add_argument("--once", action="store_true", help="drain the claimable jobs, then exit")
-    ap.add_argument("--lanes", default="scan,encode", help="comma-separated lanes to run (scan, encode)")
+    ap.add_argument("--lanes", default="scan,encode,video",
+                    help="comma-separated lanes to run (scan, encode, video = one slot per GPU encode slot)")
     a = ap.parse_args(argv)
     lanes = [x.strip().lower() for x in (a.lanes or "").split(",") if x.strip()]
     if not lanes or any(x not in LANES for x in lanes):

@@ -1,4 +1,4 @@
-"""Strata Media safe archive extraction (DESIGN.md 7.5).
+"""Corium Media safe archive extraction (DESIGN.md 7.5).
 
 Archives are hostile until proven otherwise. extract() unpacks one into a private sandbox dir (the worker passes
 <cache_root>/sandbox/<job id>) so scan.py can run the detectors and AV over the members, and it never lets an

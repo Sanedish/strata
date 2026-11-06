@@ -1,9 +1,9 @@
 # Distributed media encoding plan
 
 This document is the implementation contract for moving background video jobs to GPU nodes. The current
-`media/worker.py` remains the local scan and image worker; `media/video.py` can use local NVENC for MP4 when
-configured. Remote execution is **not yet wired**. Do not put `media.db` on SMB/NFS or copy it to another node:
-SQLite, the variant cache, and the public Caddy route stay on the Strata origin.
+`media/worker.py` remains the local scan and image worker; `media/video.py` can use the local GPUs for MP4 when
+configured (NVENC, Quick Sync, AMF or VAAPI through `media/gpu.py`, DESIGN.md 7.6). Remote execution is **not yet wired**. Do not put `media.db` on SMB/NFS or copy it to another node:
+SQLite, the variant cache, and the public Caddy route stay on the Corium origin.
 
 ## Goals and scheduling
 
@@ -19,7 +19,7 @@ Scans and image requests stay local initially; the remote protocol is for backgr
 
 ## Two source transports
 
-* **Shared mount**: a node has read-only access to the same media share. Its configuration maps a Strata mount ID
+* **Shared mount**: a node has read-only access to the same media share. Its configuration maps a Corium mount ID
   to a local root, rather than accepting a path from the coordinator. It resolves the mount-relative path with the
   same traversal and symlink checks as `config.resolve`, then compares size, mtime, and a source fingerprint before
   and after encoding. This is the preferred transport when both Proxmox clusters can read the NAS.
@@ -73,7 +73,9 @@ outputs are never mistaken for outputs of the new settings. Old cache files can 
 
 ## Rollout and validation
 
-1. Add token-aware claim/renew/complete transactions and unit tests for expired leases and cancellation.
+1. Add token-aware claim/renew/complete transactions and unit tests for expired leases and cancellation. *Done for
+   the local worker:* `store.claim` returns `job.lease`, and `heartbeat` / `finish` / `fail` take `token=` (the local
+   GPU slots rely on it, `media/tests/test_service_worker_gpu.py`). The remote API reuses the same token.
 2. Add the private coordinator API and a node agent with shared-mount mode. Test with synthetic files on two hosts.
 3. Add transfer mode with streaming, byte/rate limits, resume, and content verification. Test a node without the share.
 4. Add capability-aware scheduling, CPU fallback, node management UI, and metrics.

@@ -18,21 +18,21 @@ Only the latest commit on `main` is supported. There are no release branches yet
 ## Scope
 
 In scope: anything in this repository, including the installer, the dashboard and its API, the login gate,
-Strata Transform, Strata Media and Strata Telemetry.
+Corium Transform, Corium Media and Corium Telemetry.
 
 Worth knowing before you report:
 
 - The dashboard listens on loopback only. Accounts that can change more than files can sign in only from private
   address ranges (loopback, LAN, CGNAT/VPN), so "an administrator on the LAN can do X" is usually by design.
-- The owner account can edit Strata's own source code from the dashboard (Admin › Code). That is a feature, not a
+- The owner account can edit Corium's own source code from the dashboard (Admin › Code). That is a feature, not a
   privilege escalation.
-- Caddy, cloudflared, Cloudflare, Resend and Anubis are separate projects; report their bugs to them. Strata's own
+- Caddy, cloudflared, Cloudflare, Resend and Anubis are separate projects; report their bugs to them. Corium's own
   wiring of Anubis (the generated Caddy config, the policy and key files, the settings) is in scope.
 - Bot protection (Anubis) slows scrapers; it is not access control. A client that sends `Accept: */*` is not challenged
   unless "also challenge direct file requests" is on, and a visitor who solves the puzzle gets the file. Use a password,
   a signed link or a login for anything private.
 
-## Running Strata safely
+## Running Corium safely
 
 - Keep `strata.json`, `data/.env` and the database private. Secrets are moved to `data/.env`; the database contains
   password hashes, sessions and share links. These paths are listed in `.gitignore`.

@@ -1,4 +1,4 @@
-# How I use AI in my development flow for Strata
+# How I use AI in my development flow for Corium
 
 While a majority of the code is human written, Claude Opus 5.5 and Sonnet 5.5, as well as Gemini 4 Argon, GPT-6 Astra, and GPT-6 Luna have been used to various degrees within the making of this Project.
 

@@ -55,7 +55,7 @@ SETTINGS = {
     "cache_level": ("Caching level", "choice", ["basic", "simplified", "aggressive"],
                     "How query strings take part in the cache key (aggressive = standard)."),
     "browser_cache_ttl": ("Browser cache TTL", "choice", [0, 1800, 3600, 7200, 14400, 28800, 86400, 604800, 2678400, 16070400],
-                          "0 = respect the origin's headers (recommended: Strata sets revalidation per drive)."),
+                          "0 = respect the origin's headers (recommended: Corium sets revalidation per drive)."),
     "always_online": ("Always Online", "toggle", None, "Serve archived copies when the origin is down."),
     "http3": ("HTTP/3 (QUIC)", "toggle", None, "Offer HTTP/3 to visitors."),
     "0rtt": ("0-RTT resumption", "toggle", None, "Faster repeat TLS handshakes."),
@@ -63,7 +63,7 @@ SETTINGS = {
     "websockets": ("WebSockets", "toggle", None, "Allow WebSocket connections (services behind the gate may need them)."),
     "early_hints": ("Early Hints", "toggle", None, "Send 103 Early Hints from cached Link headers."),
     "email_obfuscation": ("Email obfuscation", "toggle", None, "Hide e-mail addresses in HTML from scrapers."),
-    "hotlink_protection": ("Hotlink protection (zone)", "toggle", None, "Cloudflare's own image hotlink block (Strata has per-folder rules)."),
+    "hotlink_protection": ("Hotlink protection (zone)", "toggle", None, "Cloudflare's own image hotlink block (Corium has per-folder rules)."),
     "opportunistic_encryption": ("Opportunistic encryption", "toggle", None, "Advertise HTTPS to HTTP/2 clients."),
     "rocket_loader": ("Rocket Loader", "toggle", None, "Async JavaScript loading - can break pages; usually off for a CDN."),
 }
@@ -282,7 +282,7 @@ def route_dns(hostname):
             raise NetError("%s already has DNS records (%s) - change them in DNS first" % (
                 hostname, ", ".join("%s %s" % (r["type"], r["content"]) for r in same)))
         _dns_write("POST", "/zones/%s/dns_records" % zone_id(), {"type": "CNAME", "name": hostname, "content": target,
-                                                                "proxied": True, "ttl": 1, "comment": "Strata: tunnel"})
+                                                                "proxied": True, "ttl": 1, "comment": "Corium: tunnel"})
         return {"dns": "created", "via": "api"}
     except (NetError, CFError) as e:
         cert = cert_zone()
@@ -392,13 +392,13 @@ HTTP_SERVICE_RE = re.compile(r"^(https?)://([^/\s?#]+)/?$", re.I)
 
 
 def check_ingress_service(user, service):
-    """A tunnel route publishes a local service to the internet, past Caddy and every Strata rule. The owner may
+    """A tunnel route publishes a local service to the internet, past Caddy and every Corium rule. The owner may
     route anything; other accounts (network.ingress) only this site's Caddy, a fixed status, or an http(s) LAN /
-    loopback service that a service drive could also point at (rules.clean_upstream: never Caddy's admin API, Strata's
+    loopback service that a service drive could also point at (rules.clean_upstream: never Caddy's admin API, Corium's
     own ports, remote access or the cloud metadata address). Raw tcp / ssh / rdp / unix routes stay owner-only."""
     import accounts
     acct = accounts.get(user) if user and not str(user).startswith("api:") else None
-    if acct and acct.get("role") == "root" or str(user or "").startswith("api:"):
+    if acct and acct.get("role") == "root" or str(user or "").startswith("api:") and user != "api:cors":
         return service
     if service == cdn_service() or service == "hello_world" or service.startswith("http_status:"):
         return service
@@ -545,7 +545,7 @@ def restart_tunnel(user):
 
 def expose(user, d):
     """One step for "make localhost:1234 reachable as app.example.com (or cdn.example.com/app)":
-         1 the Strata drive (Caddy reverse proxy, login gate unless public)   - rules.save_mount
+         1 the Corium drive (Caddy reverse proxy, login gate unless public)   - rules.save_mount
          2 a tunnel ingress rule for the hostname -> this site's Caddy           - only for a new hostname
          3 the DNS record hostname -> tunnel                                   - only for a new hostname
          4 a tunnel restart when the ingress changed
@@ -560,7 +560,7 @@ def expose(user, d):
         raise NetError("hostname required (e.g. app.%s)" % (zone or "example.com"))
     drive = {"kind": "proxy", "name": str(d.get("name") or host + (prefix if prefix != "/" else ""))[:60],
              "path": d.get("upstream"), "prefix": prefix, "hosts": [host], "gate": d.get("gate") or {"mode": "login"},
-             "strip": d.get("strip", True), "enabled": True, "note": "exposed with Strata > Network"}
+             "strip": d.get("strip", True), "enabled": True, "note": "exposed with Corium > Network"}
     res = rules.save_mount(user, drive)
     steps.append({"step": "drive", "ok": True, "note": "Caddy serves %s%s -> %s" % (host, prefix if prefix != "/" else "",
                                                                                 rules.clean_upstream(d.get("upstream")))})
@@ -596,7 +596,7 @@ def expose(user, d):
 
 def reserved_ports():
     """Loopback ports a service drive may never point at from the UI (see rules.clean_upstream): this site's and every
-    known Strata / Caddy / monitoring port, remote access, plus strata.json proxy_reserved_ports."""
+    known Corium / Caddy / monitoring port, remote access, plus strata.json proxy_reserved_ports."""
     ports = {22, 135, 139, 445, 3389, 5985, 5986, 2019, 2020, 3000, 9095, 9097, 9098, 9182}
     ports |= set(range(8080, 8100)) | set(range(9080, 9100)) | set(range(20241, 20271))
     for k in ("listen", "feed_listen", "transform_listen", "gate_listen"):

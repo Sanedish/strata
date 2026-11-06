@@ -1,9 +1,51 @@
 # Changelog
 
-11/06/2026 - Fixes on top of (v0.4.1).
+11/07/2026 - From: (v0.4.1), To: (v0.5.0).
 
-- **Setup:** `setup.py --caddy <exe>` uses that Caddy instead of looking for one, and setup no longer creates a new Caddyfile inside Strata's code folder (a stray answer such as `n` used to become a file named `n` there).
-- **Tests:** the installer test passes `--caddy` with its stub. Before, a Caddy installed on the test machine was found instead, shifted the piped answers and could be reloaded with the test's throwaway Caddyfile, which takes every site of a Caddy running on that machine offline. Don't run older copies of `tests/installer_test.py` on a machine that serves sites.
+## Corium
+
+- **New name:** Strata is now **Corium**. Everything you see says Corium: the dashboard, e-mails, error pages, setup, messages and docs. The repositories moved to `github.com/Sanedish/corium` (the old URLs redirect). File, config, cookie, header, folder and task names keep the old name for now, so existing installations need no migration; [docs/RENAMING.md](docs/RENAMING.md) lists them and the plan to rename them later.
+
+## Security
+
+- **Error pages are no longer Caddy templates.** Pages in the error assets folder ran as templates, so anyone who could write that folder (an administrator, or an account with write access to it) could use Caddy's template functions to read Caddy's environment and other files on that drive. The reason, the Cloudflare Ray ID and the version now reach the page in the `Server-Timing` header of its response. Pages that still contain `{{…}}` show it as text; the new default pages read the header.
+- **Owner boundary and Caddy placeholders:** the unknown-host text can no longer contain `{` or `}` (a `{file.…}` or `{env.…}` placeholder there leaked files and the environment); tunnel routes from non-owners may only point at the CDN, Cloudflare's status services or LAN addresses that pass the drive checks, never at Caddy's admin API or Corium's own ports.
+- **Sign-in:** failed second-factor attempts are counted per pending sign-in (5, then start again) and no longer consume the address limiter on success.
+- **Files and links:** a rename that leaves a redirect needs the rules permission, link aliases re-check the zone, trash metadata can't be restored or deleted as a file, the folder analysis needs `analytics.read`, compression never follows links or junctions, and a compressed archive's listing reads at most 256 MiB.
+- **Backups and mail:** restoring a backup reloads sessions and drops pending sign-ins; sign-in codes and alerts have separate e-mail budgets, counted before sending.
+- **Smaller fixes:** a telemetry GET with a body is refused, the dashboard's CSV export neutralises formulas, and imported preferences are filtered.
+
+## Dashboard
+
+- **Media settings, redone:** Site › Media has its own Overview and Settings tabs. Settings uses the same panels, switches and segments as the main Settings page (Image delivery, Upload scanning, Image quality, Image encoding, Video, Video quality, Video limits), has a filter, and only shows what applies to the current choices: WebM shows its codec and CRF, MP4 on a GPU shows the GPU preset, GPU choice and GPU decoding. Changed rows are marked and a bar at the bottom saves them together (Save & apply) or discards them. The traffic tiles stay out of the way, as on other settings pages.
+- **Simpler Site navigation:** Serving, Links, Compression and Media are plain tabs; the Compression pop-up menu is gone. Compression has its own Store, Run log and Served tabs; actions such as Scan now and Edit ingress sit apart from the tabs.
+- **Consistent headings:** every panel heading has an icon, as on the Settings page.
+- **Motion:** overlays, sheets and toasts animate in and out, view switches slide, changed live numbers roll, theme changes cross-fade, the sidebar selection grows into place and categories fold smoothly (`motion.css`, `motion.js`). Settings › Reduce motion and the system setting turn it off.
+- **One copy per port:** Corium, its feed and gate, Telemetry and Transform now hold their ports exclusively (as Corium Media already did). On Windows a second copy of a service, for example a scheduled task that started twice, could bind the same port and quietly take part of its requests; now it exits with "can't listen … is it already running?". Corium binds its admin port before anything else, so a second copy stops before it touches the database. A port the feed or gate can't get is logged and the admin UI keeps running.
+- **E-mails in the error-page look:** alerts, the daily / weekly report, test messages, sign-in and new-address codes, invitations and password resets are rebuilt as e-mail-safe HTML (tables, inlined styles, dark mode, phone layout) in the style of the error pages, with the site's name and accent colour and a plain-text version. Subjects now start with the site's name instead of `[Strata]`.
+- **Settings › E-mails (owner only):** change the subject, HTML, CSS and plain text of each e-mail with CodeMirror, a live preview (light / dark, wide / phone, HTML / text) on sample data, a list of the variables to insert, a test send to your own address and a reset to the default. Saved per instance in `strata.json` (`emails`); untouched parts follow the defaults. Values are escaped (`{{name}}`; `{{{name}}}` only for the lists Corium builds), subjects stay one line, and a template that fails falls back to the default (`mailtpl.py`).
+- **Setup:** `setup.py --caddy <exe>` uses that Caddy instead of looking for one, and setup no longer creates a new Caddyfile inside Corium's code folder (a stray answer such as `n` used to become a file named `n` there). The installer test passes `--caddy`, so a Caddy installed on the test machine no longer shifts its answers.
+- **Fix:** a `local/` folder without `__init__.py` (for example the one `tests/demo.py --dev` leaves behind) no longer stops Corium at start-up.
+
+## GPU video encoding
+
+- **Every GPU type:** the video encoder can be CPU, Auto, NVENC (NVIDIA), Quick Sync (Intel), AMF (AMD, Windows) or VAAPI (Intel / AMD, Linux). Hardware output is H.264 in MP4; WebM stays on the CPU. The GPU quality and preset settings apply to all of them.
+- **Proven, not assumed:** each GPU gets a one-frame test encode. A build that merely lists NVENC (for example ffmpeg 9 with an NVIDIA driver older than 610) is no longer picked; the dashboard says why and what to do.
+- **Right ffmpeg automatically:** when no ffmpeg path is configured, Corium tries every installed build (PATH, winget, unpacked zips in `C:\ffmpeg*`, Program Files, Chocolatey, Scoop, jellyfin-ffmpeg) and uses the first one that drives a GPU for GPU jobs.
+- **Several GPUs:** all NVIDIA cards (via nvidia-smi) and every VAAPI render node are found. Jobs are spread over all usable GPUs, or pinned to one (Video settings > GPU). A GPU that fails a job rests for 10 minutes and the job moves to the next GPU, then (Auto) to the CPU.
+- **Dashboard:** Tools and Video settings list each GPU with its driver, state and a hint. Settings saved in the dashboard now reach the media worker even when the Caddy config does not change.
+- **GPUs encode at the same time:** the media worker runs one video per GPU in parallel instead of taking turns. **Jobs per GPU** (Video settings, `video.gpu_jobs`, 1 to 8, also per GPU id or backend) runs several on one card; GeForce drivers limit parallel NVENC sessions. A card that refuses an extra session is given fewer jobs for 10 minutes instead of being benched. CPU (WebM, software H.264) encodes and image encodes still run one at a time, and a second parallel encode only starts with CPU and memory headroom left, so security scans keep running.
+- **GPU decoding:** while the video encoder is not CPU, the GPU also decodes the source (**GPU decoding**, Video settings, `video.gpu_decode`, on by default). NVIDIA jobs keep every frame on the card from decoder to encoder when the ffmpeg build has `scale_cuda`, so the CPU mostly handles audio. WebM jobs in Auto are still encoded on the CPU but decoded on the GPU. Rotated phone videos are decoded on the GPU and turned on the CPU. A format the GPU cannot decode (ProRes, 4:4:4 H.264, AV1 on older cards) is retried with CPU decoding by itself and no longer rests the GPU; job results show where each video was decoded. Images are still encoded on the CPU (no common GPU encodes AVIF or WebP).
+- **Safer job leases:** every claim gets its own lease token, so a job that timed out and was picked up again (by another GPU slot or worker) can no longer be extended or completed by the stale run.
+
+## Error pages
+
+- **Reasons:** an optional reason when moving files to the trash, deleting them from the trash (`/api/files/trash/delete`), or on Hide / Forbid / IP / country / hotlink rules. The 403 / 404 page shows it.
+- **Maintenance mode** per drive (Serving > Drives > Maintenance): its hostnames / prefix answer 503, 502, 504 or 500 with the maintenance page and *What happened?*, *Who is affected?* and a return time. The LAN can optionally keep working. API: `POST /api/serving/maintenance`.
+- **Fallbacks:** every error page setting takes several paths separated by spaces; the first that exists is served.
+- **More pages:** separate 500, 503, 504 and maintenance pages (503 / 504 fall back to the 502 page).
+- **Assets folder** (Site > Error pages, `/_errors` by default): served on every host, so error pages render on service hostnames too.
+- **New default pages:** one folder per status (404, 403, 500, 502, 503, 504, maintenance) with an `index.html` and its texts in `info.md`, shared script, style and images, light and dark mode, the Ray ID, an automatic reload once a 5xx service is back, and a *Powered by Corium (v…)* note. **Edit** next to a status installs them into the assets folder (files already there are kept) and opens that page's texts. They replace the single-file 403 / 404 / 502 pages, whose background photos came from the author's CDN; the images now ship with the pages. New installations use them by default and fall back to the old `/404/404.html` and `/404/403.html`.
 
 10/17/2026 - From: (v0.4.0.1), To: (v0.4.1).
 

@@ -1,6 +1,6 @@
-"""Strata core - config, access-log tailer, metric scrapers, probes and the SQLite queries.
+"""Corium core - config, access-log tailer, metric scrapers, probes and the SQLite queries.
 
-Everything here runs inside the private Strata process. Nothing in this module is reachable from the
+Everything here runs inside the private Corium process. Nothing in this module is reachable from the
 public telemetry page: that only ever sees what feed.py deliberately builds from these queries.
 """
 import os as _os
@@ -50,7 +50,7 @@ import urllib.request
 
 import instance
 
-VERSION = "0.4.1"                    # bump on every release; the dashboard compares it with the latest GitHub release
+VERSION = "0.5.0"                   # bump on every release; the dashboard compares it with the latest GitHub release
 ROOT = instance.CODE                     # shared code: static/, gallery/, media/*.py, vendor/
 HOME = instance.HOME                     # this site's instance home: strata.json, data/, generated/ (see instance.py)
 CONFIG_PATH = os.path.join(HOME, "strata.json")
@@ -64,15 +64,15 @@ DEFAULTS = {
         "prefix": "strata",              # cookies <prefix>_session, API keys <prefix>_..., CF list <prefix>_blacklist
         "token_env": "CF_API_TOKEN",     # environment variable that overrides cloudflare.api_token
         "accent": "",                    # default accent colour of this instance's dashboard (#rrggbb)
-        "siblings": [],                  # [{"name", "url"}] - other Strata dashboards, linked in the sidebar
-        "cdn_listen": ":8080",           # the CDN site block Strata renders (Caddyfile import)
+        "siblings": [],                  # [{"name", "url"}] - other Corium dashboards, linked in the sidebar
+        "cdn_listen": ":8080",           # the CDN site block Corium renders (Caddyfile import)
         # how the tunnel is restarted after an ingress change: {"kind": "service"|"task", "name": "..."}
         "tunnel_restart": {},
         "dry_run": False,                # test instances: validate Caddy configs but never reload Caddy
-        "update_repo": "Sanedish/strata",  # "owner/name" on GitHub: once a day, look for a newer release ("" = never)
+        "update_repo": "Sanedish/corium",  # "owner/name" on GitHub: once a day, look for a newer release ("" = never)
     },
     "listen": "127.0.0.1:8090",          # admin UI + API (Caddy exposes it to the LAN)
-    "feed_listen": "127.0.0.1:8081",     # redacted feed for Strata Telemetry - loopback only
+    "feed_listen": "127.0.0.1:8081",     # redacted feed for Corium Telemetry - loopback only
     "feed_token_hash": "",               # sha256 of the telemetry token; generated on first start
     "auth": {"user": "", "password_hash": "", "session_hours": 336},
     "access_log": "",
@@ -111,11 +111,11 @@ DEFAULTS = {
         "k_anon": 3,                     # a country / folder is only named with at least this many visitors
     },
     "cloudflare": {"api_token": "", "zone_id": "", "zone_name": ""},
-    # serving config: Strata renders the CDN site into <home>/generated/cdn.caddy (see rules.py)
+    # serving config: Corium renders the CDN site into <home>/generated/cdn.caddy (see rules.py)
     "caddyfile": "",
     "transform_listen": "127.0.0.1:8083",
     "gate_listen": "127.0.0.1:8085",     # gate.py: login in front of proxied services (forward_auth) - loopback only
-    # Proxy drives ("services") pointing at this PC itself: allowed from the UI except reserved ports (Strata's and
+    # Proxy drives ("services") pointing at this PC itself: allowed from the UI except reserved ports (Corium's and
     # Caddy's own admin / feeds / gates of every instance, monitoring, see rules.reserved_ports). A reserved port can
     # only be opened by listing the exact address here - deliberately never through the UI or the API.
     "proxy_local_allow": [],
@@ -170,13 +170,13 @@ DEFAULTS = {
     "alerts": {"resend_api_key": "", "from": "", "to": [], "min_severity": "warning", "max_per_hour": 12,
                "provider": "", "smtp": {"host": "", "port": 0, "security": "starttls", "user": "", "password": ""},
                "digest_hour": 8, "digest": "daily", "webhooks": []},
-    # Strata Media (media/DESIGN.md): format negotiation, WebM variants, scan gate, circuit breaker.
+    # Corium Media (media/DESIGN.md): format negotiation, WebM variants, scan gate, circuit breaker.
     # rules.write_media_config() copies this section into media/media.json for media.py / worker.py.
     "media": {
         # off until deployed: rules.render() only emits media routes (and the bridge only starts media.py /
-        # worker.py) when this is on, so a Strata restart mid-rollout cannot point Caddy at a dead :8084.
+        # worker.py) when this is on, so a Corium restart mid-rollout cannot point Caddy at a dead :8084.
         "enabled": False,
-        "listen": "127.0.0.1:8084",       # media.py; Strata Transform keeps 8083 (?ver=, signed links)
+        "listen": "127.0.0.1:8084",       # media.py; Corium Transform keeps 8083 (?ver=, signed links)
         "cache_root": "data/media-cache", # local disk, not published (relative: inside the instance home)
         "cache_max_gb": 150,
         "db": "data/media.db",
@@ -208,9 +208,9 @@ DEFAULTS = {
                             "failure_retry_h": 24, "upgrade_on_promote": True}},
         "video": {"enabled": True, "format": "webm", "codec": "av1", "encoder": "cpu",
                   "crf_av1": 30, "preset_av1": 8, "crf_vp9": 32, "crf_h264": 23,
-                  "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5",
-                  "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800, "max_bytes": 8 << 30,
-                  "min_saving": 0.10, "timeout_factor": 15},
+                  "preset_h264": "medium", "nvenc_cq": 25, "nvenc_preset": "p5", "gpu": "auto", "gpu_jobs": 1,
+                  "gpu_decode": True, "audio_kbps": 128, "threads": 2, "cpu_pct": 50, "max_seconds": 10800,
+                  "max_bytes": 8 << 30, "min_saving": 0.10, "timeout_factor": 15},
         "scan": {"legacy": False,  # existing library (born before cutover): never scanned / OCR'd, only compressed
                  "hold_threshold": "medium", "av_engines": ["defender", "clamav"], "require_av": True,
                  "av_categories": ["archive", "pdf", "document", "exec", "svg"], "text_max_bytes": 8 << 20,
@@ -288,8 +288,8 @@ def _write_json(raw):
 
 
 def _move_secrets():
-    """Secrets found in strata.json (an older Strata, setup.py, a hand edit) move to data/.env, overwriting what is
-    there: Strata itself never writes one to strata.json, so a value found there is the newest. Then data/.env is
+    """Secrets found in strata.json (an older Corium, setup.py, a hand edit) move to data/.env, overwriting what is
+    there: Corium itself never writes one to strata.json, so a value found there is the newest. Then data/.env is
     locked down (it may have been created by hand)."""
     with _cfg_lock:
         if os.path.exists(CONFIG_PATH):
@@ -584,7 +584,7 @@ INTERNAL_PATH = re.compile(r"^/strata-(bin-)?selftest(/|$)", re.I)
 
 
 def internal(ip, ua, path):
-    """Strata's own tests and loopback requests: real visitors never look like this."""
+    """Corium's own tests and loopback requests: real visitors never look like this."""
     return ua.startswith("strata-") or ip.startswith("127.") or ip == "::1" or bool(INTERNAL_PATH.match(path))
 
 
@@ -632,7 +632,7 @@ def suspects():
     return {ip for ip, (until, _) in list(SUSPECT.items()) if until > t}
 
 
-# This site's own public address(es), as Cloudflare sees them: the household and Strata's own tests reach the CDN
+# This site's own public address(es), as Cloudflare sees them: the household and Corium's own tests reach the CDN
 # from here, so the crackdown never flags or bans them. Dynamic, so re-learned every 30 min and remembered 7 days.
 OWN_TRACE = "https://www.cloudflare.com/cdn-cgi/trace"
 _own = {"t": 0, "ips": None, "busy": False}
@@ -774,7 +774,9 @@ MIGRATIONS = [("req", "enc", "TEXT"), ("req", "saved", "INTEGER DEFAULT 0"), ("r
               ("link", "owner", "TEXT NOT NULL DEFAULT ''"),
               # administrative members, profile fields (e.g, title, status, ...), coarse last-seen time
               ("account", "administrative", "INTEGER NOT NULL DEFAULT 0"), ("account", "profile", "TEXT NOT NULL DEFAULT ''"),
-              ("account", "last_seen", "REAL")]
+              ("account", "last_seen", "REAL"),
+              # optional reason shown on the 403 / 404 page of a binned / deleted path; drive maintenance mode
+              ("binpath", "reason", "TEXT"), ("mount", "maint", "TEXT")]
 
 
 def connect():
@@ -866,7 +868,7 @@ def check_update():
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         return
     req = urllib.request.Request("https://api.github.com/repos/%s/releases/latest" % repo,
-                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "Strata/" + VERSION})
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "Corium/" + VERSION})
     with urllib.request.urlopen(req, timeout=20) as r:
         rel = json.load(r)
     db = connect()
@@ -1834,7 +1836,7 @@ def q_audit(q=None):
 
 
 def q_runtime_logs(q=None):
-    """Bounded tail of this Strata process log. The file is rotated and secrets are redacted at write time."""
+    """Bounded tail of this Corium process log. The file is rotated and secrets are redacted at write time."""
     q = q or {}
     limit = max(1, min(500, int(q.get("limit") or 200)))
     term = str(q.get("search") or "").strip().lower()[:120]

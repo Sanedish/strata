@@ -1,6 +1,6 @@
 """Backup and restore: strata.json without its secrets plus a snapshot of the database, as one zip.
 
-Restore copies the database in through SQLite's backup API, so it works while Strata runs, and merges the settings
+Restore copies the database in through SQLite's backup API, so it works while Corium runs, and merges the settings
 over the current strata.json. Secrets are never in the zip, so the ones on this machine stay as they are.
 The database itself still holds password hashes and share-link codes: the zip is for the owner only.
 """
@@ -58,7 +58,7 @@ def restore(zpath):
         raise ValueError("that file isn't a zip")
     with z:
         if "strata.db" not in z.namelist():
-            raise ValueError("not a Strata backup: strata.db is missing")
+            raise ValueError("not a Corium backup: strata.db is missing")
         if "strata.json" in z.namelist():
             with z.open("strata.json") as jf:
                 raw_json = jf.read((4 << 20) + 1)
@@ -100,7 +100,7 @@ def restore(zpath):
             except sqlite3.DatabaseError:
                 ok, has = "not a database", None
             if ok != "ok" or not has:
-                raise ValueError("the database in the backup is damaged or not Strata's (%s)" % ok)
+                raise ValueError("the database in the backup is damaged or not Corium's (%s)" % ok)
             live = core.connect()
             try:
                 src.backup(live)

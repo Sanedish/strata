@@ -1,4 +1,4 @@
-"""Resource monitor, circuit breaker and admission control for Strata Media (DESIGN.md section 8).
+"""Resource monitor, circuit breaker and admission control for Corium Media (DESIGN.md section 8).
 
 The VM is small (6 vCPU, 8 GB) and also runs Caddy and cloudflared, which must always win. On-the-fly encoding
 is optional work: a Breaker admits it only while the machine has headroom and one of a few slots is free, and

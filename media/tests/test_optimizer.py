@@ -101,7 +101,7 @@ def screenshot(size):
     d = ImageDraw.Draw(im)
     for y in range(40, size[1] - 40, 28):
         d.rectangle([60, y, size[0] - 60, y + 14], fill=(30 + y % 90, 60, 120))
-        d.text((70, y), "Strata optimizer fixture line %d" % y, fill=(255, 255, 255))
+        d.text((70, y), "Corium optimizer fixture line %d" % y, fill=(255, 255, 255))
     return im
 
 

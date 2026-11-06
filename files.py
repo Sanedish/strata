@@ -2,7 +2,7 @@
 
 Every client-supplied path goes through resolve(mount, rel). On each drive's root:
     .strata-trash/<batch>/...                 deleted items + manifest (dot-folder: never served)
-    .strata-versions/<h2>/<sha1(rel)>/v<n>    previous versions (served only via ?ver=n by Strata Transform)
+    .strata-versions/<h2>/<sha1(rel)>/v<n>    previous versions (served only via ?ver=n by Corium Transform)
     <dir>/.strata-up-<id>.part                uploads in flight (chunked, resumable)
     <file>.br                                  Brotli variants written by compress.py (hidden in listings)
 
@@ -82,7 +82,7 @@ def parts_of(rel):
 def resolve(m, rel, allow_internal=False):
     parts = parts_of(rel)
     if parts and parts[0].lower() in (TRASH, VERS) and not allow_internal:
-        raise FileError(403, "that folder is managed by Strata")
+        raise FileError(403, "that folder is managed by Corium")
     root = root_of(m)
     full = os.path.normpath(os.path.join(root, *parts)) if parts else root
     try:  # ValueError: different drives on Windows
@@ -99,7 +99,7 @@ def resolve(m, rel, allow_internal=False):
         raise FileError(403, "symlink escape detected")
     real_parts = os.path.relpath(real, real_root).split(os.sep)
     if not allow_internal and real_parts[0].lower() in (TRASH, VERS):
-        raise FileError(403, "that folder is managed by Strata")
+        raise FileError(403, "that folder is managed by Corium")
     return full, parts
 
 
@@ -131,7 +131,7 @@ _seen_lock = threading.Lock()
 
 def url_forms(up):
     """Encodings a path is commonly requested with. Cloudflare keys its cache on the raw URL, so '/a (1).png' requested
-    as /a%20(1).png (typed or pasted) and as /a%20%281%29.png (Strata's own links) are two separate cache entries."""
+    as /a%20(1).png (typed or pasted) and as /a%20%281%29.png (Corium's own links) are two separate cache entries."""
     return list(dict.fromkeys([urllib.parse.quote(up), urllib.parse.quote(up, safe=URL_SAFE_BROWSER)]))
 
 
@@ -928,8 +928,11 @@ def collect_urls(m, rel, limit=3000):
     return [u for p in paths for u in urls_for(m, p)]
 
 
-def delete(user, mid, paths):
-    """Move items into <root>/.strata-trash/<batch>/ (with their versions) and write a restore manifest."""
+def delete(user, mid, paths, reason=None):
+    """Move items into <root>/.strata-trash/<batch>/ (with their versions) and write a restore manifest.
+    reason: optional text the 403 page shows while the items are in the trash (and the 404 page once deleted)."""
+    import rules
+    reason = rules.clean_text(reason, 600)
     m = get_mount(mid)
     root = root_of(m)
     batch = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
@@ -964,7 +967,8 @@ def delete(user, mid, paths):
                     src = vdir(m, vp)
                     if os.path.isdir(src):
                         shutil.move(src, os.path.join(bdir, ".versions", os.path.basename(src)))
-            moved.append({"path": r, "dir": is_dir, "size": size, "versions": [v[0] for v in vrows]})
+            moved.append(dict({"path": r, "dir": is_dir, "size": size, "versions": [v[0] for v in vrows]},
+                              **({"reason": reason} if reason else {})))
     finally:
         db.close()
         if moved:
@@ -984,9 +988,10 @@ def sync_bin(m, items=None):
         return False
     if items is None:
         items = trash_list(m["id"])["items"]
-    inbin = {}
-    for it in items:
+    inbin, reasons = {}, {}
+    for it in items:  # newest batch first, so the latest reason for a path wins
         inbin.setdefault(it["path"], 1 if it.get("dir") else 0)
+        reasons.setdefault(it["path"], it.get("reason") or None)
     t = time.time()
     changed = False
     db = connect()
@@ -995,8 +1000,8 @@ def sync_bin(m, items=None):
             rows = dict(db.execute("SELECT path, state FROM binpath WHERE mount=?", [m["id"]]).fetchall())
             for p, d in inbin.items():
                 if rows.get(p) != "bin":
-                    db.execute("INSERT OR REPLACE INTO binpath(mount, path, dir, state, ts) VALUES(?,?,?,'bin',?)",
-                               [m["id"], p, d, t])
+                    db.execute("INSERT OR REPLACE INTO binpath(mount, path, dir, state, ts, reason) "
+                               "VALUES(?,?,?,'bin',?,?)", [m["id"], p, d, t, reasons[p]])
                     changed = True
             for p, state in rows.items():
                 if state != "bin" or p in inbin:
@@ -1465,7 +1470,7 @@ def drives():
 
 
 def served():
-    """Strata's own file drives with their disk usage. Unlike drives(), never asks Windows about every drive letter,
+    """Corium's own file drives with their disk usage. Unlike drives(), never asks Windows about every drive letter,
     which can block for many seconds on a sleeping network or removable drive."""
     out = []
     for m in core.file_mounts(enabled_only=False):
@@ -1577,7 +1582,7 @@ def fetch_url(user, mid, dest_dir, url, name=None, policy="rename"):
     limit = upload_limit()
 
     def work(job):
-        req = urllib.request.Request(urllib.parse.urlunsplit(u), headers={"User-Agent": "Strata remote upload"})
+        req = urllib.request.Request(urllib.parse.urlunsplit(u), headers={"User-Agent": "Corium remote upload"})
         with _pinned_opener().open(req, timeout=30) as r:
             size = int(r.headers.get("Content-Length") or 0)
             if size > limit:
@@ -1613,8 +1618,11 @@ def fetch_url(user, mid, dest_dir, url, name=None, policy="rename"):
 
 # ---------------------------------------------------------------- trash: permanently delete single items
 
-def trash_delete(mid, entries):
-    """Permanently delete selected trash items: entries [{batch, path}]. Their URLs answer 404 from now on."""
+def trash_delete(mid, entries, reason=None):
+    """Permanently delete selected trash items: entries [{batch, path}]. Their URLs answer 404 from now on.
+    reason: optional text for their 404 page (else the one given when they were binned stays)."""
+    import rules
+    reason = rules.clean_text(reason, 600)
     m = get_mount(mid)
     root = os.path.join(root_of(m), TRASH)
     freed, done = 0, []
@@ -1647,6 +1655,15 @@ def trash_delete(mid, entries):
         except OSError:
             pass
     sync_bin(m)  # binned paths that left the trash now answer 404
+    if reason and done:
+        db = connect()
+        try:
+            with db:
+                db.executemany("UPDATE binpath SET reason=? WHERE mount=? AND path=? AND state='gone'",
+                               [(reason, m["id"], d["path"]) for d in done])
+        finally:
+            db.close()
+        rules.APPLY_SOON.set()
     return {"deleted": len(done), "freed": freed, "purge": purge_targets(m, [(d["path"], d["dir"]) for d in done])}
 
 

@@ -1,4 +1,4 @@
-"""Event log for Strata Media: bypasses, breaker trips, holds, missing tools, job failures ("log a failure + kind").
+"""Event log for Corium Media: bypasses, breaker trips, holds, missing tools, job failures ("log a failure + kind").
 
 emit() runs on the hot path, so it never blocks on I/O and never raises: it appends to an in-memory deque and bumps
 counters. A flusher thread drains the deque once a second into a JSONL file (event_log, rotated at 20 MB, 5 kept -

@@ -41,13 +41,13 @@ PERMISSIONS = [
     ("analytics.read", "Traffic statistics", "insight", "Aggregated traffic, content and performance views"),
     ("analytics.visitors", "Visitor details", "insight", "Individual requests: IP addresses, user agents, locations (personal data)"),
     ("alerts.read", "See alerts", "insight", "Open alerts and their history"),
-    ("logs.runtime", "Process log", "insight", "Strata's own runtime log"),
+    ("logs.runtime", "Process log", "insight", "Corium's own runtime log"),
     ("logs.access", "Website request log", "insight", "Raw Caddy request log (contains IP addresses)"),
     ("audit.read", "Account activity", "insight", "Every account's activity ledger"),
     ("system.read", "System health", "insight", "Processes, database size and retention"),
     ("serving.read", "View serving setup", "insight", "Drives, rules, blacklist and links (read only)"),
     ("network.read", "View network setup", "insight", "Cloudflare zone, DNS and tunnel (read only)"),
-    ("code.read", "Read source code", "insight", "Browse Strata's source in the web IDE (read only)"),
+    ("code.read", "Read source code", "insight", "Browse Corium's source in the web IDE (read only)"),
     ("media.read", "View media pipeline", "insight", "Media processing status, holds and jobs"),
     ("alerts.ack", "Acknowledge alerts", "operate", "Mark alerts as handled"),
     ("alerts.config", "Alert rules", "operate", "Alert thresholds, digest and test messages (not the mail sender)"),
@@ -529,7 +529,7 @@ def all_accounts():
 
 def has(user, capability):
     if str(user).startswith("api:"):
-        return True
+        return capability not in ROOT_ONLY if user == "api:cors" else True
     a = get(user)
     if not a or not a.get("enabled"):
         return False
@@ -544,7 +544,7 @@ def hmac_code(user, email, code, purpose):
     return hmac.new(key, raw.encode(), hashlib.sha256).hexdigest()
 
 
-def send_code(user, email, sender, ip="", purpose="login"):
+def send_code(user, email, sender, ip="", purpose="login", base=None):
     if not EMAIL_RE.fullmatch(str(email or "")):
         raise ValueError("Add a valid e-mail address before signing in")
     if not alerts.mail_ready():
@@ -559,14 +559,13 @@ def send_code(user, email, sender, ip="", purpose="login"):
                        (user, email, hmac_code(user, email, code, purpose), expiry, purpose))
     finally:
         db.close()
-    subject = "Strata sign-in verification code"
-    body = "Your Strata verification code is %s. It expires in 10 minutes. If you did not request it, ignore this message." % code
-    import html
-    html_body = "<p>Your Strata verification code:</p><p style='font:700 28px monospace;letter-spacing:.2em'>%s</p><p>It expires in 10 minutes. If you did not request it, ignore this message.</p>" % html.escape(code)
+    import mailtpl
+    m = mailtpl.build("email_change" if purpose == "email-change" else "login_code",
+                      {"code": code, "user": user, "email": email, "minutes": "10", "ip": ip}, base)
     # Alerts owns rate limiting and provider details; send only to the account's address.
     if sender is None:
         raise ValueError("E-mail sender is not ready")
-    sender.send_to([email], subject, body, html_body, kind="code")
+    sender.send_to([email], m["subject"], m["text"], m["html"], kind="code")
     core.audit_event(ip, user, "email-otp.send", purpose)
     return expiry
 

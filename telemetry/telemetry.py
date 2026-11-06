@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strata Telemetry - the public statistics page (stats.<zone>) of one Strata instance.
+"""Corium Telemetry - the public statistics page (stats.<zone>) of one Corium instance.
 
     pythonw telemetry.py --home <instance home>     (config: <home>/telemetry/telemetry.json, see instance.py)
 
@@ -21,14 +21,14 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import instance  # noqa: E402  (the instance home: --home / STRATA_HOME)
 with open(instance.home("telemetry", "telemetry.json"), encoding="utf-8-sig") as _f:
     CONF = json.load(_f)
-SITE_NAME = re.sub(r"[^A-Za-z0-9.\- ]", "", str(CONF.get("site_name") or "Strata"))[:60]
+SITE_NAME = re.sub(r"[^A-Za-z0-9.\- ]", "", str(CONF.get("site_name") or "Corium"))[:60]
 
 FEED = urllib.parse.urlsplit(CONF.get("feed_url", "http://127.0.0.1:8081"))
 if FEED.scheme != "http" or FEED.hostname not in ("127.0.0.1", "::1", "localhost"):
@@ -250,8 +250,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     host, port = CONF.get("listen", "127.0.0.1:8082").rsplit(":", 1)
-    srv = ThreadingHTTPServer((host, int(port)), Handler)
-    srv.daemon_threads = True
+    try:
+        srv = instance.ExclusiveHTTPServer((host, int(port)), Handler)
+    except OSError as e:   # a second copy (a task started twice) stops here instead of sharing the port
+        sys.exit("telemetry: can't listen on %s:%s (%s) - is it already running?" % (host, port, e))
     print(time.strftime("%H:%M:%S"), "strata telemetry on http://%s:%s (feed %s)" % (host, port, FEED_BASE), flush=True)
     srv.serve_forever()
 

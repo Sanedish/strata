@@ -1,0 +1,87 @@
+/* motion.css - UI motion: overlays and sheets open and close, views slide in, live numbers roll, controls give
+   press feedback. motion.js sets the m-enter / m-leave / m-view / m-tick classes. Settings › Reduce motion
+   (html.reduce-motion in dashboard.css) turns all of it off; prefers-reduced-motion keeps the fades and drops the movement. */
+:root {
+  --m-out: cubic-bezier(.16, 1, .3, 1);
+  --m-in: cubic-bezier(.5, 0, .75, 0);
+  --m-spring: cubic-bezier(.34, 1.45, .64, 1);
+  --m-dist: 1;
+}
+@media (prefers-reduced-motion: reduce) { :root { --m-dist: 0; } }
+
+/* ---- controls: colour changes ease, presses sink a little */
+.btn, .tbtn, .icbtn, .pill, .seg-row button, .tabs button, .hubtabs button, .nav-item, .nav-toggle, .menu button, .pal button, button.link {
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease, box-shadow .2s ease, opacity .16s ease, transform .22s var(--m-spring);
+}
+:is(.btn, .tbtn, .icbtn, .pill):active:not([disabled]) { transform: scale(calc(1 - .04 * var(--m-dist))); transition-duration: .06s; }
+.seg-row button:active, .tabs button:active, .hubtabs button:active { transform: translateY(calc(1px * var(--m-dist))); transition-duration: .06s; }
+.icbtn .ic, .tbtn .ic { transition: transform .25s var(--m-spring); }
+
+/* ---- sidebar selection: the highlight grows out from the left edge and the bar from its middle, and both shrink
+   back when the entry is deselected. The fill moves from the button to ::after so it can scale (::before is the tree line) */
+.nav-item { isolation: isolate; }
+.nav-item::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  transform: scaleX(0); transform-origin: left center; opacity: 0;
+  transition: transform .3s cubic-bezier(.55, 0, .25, 1), opacity .1s ease .22s; }
+.nav-group .nav-item::after { background: color-mix(in srgb, var(--tree) 14%, var(--color-raised)); }
+.nav-item.on::after { transform: none; opacity: 1; transition: transform .42s var(--m-out), opacity .16s ease; }
+nav .nav-item.on, nav .nav-group .nav-item.on { background: transparent; }
+nav .nav-item.on:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.nav-item .mark { background: var(--color-accent); transform: scaleY(0); transition: transform .22s var(--m-in); }
+.nav-group .nav-item .mark { background: var(--tree); }
+.nav-item.on .mark { transform: none; transition: transform .38s var(--m-out) .06s; }
+@media (prefers-reduced-motion: reduce) { .nav-item::after, .nav-item.on::after { transform: none; } .nav-item .mark { transform: none; opacity: 0; } .nav-item.on .mark { opacity: 1; } }
+
+/* ---- sidebar categories: motion.js folds the entries in and out (m-fold while it runs) and turns the chevron */
+.nav-item.m-fold { overflow: hidden; box-sizing: border-box; }
+.nav-drop .chev { transition: opacity .16s ease; }
+.sw b::after { transition: transform .32s var(--m-spring); }
+.sw:active b::after { transform: scale(.88); }
+.sw:active input:checked + b::after { transform: translateX(15px) scale(.88); }
+.segs span { transition: background-color .4s ease; }
+.conn i { transition: background-color .3s ease; }
+.conn:not(.bad):not(.paused) i { animation: m-pulse 2.4s ease-out infinite; }
+@keyframes m-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 5px transparent; } }
+
+/* ---- sidebar collapse slides instead of snapping */
+.app { transition: grid-template-columns .28s var(--m-out); }
+.side { overflow: hidden; }
+
+/* ---- overlays (#overlay children and #sheet): the backdrop fades, the panel rises into place */
+.m-enter { animation: m-fade .2s ease-out backwards; }
+.m-enter > :first-child { animation: m-rise .34s var(--m-out) backwards; }
+.m-enter.scrim { animation: none; }
+.m-enter > .menu { animation: m-menu .2s var(--m-out) backwards; transform-origin: top left; }
+.m-enter > .pal { animation: m-drop .3s var(--m-out) backwards; }
+.m-enter.drop { animation: m-fade .16s ease-out backwards; }
+.m-enter.drop > div { animation: m-pop .32s var(--m-spring) backwards; }
+.m-leave { pointer-events: none !important; animation: m-fade .16s ease-in reverse both; }
+.m-leave > :first-child { animation: m-rise .16s var(--m-in) reverse both; }
+.m-leave.scrim { animation: none; }
+.m-leave > .menu { animation: m-menu .13s ease-in reverse both; transform-origin: top left; }
+.m-leave > .pal { animation: m-drop .15s ease-in reverse both; }
+@keyframes m-fade { from { opacity: 0; } }
+@keyframes m-rise { from { opacity: 0; transform: translateY(calc(14px * var(--m-dist))) scale(calc(1 - .025 * var(--m-dist))); } }
+@keyframes m-drop { from { opacity: 0; transform: translateY(calc(-10px * var(--m-dist))) scale(calc(1 - .02 * var(--m-dist))); } }
+@keyframes m-menu { from { opacity: 0; transform: translateY(calc(-4px * var(--m-dist))) scale(calc(1 - .05 * var(--m-dist))); } }
+@keyframes m-pop { from { opacity: 0; transform: scale(calc(1 - .1 * var(--m-dist))); } }
+
+/* ---- toasts spring in (leaving is animated by motion.js, it also closes the gap) */
+.toast { animation: m-toast .38s var(--m-spring) backwards; }
+.toast.m-leave { animation: none; pointer-events: none; }
+@keyframes m-toast { from { opacity: 0; transform: translateY(calc(12px * var(--m-dist))) scale(calc(1 - .05 * var(--m-dist))); } }
+
+/* ---- view switches: the new view slides up, its first blocks follow one after another */
+main.m-view > * { animation: m-view .32s var(--m-out) backwards; }
+main.m-view > * > :nth-child(2) { animation: m-view .36s var(--m-out) .04s backwards; }
+main.m-view > * > :nth-child(3) { animation: m-view .36s var(--m-out) .08s backwards; }
+main.m-view > * > :nth-child(4) { animation: m-view .36s var(--m-out) .12s backwards; }
+@keyframes m-view { from { opacity: 0; transform: translateY(calc(8px * var(--m-dist))); } }
+
+/* ---- live numbers roll up when they change */
+.m-tick { animation: m-tick .34s var(--m-out); }
+@keyframes m-tick { from { opacity: .25; transform: translateY(calc(.35em * var(--m-dist))); } }
+
+/* ---- theme switch cross-fade (View Transitions, where the browser has them) */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .32s; animation-timing-function: ease; }

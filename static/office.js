@@ -1,5 +1,5 @@
 'use strict';
-/* Strata office: colleagues, presence, the noticeboard and notes on profiles (server side: office.py).
+/* Corium office: colleagues, presence, the noticeboard and notes on profiles (server side: office.py).
    Presence: every open dashboard sends a heartbeat (30 s, and at once when the tab wakes up or input resumes) saying
    "active" (input in the last 5 minutes, tab visible) or "idle"; the answer carries everyone's presence (with office
    access) and the unread counts for the nav badge. Notes are plain text: everything reaches the DOM through esc(). */
@@ -33,7 +33,7 @@
       renderNav();
       if (S.view === 'office' || S.view === 'accounts') render(true);
     } catch (e) {
-      // a Strata process older than the office answers 404 / 403: ask again in 10 minutes instead of every 30 s
+      // a Corium process older than the office answers 404 / 403: ask again in 10 minutes instead of every 30 s
       if (/not found|permission|access/i.test(e.message)) { lastSent = 'off'; clearTimeout(beatT); beatT = setTimeout(beat, 600000); }
     }
   }

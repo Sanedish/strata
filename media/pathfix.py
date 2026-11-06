@@ -1,4 +1,4 @@
-"""sys.path fix for the Strata Media entry points - `import pathfix` first thing in media.py and worker.py.
+"""sys.path fix for the Corium Media entry points - `import pathfix` first thing in media.py and worker.py.
 
 Task Scheduler starts pythonw without APPDATA, so Python cannot see the per-user site-packages, and a --user
 install can land in an app-private virtualised AppData the scheduled tasks never see. Third-party packages

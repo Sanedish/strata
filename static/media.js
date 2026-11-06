@@ -1,5 +1,5 @@
 'use strict';
-/* Strata Media: admin view of the edge-processing pipeline (media/DESIGN.md 13.2). Health of the hot path (media.py)
+/* Corium Media: admin view of the edge-processing pipeline (media/DESIGN.md 13.2). Health of the hot path (media.py)
    and the background worker, the circuit breaker with its maintenance switch, CPU / encode slots / variant cache,
    format negotiation (configured vs effective, Cloudflare edge rules), tool availability, what the scan gate holds
    back (release / keep held / rescan, audited), jobs, the event log, capacity advice ("tell me when it bottlenecks"),
@@ -35,15 +35,18 @@
   const FILTER_OF = { flagged: 'flagged', held: 'held', error: 'error', pending: 'pending', released: 'released' };
   const SINCE = [['3600', '1 h'], ['21600', '6 h'], ['86400', '24 h'], ['604800', '7 d']];
   const NEG_MODES = [['auto', 'Auto'], ['edge', 'Edge'], ['redirect', 'Redirect'], ['off', 'Off']];
+  const GPU_BACKENDS = [['nvenc', 'NVENC'], ['qsv', 'Quick Sync'], ['amf', 'AMF'], ['vaapi', 'VAAPI']];
+  const GPU_ID = /^(nvenc|qsv|amf|vaapi):[A-Za-z0-9_.-]{1,32}$/;
   const VIDEO_NUMBERS = [
     ['crf_av1', 'AV1 quality (CRF)', 0, 63, 1, 'Lower is higher quality and usually uses more bandwidth.'],
     ['preset_av1', 'AV1 speed preset', 0, 13, 1, 'Lower uses more CPU to seek smaller files.'],
     ['crf_vp9', 'VP9 quality (CRF)', 0, 63, 1, 'Lower is higher quality.'],
     ['crf_h264', 'H.264 quality (CRF)', 0, 51, 1, 'Software H.264 only; lower is higher quality.'],
-    ['nvenc_cq', 'NVENC quality (CQ)', 0, 51, 1, 'GPU H.264 only; lower is higher quality.'],
+    ['nvenc_cq', 'GPU quality (CQ)', 0, 51, 1, 'Hardware H.264 (NVENC, Quick Sync, AMF, VAAPI); lower is higher quality.'],
     ['audio_kbps', 'Audio bitrate (kbps)', 32, 320, 1, 'Per stereo pair; audio already in the target codec is copied.'],
     ['threads', 'Encoder CPU threads', 1, 32, 1, 'Caps software encoding and decode threads.'],
     ['cpu_pct', 'Video CPU cap (%)', 10, 100, 1, 'Limits CPU spent by each video job.'],
+    ['gpu_jobs', 'Jobs per GPU', 1, 8, 1, 'Videos each GPU encodes at the same time; every GPU runs its own. GeForce drivers limit parallel NVENC sessions.'],
     ['max_seconds', 'Longest video (seconds)', 60, 86400, 1, 'Longer sources keep the original.'],
     ['max_gb', 'Largest source (GiB)', 1, 64, 1, 'Larger sources keep the original.'],
     ['min_saving', 'Minimum size saving (%)', 0, 75, 1, 'Reject a variant that saves less than this.'],
@@ -117,37 +120,18 @@
 .mdv .kpis { border-bottom: 0; }
 .ins.mdv > .panel { max-height: none; }
 .ins .panel.md-short { min-height: 0; }
-.ins.mdv > .panel.md-set { container-type: inline-size; grid-column: 1 / -1; }
-.md-set { padding: 0; }
-.md-set > .ph { padding: 16px 18px; margin: 0; border-bottom: 1px solid var(--color-divider); }
-.md-settings { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 420px; }
-.md-settings-menu { padding: 16px 12px; border-right: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 2%, var(--color-bg)); }
-.md-settings-menu .cap { margin: 0 10px 10px; }
-.md-settings-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 12px; margin: 2px 0; border: 0; border-radius: 7px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font: 800 13px var(--font-heading); }
-.md-settings-menu button:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
-.md-settings-menu button.on { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent-700); box-shadow: inset 3px 0 0 var(--color-accent); }
-.md-settings-menu small { color: var(--color-accent-700); font-size: 11px; }
-.md-settings-main { min-width: 0; padding: 22px clamp(18px, 3vw, 42px) 24px; }
-.md-settings-main > * { max-width: 980px; }
-.md-settings-intro { margin-bottom: 16px; }
-.md-settings-intro h4 { margin: 0 0 5px; font-size: 19px; }
-.md-settings-intro p { margin: 0; color: var(--color-neutral-500); font-size: 13px; line-height: 1.5; }
-.md-settings-main .set-row { padding: 17px 0; }
-.md-settings-intro + .set-row { border-top: 1px solid var(--color-divider); }
-.md-settings-main .set-ctl { max-width: 100%; }
-.md-settings-main .seg-row { flex-wrap: wrap; }
-.md-settings-main input[type="number"] { width: 116px; }
-.md-settings-note { padding: 14px 18px; margin: 18px 0 4px; border: 1px solid var(--color-divider); border-radius: 8px; background: color-mix(in srgb, var(--color-text) 3%, var(--color-bg)); }
-.md-settings-note .cap { margin-bottom: 8px; }
-.md-settings-note .kv { padding-top: 0 !important; }
-.md-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 22px; margin-top: 22px; border-top: 1px solid var(--color-divider); }
-.md-settings-actions .small { margin-left: auto; }
-.tbar #md_q { flex: 1 1 130px; max-width: 240px; }
-.md-list { max-height: max(220px, calc(38 * var(--vh))); overflow-y: auto; }
-.md-list .logline span:last-child { max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
-.md-off { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.md-off .setup { overflow: visible; flex: none; }
-.md-off .ins { flex: none; overflow: visible; border-top: 2px solid var(--color-divider); }
+.md-settings { padding-bottom: 0; }
+.md-settings .set-row.md-changed { box-shadow: inset 3px 0 0 var(--color-accent); padding-left: 12px; margin-left: -12px; }
+.md-settings .md-num { width: 96px; text-align: right; }
+.md-settings .md-unit { min-width: 4.6em; }   /* every number field ends at the same edge, with or without a unit */
+.md-note { padding: 12px 14px; margin: 14px 0 2px; border: 1px solid var(--color-divider); border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-bg)); }
+.md-note .cap { margin-bottom: 6px; }
+.md-note .kv { padding-top: 0 !important; }
+.md-inactive { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md, 8px); background: var(--color-bg); font-size: 13px; }
+.md-savebar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px;
+  border: 1px solid var(--color-accent); border-radius: var(--radius-md, 8px); background: var(--color-bg); box-shadow: var(--shadow-md, 0 -4px 16px rgb(0 0 0 / .25)); }
 .mdv .kv { flex: none; overflow: visible; }
 .mdv .kv > span:nth-child(even) { word-break: normal; overflow-wrap: anywhere; }
 .md-ctl { display: inline-flex; margin-top: 7px; }
@@ -165,16 +149,10 @@
 .md-tool .why { grid-column: 2 / -1; }
 .md-find { padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); font-size: 12px; }
 .md-sample { font: 11.5px/1.4 ui-monospace, Consolas, monospace; word-break: break-all; }
-.seg-row button.md-draft { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .md-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 @media (max-width: 1100px) {
   .md-tall { height: auto; }
   .md-cols, .md-adv { grid-template-columns: 1fr; }
-  .md-settings { grid-template-columns: 1fr; }
-  .md-settings-menu { display: flex; align-items: center; gap: 5px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-divider); }
-  .md-settings-menu .cap { display: none; }
-  .md-settings-menu button { width: auto; flex: none; white-space: nowrap; }
-  .md-settings-menu button.on { box-shadow: inset 0 -3px 0 var(--color-accent); }
 }`;
 
   /* ------------------------------------------------------------------ state */
@@ -183,13 +161,14 @@
   S.md = {
     hf: HOLD_FILTERS.some((f) => f[0] === ui.hf) ? ui.hf : 'review', q: '', qRaw: '', off: 0, sel: null,
     ekind: typeof ui.ekind === 'string' && ui.ekind.length < 100 ? ui.ekind : '',
-    since: SINCE.some((s) => s[0] === String(ui.since)) ? String(ui.since) : '86400', draft: {}, section: 'general',
+    since: SINCE.some((s) => s[0] === String(ui.since)) ? String(ui.since) : '86400', draft: {},
+    page: ui.page === 'settings' ? 'settings' : 'overview', setQ: '',
   };
   // st = last /api/media/status; skew = local clock - server clock, so server timestamps show correct ages
   // deploy = null (running) | 'disabled' (media.enabled false) | 'missing' (strata.py does not dispatch /api/media/* yet)
   D.md = { st: null, err: null, deploy: null, offMsg: '', at: 0, skew: 0, holds: null, events: null, jobs: null, policy: null,
     sig: {}, cpu: [], dirty: false, holdsBusy: false, policyBusy: false };
-  const saveUi = () => store.set('media', { hf: S.md.hf, ekind: S.md.ekind, since: S.md.since });
+  const saveUi = () => store.set('media', { hf: S.md.hf, ekind: S.md.ekind, since: S.md.since, page: S.md.page });
 
   /* ------------------------------------------------------------------ helpers */
 
@@ -252,7 +231,7 @@
   }
   function friendly(e) {
     const m = String((e && e.message) || e || 'error');
-    if (NOT_HOOKED.test(m)) return 'The media API isn’t reachable: this Strata doesn’t serve /api/media/ yet.';
+    if (NOT_HOOKED.test(m)) return 'The media API isn’t reachable: this Corium doesn’t serve /api/media/ yet.';
     return m;
   }
   // A status of a switched-off pipeline: {"enabled": false, ...} (HOOKS-ui.md), or the same said another way.
@@ -393,7 +372,9 @@
       video_format: first(c.video_format, v.format, 'webm'),
       video_enabled: v.enabled === false ? '0' : '1', video_codec: v.codec || 'av1',
       video_encoder: v.encoder || 'cpu', video_preset_h264: v.preset_h264 || 'medium',
-      video_nvenc_preset: v.nvenc_preset || 'p5', image_prewarm_uploads: img.prewarm_uploads ? '1' : '0' };
+      video_nvenc_preset: v.nvenc_preset || 'p5', video_gpu: v.gpu || 'auto',
+      video_gpu_decode: v.gpu_decode === false ? '0' : '1',
+      image_prewarm_uploads: img.prewarm_uploads ? '1' : '0' };
     for (const [key] of VIDEO_NUMBERS) {
       const raw = num(key === 'max_gb' ? v.max_bytes : v[key]);
       const n = raw === null ? null : key === 'max_gb' ? raw / (1024 ** 3) :
@@ -525,7 +506,11 @@
 
   const kpi = (label, val, sub, o = {}) => `<div${o.title ? ` title="${esc(o.title)}"` : ''}><div class="cap">${esc(label)}</div>
     <div class="val ${o.hot ? 'hot' : ''}">${esc(val)}</div>${o.bar || ''}<div class="small dim ell" title="${esc(sub)}">${esc(sub)}</div>${o.extra || ''}</div>`;
-  const panelH = (title, noteTxt, body, cls = '', tools = '') => `<section class="panel ${cls}"><div class="ph"><h5>${esc(title)}</h5>
+  // every panel heading carries an icon, like the rest of the dashboard
+  const PANEL_ICON = { 'Circuit breaker': 'zap', Negotiation: 'image', Tools: 'wrench', Verdicts: 'scale', Savings: 'hard-drive',
+    'Image optimizer': 'image', 'Events · 24 h': 'activity', 'File policy preview': 'shield', Capacity: 'gauge',
+    'Capacity: needs more resources': 'gauge' };
+  const panelH = (title, noteTxt, body, cls = '', tools = '') => `<section class="panel ${cls}"><div class="ph"><h5>${PANEL_ICON[title] ? icon(PANEL_ICON[title]) : ''}${esc(title)}</h5>
     <span class="small dim ell" title="${esc(noteTxt || '')}">${esc(noteTxt || '')}</span>${tools}</div>${body}</section>`;
   const kvHtml = (pairs, style = '') => `<div class="kv" style="padding:8px 0 0;${style}">${pairs.map(([k, v]) =>
     `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;
@@ -591,14 +576,25 @@
 
   /* ------------------------------------------------------------------ sections */
 
-  function topBar() {
-    const bits = [D.md.at ? 'updated ' + fmt.ago(D.md.at) : '', S.paused ? 'sampling paused' : 'refreshing every ' + POLL_MS / 1000 + ' s',
-      first(ST().version, proc('media').version) ? 'media ' + txt(first(ST().version, proc('media').version), 30) : ''].filter(Boolean);
-    const warn = txt(first(ST().error, ST().warning) ?? '', 300); // the bridge's own complaint (e.g. media.db unreadable)
-    return `<div class="tbar md-full bb-0 bg-page"><span class="small dim">${esc(bits.join(' · '))}</span>
+  // Overview / Settings: the same tab row as Site › Serving; status and Refresh on the right (Overview only)
+  function tabRow() {
+    const page = S.md.page, n = Object.keys(S.md.draft).length;
+    const tabs = [['overview', 'Overview', 'layout-dashboard'], ['settings', 'Settings', 'sliders-horizontal']].map(([k, l, ic]) =>
+      `<button class="pill ${page === k ? 'on' : ''}" data-act="mdPage" data-arg="${k}" aria-pressed="${page === k}">${icon(ic, 'sm')}${l}${
+        k === 'settings' && n ? ` <span class="badge alert" title="Unsaved changes">${n}</span>` : ''}</button>`).join('');
+    if (page === 'settings') {
+      return `<div class="tbar">${tabs}<div class="grow"></div>
+        <label class="set-q">${icon('search')}<input id="md_setq" class="input" placeholder="Filter settings" value="${esc(S.md.setQ)}"
+          autocomplete="off" spellcheck="false" aria-label="Filter media settings"></label></div>`;
+    }
+    const bits = D.md.deploy ? [D.md.at ? 'checked ' + fmt.ago(D.md.at) : ''] : [D.md.at ? 'updated ' + fmt.ago(D.md.at) : '',
+      S.paused ? 'sampling paused' : 'refreshing every ' + POLL_MS / 1000 + ' s',
+      first(ST().version, proc('media').version) ? 'media ' + txt(first(ST().version, proc('media').version), 30) : ''];
+    const warn = D.md.deploy ? '' : txt(first(ST().error, ST().warning) ?? '', 300); // the bridge's own complaint (e.g. media.db unreadable)
+    return `<div class="tbar">${tabs}<div class="grow"></div><span class="small dim">${esc(bits.filter(Boolean).join(' · '))}</span>
       ${D.md.err ? `<span class="small hot ell" title="${esc(D.md.err)}">last refresh failed: ${esc(D.md.err)}</span>` : ''}
       ${warn ? `<span class="small hot ell" title="${esc(warn)}">${esc(warn)}</span>` : ''}
-      <div class="grow"></div><button class="pill" data-act="mdRefresh">Refresh</button></div>`;
+      <button class="pill" data-act="mdRefresh">${icon('refresh-cw', 'sm')}Refresh</button></div>`;
   }
 
   function kpisHealth() {
@@ -706,7 +702,7 @@
     }
     // the inline "1fr 360px" is what layout.js looks for: it adds the drag grip and remembers the aside's width
     return `<section class="panel md-full md-short" style="padding:0">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
+      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>${icon('shield-check')}Holds</h5><span class="small dim ell">what the scan gate keeps off the CDN · paths and findings come from uploaded files · right-click a row for actions</span></div>
       <div class="tbar">${pills}<div class="grow"></div><span class="small dim">${D.md.holdsBusy ? 'loading…' : esc(range)}</span>${paging}
         <input id="md_q" class="input" value="${esc(S.md.qRaw)}" placeholder="Filter paths…" autocomplete="off" spellcheck="false" aria-label="Filter held paths"></div>
       <div class="split ${n > 12 || sel ? 'md-tall' : ''}" style="grid-template-columns:${sel ? '1fr 360px' : '1fr'}">
@@ -792,9 +788,29 @@
     const noAv = av.every((t) => t.known && !t.ok);
     return rows + (noAv ? '<p class="small hot mx-0 mt-10 mb-0">No antivirus engine: archives, PDFs, documents, executables and SVGs are held as unscannable.</p>' : '');
   }
+  function gpuInfo() { // worker's GPU discovery: {devices: [{id, backend, name, driver, ok, error, hint}], selected, benched, ffmpeg}
+    const g = asObj(ST().gpu);
+    return { devices: Array.isArray(g.devices) ? g.devices.filter(isObj) : [], selected: Array.isArray(g.selected) ? g.selected : [],
+      benched: asObj(g.benched), ffmpeg: g.ffmpeg || '', error: g.error || '' };
+  }
+  function gpuRows() { // -> html: one row per GPU with its state and what to do about it ('' when none was found)
+    const g = gpuInfo();
+    if (!g.devices.length) return g.error ? `<p class="small hot mx-0 mt-10 mb-0">GPU discovery failed: ${esc(txt(g.error, 200))}</p>` : '';
+    const rows = g.devices.map((d) => {
+      const rest = g.benched[d.id], used = g.selected.includes(d.id);
+      const state = !d.ok ? 'unusable' : rest ? 'resting' : used ? 'in use' : 'ok';
+      const detail = !d.ok ? (d.hint || d.error || '') : rest ? 'failed a job: ' + (asObj(rest).error || '') :
+        [d.driver ? 'driver ' + d.driver : '', d.id].filter(Boolean).join(' · ');
+      return `<div class="md-tool"><span class="h800 ell" title="${esc(d.name || d.id)}">${esc(d.name || d.id)}</span>
+        <span class="${d.ok && !rest ? 'h800' : 'hot h800'}">${esc(state)}</span>
+        <span class="small ${d.ok && !rest ? 'dim ell' : 'hot'}" title="${esc(d.ok ? detail : (d.error || '') + (d.hint ? ' — ' + d.hint : ''))}">${esc(txt(detail, 300))}</span></div>`;
+    }).join('');
+    return rows + (g.ffmpeg ? `<p class="small dim mx-0 mt-10 mb-0 ell" title="${esc(g.ffmpeg)}">Driven by ${esc(g.ffmpeg)}</p>` : '');
+  }
   function toolsPanel() {
+    const gpus = gpuRows();
     return panelH('Tools', 'available on this server',
-      toolRows() || '<div class="small dim">Not reported yet.</div>');
+      (toolRows() || '<div class="small dim">Not reported yet.</div>') + (gpus ? `<div class="cap smt-3">GPUs</div>${gpus}` : ''));
   }
 
   function verdictPanel() {
@@ -820,6 +836,27 @@
     return panelH('Savings', 'stored variants against their originals', body);
   }
 
+  const ENCODER_HELP = {
+    cpu: 'Software encoding: predictable, works everywhere, uses the CPU cap below.',
+    auto: 'MP4 is encoded on a working GPU when there is one, otherwise on the CPU. WebM is always encoded on the CPU (a GPU can still decode the source).',
+    gpu: 'Only this GPU type encodes (MP4). Jobs wait with an error instead of using the CPU when it is unusable.',
+  };
+  function encoderChoices(val) { // CPU, Auto, plus every GPU type found on this server (and the one configured)
+    const found = new Set(gpuInfo().devices.map((d) => d.backend)), cur = val('video_encoder');
+    return [['cpu', 'CPU'], ['auto', 'Auto']].concat(GPU_BACKENDS.filter(([b]) => found.has(b) || b === cur));
+  }
+  function gpuChoices(val) { // 'All' plus each usable GPU (and the pinned one, even if it is gone)
+    const g = gpuInfo(), cur = val('video_gpu'), enc = val('video_encoder');
+    const devs = g.devices.filter((d) => (d.ok || d.id === cur) && (enc === 'auto' || enc === 'cpu' || d.backend === enc));
+    const out = [['auto', 'All']].concat(devs.map((d) => [d.id, (d.name || d.id) + (d.ok ? '' : ' (unusable)')]));
+    if (cur && cur !== 'auto' && !out.some(([v]) => v === cur)) {
+      const known = g.devices.find((d) => d.id === cur), label = known ? known.name || cur : cur;
+      const other = enc !== 'auto' && enc !== 'cpu' && cur.split(':')[0] !== enc;
+      out.push([cur, label + (other ? ' (ignored: not ' + (GPU_BACKENDS.find(([b]) => b === enc) || [, enc])[1] + ')' : ' (not found)')]);
+    }
+    return out;
+  }
+
   // image optimizer: what the origin actually did NOT have to send (bytes on the uplink), not just what is stored
   function optimizerPanel() {
     const o = asObj(ST().optimizer), life = asObj(o.lifetime), tiers = asObj(life.tiers);
@@ -840,44 +877,85 @@
     return panelH('Image optimizer', 'bytes the origin didn’t have to send', body);
   }
 
-  function settingsPanel() {
+  // Settings page (Media › Settings): the same panels, rows, switches and segments as the main Settings page. These
+  // settings live in strata.json and a save may reload Caddy, so changes collect as a draft (changed rows are marked)
+  // and go out together with Save & apply. Rows that don't apply to the current choices are left out.
+  function settingsPage() {
     const cur = settingsNow(), d = S.md.draft, val = (k) => (k in d ? d[k] : cur[k]);
-    const inactive = D.md.deploy === 'disabled';
-    const seg = (key, items) => `<div class="seg-row">${items.map(([v, l]) => `<button class="${String(val(key)) === v ? 'on' : ''}${key in d && d[key] === v ? ' md-draft' : ''}"
-      data-act="mdSet" data-arg="${esc(key + ':' + v)}">${esc(l)}</button>`).join('')}</div>`;
-    const dirty = Object.keys(d).length > 0, leg = val('gate_legacy');
-    const section = ['general', 'images', 'video'].includes(S.md.section) ? S.md.section : 'general';
-    const numRows = VIDEO_NUMBERS.map(([key, title, min, max, step, desc]) =>
-      setRow(title, desc, `<input type="number" data-md-num="${key}" min="${min}" max="${max}" step="${step}"
-        value="${esc(val('video_' + key) ?? '')}" aria-label="${esc(title)}">`)).join('');
-    const imageNumRows = IMAGE_NUMBERS.map(([key, title, min, max, step, desc]) =>
-      setRow(title, desc, `<input type="number" data-md-num="image:${key}" min="${min}" max="${max}" step="${step}"
-        value="${esc(val('image_' + key) ?? '')}" aria-label="${esc(title)}">`)).join('');
-    const general = setRow('Format negotiation', NEG_HELP[val('negotiation')] || 'How image links get AVIF or WebP.', seg('negotiation', NEG_MODES)) +
-      setRow('Legacy files while pending', leg === '1' ? 'Older files stay online until their first scan.'
-        : leg === '0' ? 'Older files answer 503 until scanned. Safest, but old links fail for a while.' : 'Serve older files before their first scan?',
-      seg('gate_legacy', [['1', 'Serve'], ['0', 'Block']])) +
-      setRow('Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS));
-    const images = setRow('Prewarm uploads', 'Encode when a new image arrives, before the first viewer.', seg('image_prewarm_uploads', [['0', 'Off'], ['1', 'On']])) + imageNumRows;
-    const video = setRow('Video jobs', 'Enable or disable video conversion.', seg('video_enabled', [['1', 'On'], ['0', 'Off']])) +
-      setRow('Output format', 'Convert videos to WebM or MP4. ?nocompress always gets the original.', seg('video_format', VIDEO_FORMATS)) +
-      `<div class="md-settings-note"><div class="cap">${esc(val('video_format') === 'mp4' ? 'About MP4' : 'About WebM')}</div>${kvHtml(VIDEO_HELP[val('video_format')] || VIDEO_HELP.webm)}</div>` +
-      setRow('Encoder', 'CPU is predictable; Auto prefers NVENC for MP4 and falls back to CPU.', seg('video_encoder', [['cpu', 'CPU'], ['auto', 'Auto'], ['nvenc', 'NVENC']])) +
-      setRow('WebM codec', 'AV1 usually saves more bandwidth; VP9 encodes faster.', seg('video_codec', [['av1', 'AV1'], ['vp9', 'VP9']])) +
-      setRow('H.264 preset', 'Slower software presets generally make smaller files.', seg('video_preset_h264', [['fast', 'Fast'], ['medium', 'Medium'], ['slow', 'Slow'], ['slower', 'Slower']])) +
-      setRow('NVENC preset', 'p7 favors compression; p1 favors speed.', seg('video_nvenc_preset', [['p3', 'p3'], ['p5', 'p5'], ['p7', 'p7']])) + numRows;
-    const sections = {
-      general: ['General', 'Choose how formats are served and when files are held for review.', general],
-      images: ['Images', 'Tune image quality, encoding speed, and background prewarming.', images],
-      video: ['Video', 'Choose the output format and tune video encoding limits.', video],
-    };
-    const menu = `<nav class="md-settings-menu" aria-label="Compression settings"><div class="cap">Settings</div>${Object.entries(sections).map(([key, [label]]) =>
-      `<button class="${section === key ? 'on' : ''}" data-act="mdSection" data-arg="${key}" aria-current="${section === key ? 'page' : 'false'}">${label}${Object.keys(d).some((k) => key === 'images' ? k.startsWith('image_') : key === 'video' ? k.startsWith('video_') : ['negotiation', 'gate_legacy', 'hold_threshold'].includes(k)) ? '<small>●</small>' : ''}</button>`).join('')}</nav>`;
-    const [title, description, controls] = sections[section];
-    const actions = `<div class="md-settings-actions"><button class="btn btn-primary" data-act="mdSave" ${dirty ? '' : 'disabled'}>${inactive ? 'Save settings' : 'Save & apply'}</button>
-      ${dirty ? '<button class="btn btn-secondary" data-act="mdDiscard">Discard</button><span class="small hot">Unsaved changes</span>' : '<span class="small dim">All changes saved</span>'}</div>`;
-    const body = `<div class="md-settings">${menu}<div class="md-settings-main"><div class="md-settings-intro"><h4>${title}</h4><p>${description}</p></div>${controls}${actions}</div></div>`;
-    return panelH('Compression settings', inactive ? 'Saved now; used when Strata Media is enabled' : 'Saved to strata.json', body, 'md-set');
+    const inactive = D.md.deploy === 'disabled', q = (S.md.setQ || '').trim().toLowerCase();
+    const changed = (keys) => keys.some((k) => k in d);
+    const row = (keys, title, desc, ctl) => (q && !(title + ' ' + desc).toLowerCase().includes(q) ? ''
+      : `<div class="set-row${changed(keys) ? ' md-changed' : ''}"><div class="min-w0"><div class="h800">${esc(title)}</div>
+        <div class="small dim">${esc(desc)}</div></div><div class="set-ctl">${ctl}</div></div>`);
+    const seg = (key, items) => `<div class="seg-row">${items.map(([v, l]) => `<button class="${String(val(key)) === v ? 'on' : ''}"
+      data-act="mdSet" data-arg="${esc(key + ':' + v)}" aria-pressed="${String(val(key)) === v}">${esc(l)}</button>`).join('')}</div>`;
+    const sw = (key) => `<label class="sw" title="${val(key) === '1' ? 'On' : 'Off'}"><input type="checkbox" data-change="mdToggle" data-arg="${key}"
+      ${val(key) === '1' ? 'checked' : ''}><b></b></label>`;
+    const numCtl = (ref, field, title, min, max, step, unit) => `<input type="number" class="input md-num" data-md-num="${ref}" min="${min}" max="${max}"
+      step="${step}" value="${esc(val(field) ?? '')}" aria-label="${esc(title)}"><span class="small dim md-unit">${esc(unit)}</span>`;
+    // "Video CPU cap (%)" -> title "Video CPU cap", unit "%": the unit sits next to the field, like a suffix
+    const split = (t) => { const m = /^(.*?)\s*\(([^)]+)\)$/.exec(t); return m ? [m[1], m[2]] : [t, '']; };
+    const nums = (list, image, keys) => keys.map((key) => {
+      const r = list.find(([k]) => k === key);
+      if (!r) return '';
+      const [, label, min, max, step, desc] = r, [title, unit] = split(label), field = (image ? 'image_' : 'video_') + key;
+      return row([field], title, desc, numCtl(image ? 'image:' + key : key, field, title, min, max, step, unit));
+    }).join('');
+    const panel = (ic, title, noteTxt, body, cls = '') => (body ? `<section class="panel ${cls}"><div class="ph"><h5>${icon(ic)}${esc(title)}</h5>
+      <span class="small dim">${esc(noteTxt)}</span></div>${body}</section>` : '');
+
+    const fmtV = val('video_format') === 'mp4' ? 'mp4' : 'webm', enc = val('video_encoder'), videoOn = val('video_enabled') === '1';
+    const devs = gpuInfo().devices, gpuOn = enc !== 'cpu' && devs.length > 0, gpuEnc = fmtV === 'mp4' && gpuOn;
+    const softH264 = fmtV === 'mp4' && (enc === 'cpu' || enc === 'auto'), leg = val('gate_legacy');
+
+    const delivery = row(['negotiation'], 'Format negotiation', NEG_HELP[val('negotiation')] || 'How image links get AVIF or WebP.', seg('negotiation', NEG_MODES)) +
+      row(['image_prewarm_uploads'], 'Prewarm uploads', 'Encode new images when they arrive, before the first viewer.', sw('image_prewarm_uploads'));
+    const scanning = row(['hold_threshold'], 'Hold threshold', THRESHOLD_HELP[val('hold_threshold')] || 'Minimum finding severity that holds a file back.', seg('hold_threshold', THRESHOLDS)) +
+      row(['gate_legacy'], 'Serve older files before their first scan', leg === '0'
+        ? 'Off: older files answer 503 until scanned. Safest, but old links fail for a while.' : 'On: files from before Corium Media stay online until their first scan.', sw('gate_legacy'));
+    const imgQuality = nums(IMAGE_NUMBERS, true, ['avif_quality_lossy', 'avif_quality_lossless', 'avif_alpha_quality', 'webp_quality', 'jpeg_quality', 'min_saving']);
+    const imgSpeed = nums(IMAGE_NUMBERS, true, ['speed_sync', 'speed_bg', 'sync_budget_s', 'min_bytes', 'threads', 'prewarm_popular']);
+
+    const gpuRow = gpuOn && gpuChoices(val).length > 1 ? row(['video_gpu'], 'GPU', val('video_gpu') === 'auto'
+      ? 'Jobs are spread over every usable GPU; one that fails a job rests and the next takes over.'
+      : 'Only this GPU is used. If it stops working, Auto falls back to the CPU.', seg('video_gpu', gpuChoices(val))) : '';
+    const video = row(['video_enabled'], 'Convert videos', videoOn ? 'Videos get a smaller copy in the background; the first viewers get the original.'
+      : 'Off: every video is served as uploaded.', sw('video_enabled')) + (!videoOn ? '' :
+      row(['video_format'], 'Output format', VIDEO_HELP[fmtV][0][1], seg('video_format', VIDEO_FORMATS)) +
+      row(['video_encoder'], 'Encoder', ENCODER_HELP[enc] || ENCODER_HELP.gpu, seg('video_encoder', fmtV === 'mp4' ? encoderChoices(val) : [['cpu', 'CPU'], ['auto', 'Auto']])) +
+      gpuRow +
+      (gpuOn ? row(['video_gpu_decode'], 'GPU decoding', val('video_gpu_decode') === '0' ? 'Off: sources are decoded on the CPU.'
+        : 'The GPU decodes the source too, so the CPU mostly handles audio. A source it cannot decode falls back to the CPU by itself.', sw('video_gpu_decode')) : ''));
+    const gpuNote = videoOn && devs.length && !q ? `<div class="md-note"><div class="cap">GPUs on this server</div>${gpuRows()}</div>` : '';
+    const aboutNote = videoOn && !q ? `<div class="md-note"><div class="cap">${fmtV === 'mp4' ? 'About MP4' : 'About WebM'}</div>${kvHtml(VIDEO_HELP[fmtV].slice(1))}</div>` : '';
+    const vQuality = !videoOn ? '' : (fmtV === 'webm'
+      ? row(['video_codec'], 'Codec', 'AV1 usually saves more bandwidth; VP9 encodes faster.', seg('video_codec', [['av1', 'AV1'], ['vp9', 'VP9']])) +
+        nums(VIDEO_NUMBERS, false, val('video_codec') === 'vp9' ? ['crf_vp9'] : ['crf_av1', 'preset_av1'])
+      : (gpuEnc ? row(['video_nvenc_preset'], 'GPU preset', 'p7 favours compression, p3 speed (mapped to the Quick Sync and AMF presets).',
+        seg('video_nvenc_preset', [['p3', 'p3'], ['p5', 'p5'], ['p7', 'p7']])) + nums(VIDEO_NUMBERS, false, ['nvenc_cq']) : '') +
+        (softH264 ? row(['video_preset_h264'], gpuEnc ? 'Software H.264 preset' : 'H.264 preset', (gpuEnc ? 'Used when no GPU is free. ' : '') + 'Slower presets generally make smaller files.',
+          seg('video_preset_h264', [['fast', 'Fast'], ['medium', 'Medium'], ['slow', 'Slow'], ['slower', 'Slower']])) + nums(VIDEO_NUMBERS, false, ['crf_h264']) : '')) +
+      nums(VIDEO_NUMBERS, false, ['audio_kbps']);
+    const vLimits = !videoOn ? '' : nums(VIDEO_NUMBERS, false, ['threads', 'cpu_pct'].concat(gpuEnc ? ['gpu_jobs'] : [], ['max_seconds', 'max_gb', 'min_saving', 'timeout_factor']));
+
+    const n = Object.keys(d).length;
+    const body = [
+      panel('image', 'Image delivery', 'how visitors get AVIF and WebP', delivery),
+      panel('shield-check', 'Upload scanning', 'what the scan gate holds back', scanning),
+      panel('sliders-horizontal', 'Image quality', 'higher keeps more detail', imgQuality),
+      panel('gauge', 'Image encoding', 'speed and limits', imgSpeed),
+      panel('film', 'Video', videoOn ? fmtV.toUpperCase() + ' · ' + (gpuEnc ? 'encoded on the GPU' : enc === 'auto' && gpuOn ? 'CPU encode, GPU decode' : 'CPU') : 'off',
+        video + aboutNote + gpuNote, 'span2'),
+      panel('sliders-horizontal', 'Video quality', 'lower CRF / CQ is higher quality', vQuality),
+      panel('gauge', 'Video limits', 'per job', vLimits),
+    ].join('');
+    const bar = n ? `<div class="md-savebar span2" role="status"><span class="h800">${n} unsaved change${n === 1 ? '' : 's'}</span>
+      <span class="small dim">${inactive ? 'Saved now, used once Corium Media is enabled.' : 'Applied to strata.json and Caddy together.'}</span><div class="grow"></div>
+      <button class="btn btn-secondary" data-act="mdDiscard">Discard</button><button class="btn btn-primary" data-act="mdSave">${icon('save', 'sm')}${inactive ? 'Save' : 'Save & apply'}</button></div>` : '';
+    const off = inactive && !q ? `<div class="md-inactive span2">${icon('info', 'sm')}<span>Corium Media is off. These settings are saved now and take effect once
+      <code>media.enabled</code> is true in <code>strata.json</code>.</span></div>` : '';
+    return `<div class="settings md-settings" data-scroll="md-set">${off}${body ||
+      `<section class="panel span2"><div class="empty">No setting matches “${esc(S.md.setQ)}”.</div></section>`}${bar}</div>`;
   }
 
   function jobsPanel() {
@@ -903,7 +981,7 @@
       { t: 'Drive', w: 80 }, { t: 'Path', w: 260 }, { t: 'Tries', w: 50, a: 'r' }, { t: 'Error kind', w: 110 }, { t: 'Error', w: 320 }], frows,
       { empty: 'No failed jobs.' })}</div>`;
     return `<section class="panel span2 md-short">
-      <div class="ph"><h5>Jobs</h5><span class="small dim ell">background queue</span>
+      <div class="ph"><h5>${icon('list')}Jobs</h5><span class="small dim ell">background queue</span>
         ${totalFailed ? '<button class="pill" data-act="mdRetry" data-arg="">Retry all failed</button>' : ''}</div>
       ${table('md-jobs', labels, rows)}
       <div class="cap mx-0 mt-14 mb-4">Recently failed${F?.rows?.length ? ' · ' + fmt.n(F.rows.length) : ''}</div>${ftable}
@@ -936,7 +1014,7 @@
       : table('md-events', [{ t: 'When', w: 110 }, { t: 'Kind', w: 180 }, { t: 'Level', w: 64 }, { t: 'Process', w: 64 }, { t: 'Drive', w: 80 },
         { t: 'Path', w: 260 }, { t: 'Detail', w: 420 }], rows, { empty: 'No events in this window: nothing failed or was bypassed.' });
     return `<section class="panel md-full md-short" style="padding:0">
-      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
+      <div class="ph" style="padding:14px 18px 8px;margin:0"><h5>${icon('terminal')}Event log</h5><span class="small dim ell">failures and bypasses, each with its kind · newest first${E && !E.err ? ' · ' + fmt.n(rows.length) + ' shown' : ''}</span></div>
       <div class="tbar">${kindPills}<div class="grow"></div>${sincePills}</div><div class="md-box">${body}</div></section>`;
   }
 
@@ -963,7 +1041,7 @@
     const btn = `<button class="pill" data-act="mdPolicy" ${D.md.policyBusy ? 'disabled' : ''}>${D.md.policyBusy ? 'Checking…' : P ? 'Refresh' : 'Check now'}</button>`;
     let body, noteTxt = 'what the file policy refuses, from the index';
     if (!P) body = loading(D.md.policyBusy ? 'Checking the file index…' : 'Not checked yet.');
-    else if (P.err && SWITCHED_OFF.test(P.err)) body = '<div class="small dim">No preview while Strata Media is off.</div>';
+    else if (P.err && SWITCHED_OFF.test(P.err)) body = '<div class="small dim">No preview while Corium Media is off.</div>';
     else if (P.err) body = `<div class="small hot">${esc(P.err)}</div>`;
     else {
       const I = policyInfo(P.data);
@@ -994,12 +1072,12 @@
     const why = disabled ? txt(first(s.reason, s.message, D.md.offMsg) ?? '', 300) : '';
     const tools = disabled ? toolRows() : '';
     const lead = disabled
-      ? `<p>Strata Media is off: <code>media.enabled</code> is <code>false</code> in <code>strata.json</code>. Caddy serves every file as before.</p>${why && !SWITCHED_OFF.test(why) ? `<p class="dim">${esc(why)}</p>` : ''}`
-      : `<p>This Strata doesn’t serve <code>/api/media/*</code> yet. Serving is unchanged.</p>`;
-    return `<div class="md-off" data-scroll="md-off"><div class="setup">
-      <div class="cap">Strata Media</div><h5>Not deployed</h5>${lead}
-      ${disabled ? '<p>You can set compression preferences now. They are saved but inactive until Strata Media is enabled.</p>' : ''}
-    </div>${disabled ? `<div class="ins mdv">${settingsPanel()}</div>` : ''}<div class="setup">
+      ? `<p>Corium Media is off: <code>media.enabled</code> is <code>false</code> in <code>strata.json</code>. Caddy serves every file as before.</p>${why && !SWITCHED_OFF.test(why) ? `<p class="dim">${esc(why)}</p>` : ''}`
+      : `<p>This Corium doesn’t serve <code>/api/media/*</code> yet. Serving is unchanged.</p>`;
+    return `<div class="md-off ctab" data-scroll="md-off"><div class="setup">
+      <div class="cap">Corium Media</div><h5>Not deployed</h5>${lead}
+      ${disabled ? '<p>You can choose the media settings now (Settings tab). They are saved but inactive until Corium Media is enabled.</p>' : ''}
+    </div><div class="setup">
       <p>When enabled, this page shows media health, savings and any files held back.</p>
       ${disabled ? '<p>To activate the pipeline, set <code>media.enabled = true</code> in your instance’s <code>strata.json</code>. Review scanning and tool availability before activation.</p>' : ''}
       ${tools ? `<div class="cap smt-3">Tools on this machine</div>${tools}` : ''}
@@ -1011,7 +1089,9 @@
 
   function vMedia() {
     try {
-      if (D.md.deploy) return offView();
+      const page = S.md.page === 'settings' && (D.md.deploy === 'disabled' || D.md.st) ? 'settings' : 'overview';
+      if (page === 'settings') return `<div class="col-fill">${tabRow()}${settingsPage()}</div>`;
+      if (D.md.deploy) return `<div class="col-fill">${D.md.deploy === 'disabled' ? tabRow() : ''}${offView()}</div>`;
       if (!D.md.st) {
         if (!D.md.err) return loading('Asking the media bridge…');
         return `<div class="setup"><h5 class="hot">Media status unavailable</h5><p>${esc(D.md.err)}</p>
@@ -1020,8 +1100,8 @@
       }
       // every section renders on its own: one odd field costs that section, not the whole view (or app.js polling)
       const safe = (f) => { try { return f(); } catch (e) { return `<section class="panel md-short"><div class="empty hot">${esc(f.name)}: ${esc(e && e.message)}</div></section>`; } };
-      return `<div class="ins mdv" data-scroll="md">${[topBar, kpisHealth, kpisPipeline, capacityPanel, holdsPanel, breakerPanel, negotiationPanel, toolsPanel,
-        verdictPanel, optimizerPanel, savingsPanel, settingsPanel, jobsPanel, eventCountsPanel, eventsPanel, policyPanel].map(safe).join('')}</div>`;
+      return `<div class="col-fill">${tabRow()}<div class="ins mdv" data-scroll="md">${[kpisHealth, kpisPipeline, capacityPanel, holdsPanel, breakerPanel,
+        negotiationPanel, toolsPanel, verdictPanel, optimizerPanel, savingsPanel, jobsPanel, eventCountsPanel, eventsPanel, policyPanel].map(safe).join('')}</div></div>`;
     } catch (e) {
       return `<div class="setup"><h5 class="hot">The media view couldn’t load</h5><p>${esc(e && e.message)}</p></div>`;
     }
@@ -1128,23 +1208,25 @@
     mdSet(arg) {
       const s = String(arg || ''), i = s.indexOf(':'), k = s.slice(0, i), v = s.slice(i + 1);
       const allowed = { negotiation: NEG_MODES, gate_legacy: [['1'], ['0']], hold_threshold: THRESHOLDS,
-        video_format: VIDEO_FORMATS, video_enabled: [['1'], ['0']], video_encoder: [['cpu'], ['auto'], ['nvenc']],
+        video_format: VIDEO_FORMATS, video_enabled: [['1'], ['0']],
+        video_encoder: [['cpu'], ['auto']].concat(GPU_BACKENDS), video_gpu: v === 'auto' || GPU_ID.test(v) ? [[v]] : [],
         video_codec: [['av1'], ['vp9']], video_preset_h264: [['fast'], ['medium'], ['slow'], ['slower']],
-        video_nvenc_preset: [['p3'], ['p5'], ['p7']], image_prewarm_uploads: [['0'], ['1']] }[k];
+        video_nvenc_preset: [['p3'], ['p5'], ['p7']], video_gpu_decode: [['1'], ['0']], image_prewarm_uploads: [['0'], ['1']] }[k];
       if (!allowed || !allowed.some((a) => a[0] === v)) return;
       if (String(settingsNow()[k]) === v) delete S.md.draft[k]; else S.md.draft[k] = v;
       render(true);
     },
-    mdSection(section) {
-      if (!['general', 'images', 'video'].includes(section)) return;
-      S.md.section = section;
+    mdPage(page) {
+      S.md.page = page === 'settings' ? 'settings' : 'overview';
+      saveUi();
       render(true);
     },
-    mdOpenSettings(section) {
-      S.md.section = ['general', 'images', 'video'].includes(section) ? section : 'general';
+    mdOpenSettings() {
+      S.md.page = 'settings';
+      saveUi();
       go('media');
-      requestAnimationFrame(() => document.querySelector('.md-set')?.scrollIntoView({ block: 'start' }));
     },
+    mdToggle(on, el) { ACT.mdSet(el.dataset.arg + ':' + (on ? '1' : '0')); },
     mdDiscard() { S.md.draft = {}; render(true); },
     async mdSave() {
       const cur = settingsNow(), d = S.md.draft;
@@ -1170,7 +1252,7 @@
         if (!k.startsWith('video_') || k === 'video_format') continue;
         const field = k.slice(6);
         body.video ||= {};
-        body.video[field] = field === 'enabled' ? raw === '1' :
+        body.video[field] = field === 'enabled' || field === 'gpu_decode' ? raw === '1' :
           field === 'max_gb' ? Math.round(Number(raw) * 1024 ** 3) :
           field === 'min_saving' ? Number(raw) / 100 :
           VIDEO_NUMBERS.some(([n]) => n === field) ? Number(raw) : raw;
@@ -1188,7 +1270,7 @@
       const inactive = D.md.deploy === 'disabled';
       const ok = await ask({ kicker: 'Media settings', title: inactive ? 'Save compression settings?' : 'Save and apply?',
         ok: inactive ? 'Save settings' : 'Save & apply', danger: warn.length > 0,
-        text: lines.join(' · ') + (inactive ? '. These settings remain inactive until Strata Media is enabled.'
+        text: lines.join(' · ') + (inactive ? '. These settings remain inactive until Corium Media is enabled.'
           : '. Caddy checks the new config before using it.') +
           (warn.length ? ' Note: ' + warn.join('; ') + '.' : '') });
       if (!ok) return;
@@ -1217,6 +1299,7 @@
   VIEWS.media = ['Media', 'Image formats and file scanning', 'image'];
   if (!NAV_C.includes('media')) NAV_C.push('media');
   STATIC_VIEWS.add('media');      // form controls: only redrawn by render(true), i.e. by this module
+  if (typeof WORK_PAGES === 'object') WORK_PAGES.media = () => S.md.page === 'settings';   // no vitals strip on Settings
   VIEWFN.media = vMedia;
   VIEW_REFRESH.media = () => refresh({ holds: true, events: true, jobs: true });
   NAV_BADGES.push(() => {
@@ -1237,6 +1320,14 @@
   try { if (S.view !== 'media' && store.get('view', null) === 'media') S.view = 'media'; } catch { /* stay on summary */ }
 
   document.addEventListener('input', (e) => {
+    if (e.target.id === 'md_setq') {
+      const at = e.target.selectionStart;
+      S.md.setQ = e.target.value;
+      render(true);
+      const f = document.getElementById('md_setq');
+      if (f && document.activeElement !== f) { f.focus(); f.setSelectionRange(at, at); }
+      return;
+    }
     if (e.target.id !== 'md_q') return;
     S.md.qRaw = e.target.value;
     S.md.q = e.target.value.trim();

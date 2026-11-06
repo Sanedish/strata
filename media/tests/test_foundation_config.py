@@ -19,7 +19,7 @@ import config  # noqa: E402
 
 
 def _import_strata(name):
-    """Import a Strata module (core / compress) read-only: they only read strata.json at import."""
+    """Import a Corium module (core / compress) read-only: they only read strata.json at import."""
     root = config.STRATA_ROOT
     added = root not in sys.path
     if added:
@@ -275,7 +275,7 @@ class FileFactsTest(unittest.TestCase):
             self.assertEqual(config.quick_hash(big, len(data)), h.hexdigest())
             try:
                 compress = _import_strata("compress")
-            except Exception as e:  # pragma: no cover - only if Strata itself cannot be imported here
+            except Exception as e:  # pragma: no cover - only if Corium itself cannot be imported here
                 self.skipTest("compress not importable: %s" % e)
             self.assertEqual(config.quick_hash(big, len(data)), compress.quick_hash(big, len(data)))
             self.assertEqual(config.quick_hash(small, 300), compress.quick_hash(small, 300))

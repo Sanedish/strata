@@ -1,5 +1,5 @@
 'use strict';
-/* Strata Network: Cloudflare zone controls, DNS, tunnel ingress and guarded service exposure.
+/* Corium Network: Cloudflare zone controls, DNS, tunnel ingress and guarded service exposure.
    Loaded after app.js and control.js. API writes are explicit, reviewed in the UI, and errors stay visible. */
 
 const NET_TABS = [['overview', 'Overview', 'globe'], ['settings', 'Zone settings', 'sliders-horizontal'],
@@ -107,7 +107,7 @@ function netOverview() {
   const capNote = s?.token ? `${capCount}/${NET_CAPS.length} permissions available` : 'Token not configured';
   const nonReserved = ports.filter((p) => !p.reserved).length;
   const cards = `<div class="net-stats">
-    ${netStatusCard('Cloudflare token', s?.token ? 'Configured' : 'Not set', s?.zone_name || 'Configure on the Strata server', 'cloud', s?.token ? 'good' : 'warn')}
+    ${netStatusCard('Cloudflare token', s?.token ? 'Configured' : 'Not set', s?.zone_name || 'Configure on the Corium server', 'cloud', s?.token ? 'good' : 'warn')}
     ${netStatusCard('Tunnel', live ? (live.up ? 'Connected' : 'Offline') : 'Checking', liveText, 'cable', liveState)}
     ${netStatusCard('Ingress routes', fmt.n(rows.length), `${fmt.n(ing?.rules?.length || 0)} rules including catch-all`, 'route')}
     ${netStatusCard('Local services', fmt.n(nonReserved), `${fmt.n(ports.length - nonReserved)} reserved ports hidden from exposure`, 'plug')}
@@ -202,12 +202,12 @@ function netTunnel() {
     <div class="net-fields net-route-fields"><label>Hostname<input id="ni_host" class="input" placeholder="app.${esc(D.net.status?.zone_name || 'example.com')}" autocomplete="off"></label>
       <label>Forward to<input id="ni_service" class="input" value="${esc(ing.cdn || '')}" placeholder="http://localhost:8080" list="net-services" autocomplete="off"><datalist id="net-services">${[...new Set((ing.rules || []).map((r) => r.service).filter(Boolean))].map((v) => `<option value="${esc(v)}"></option>`).join('')}</datalist></label>
       <label>Path match (optional)<input id="ni_path" class="input" placeholder="/api/*" autocomplete="off"></label>
-    </div><div class="net-inline-warning">${icon('info')}Direct routes to an app bypass Strata’s login gate. For a protected service, expose it through the wizard instead.</div>
+    </div><div class="net-inline-warning">${icon('info')}Direct routes to an app bypass Corium’s login gate. For a protected service, expose it through the wizard instead.</div>
     <div class="act-row"><button class="btn btn-primary" data-act="netAddIngress" ${D.net.busy ? 'disabled' : ''}>${icon('plus', 'sm')}Add tunnel route</button></div></div>`;
   const tableView = table('network-ingress', [{ t: 'Hostname / path', w: 255 }, { t: 'Tunnel service', w: 290 }, { t: 'Notes', w: 140 }, { t: 'Order / actions', w: 130 }], rules, { empty: 'No ingress rules found.' });
   const test = n.test ? `<div class="net-test-result ${n.test.ok ? 'good' : 'bad'}"><b>${n.test.ok ? 'Rule matched' : 'No matching route'}</b><pre>${esc(n.test.output || '')}</pre></div>` : '';
   return `<div class="net-tunnel-layout">${netPanel('Ingress rules', `${fmt.n(rules.length)} total · catch-all remains last`, `${netError('ingress', 'Tunnel configuration unavailable')}${tableView}${form}`, 'route')}
-    ${netPanel('Tunnel controls', 'Applies to every hostname using this tunnel', `<div class="net-detail"><span>Configuration</span><code>${esc(ing.path || '—')}</code><span>Restart target</span><b>${esc(restart)}</b><span>Default Strata upstream</span><code>${esc(ing.cdn || '—')}</code></div>
+    ${netPanel('Tunnel controls', 'Applies to every hostname using this tunnel', `<div class="net-detail"><span>Configuration</span><code>${esc(ing.path || '—')}</code><span>Restart target</span><b>${esc(restart)}</b><span>Default Corium upstream</span><code>${esc(ing.cdn || '—')}</code></div>
       <div class="net-callout warn compact">Restarting interrupts all tunnelled hostnames briefly. A saved route change is not active until the restart succeeds.</div>
       <button class="btn btn-danger" data-act="netRestartTunnel" ${D.net.busy || !cfg.name ? 'disabled' : ''}>${icon('refresh-cw', 'sm')}Restart tunnel</button>
       ${n.pendingRestart ? '<div class="net-callout warn compact">Some route changes aren’t live yet. Restart the tunnel to apply them.</div>' : ''}
@@ -224,23 +224,23 @@ function netExpose() {
       ${exposure.url ? `<div class="row net-result-url"><code>${esc(exposure.url)}</code><button class="pill" data-act="netOpenExposure">${icon('external-link', 'sm')}Open</button><button class="pill" data-act="netCopyExposure">${icon('copy', 'sm')}Copy URL</button></div>` : ''}
       <div class="small dim">A later failure can leave an earlier step in place. Review each step before retrying.</div></div>` : '';
   return `${n.status?.token ? '' : netTokenNotice()}${netError('listening', 'Could not inspect local listening ports')}
-    <div class="net-expose-grid"><section class="panel net-panel net-wizard"><div class="ph"><h5>${icon('plug')}Expose a local service</h5><span class="small dim">publish an app through Strata</span></div>
-      <p class="small dim">Publish an app from this machine or your network. Strata sets up Caddy, the tunnel route and DNS.</p>
+    <div class="net-expose-grid"><section class="panel net-panel net-wizard"><div class="ph"><h5>${icon('plug')}Expose a local service</h5><span class="small dim">publish an app through Corium</span></div>
+      <p class="small dim">Publish an app from this machine or your network. Corium sets up Caddy, the tunnel route and DNS.</p>
       <div class="net-fields">
         <label>Service name<input id="ne_name" class="input" placeholder="My app" maxlength="60" autocomplete="off"></label>
         <label>Upstream address<input id="ne_upstream" class="input" placeholder="127.0.0.1:1234" list="net-port-options" autocomplete="off"><datalist id="net-port-options">${ports.map((p) => `<option value="127.0.0.1:${p.port}">${esc(p.process || 'local process')} · ${esc(p.addr)}:${p.port}</option>`).join('')}</datalist></label>
-        <label>Hostname<input id="ne_host" class="input" placeholder="app.${esc(zone)}" autocomplete="off"><small>Subdomain is enough; Strata adds .${esc(zone)}.</small></label>
+        <label>Hostname<input id="ne_host" class="input" placeholder="app.${esc(zone)}" autocomplete="off"><small>Subdomain is enough; Corium adds .${esc(zone)}.</small></label>
         <label>URL prefix<input id="ne_prefix" class="input" value="/" placeholder="/app"><small>Use / to serve the entire hostname, or /app to share a host.</small></label>
       </div>
       ${ports.length ? `<div class="net-port-picks"><span class="cap">Detected local services</span>${ports.slice(0, 12).map((p, i) => `<button class="pill" data-act="netUsePort" data-arg="${i}" title="${esc(p.addr)}:${p.port} · pid ${p.pid}">${icon('plug', 'sm')}${esc(p.process || 'Process')} · ${p.port}</button>`).join('')}${n.listening?.ports?.some((p) => p.reserved) ? `<small class="dim">${fmt.n(n.listening.ports.filter((p) => p.reserved).length)} system ports are reserved and cannot be selected.</small>` : ''}</div>` : '<div class="small dim">No unreserved local TCP listeners found. You can still enter an address manually.</div>'}
-      <div class="net-access"><b>Access policy</b><div class="net-access-options"><label class="net-access-option"><input type="radio" name="ne_gate" value="login" checked><span><b>Require Strata login</b><small>Recommended. Visitors sign in before the app loads.</small></span></label>
+      <div class="net-access"><b>Access policy</b><div class="net-access-options"><label class="net-access-option"><input type="radio" name="ne_gate" value="login" checked><span><b>Require Corium login</b><small>Recommended. Visitors sign in before the app loads.</small></span></label>
         <label class="net-access-option public"><input type="radio" name="ne_gate" value="public"><span><b>Public</b><small>Anyone with the URL can use this service.</small></span></label></div>
         <div class="net-fields net-gate-fields"><label>Gate username<input id="ne_user" class="input" maxlength="40" placeholder="Choose a username" autocomplete="username"></label><label>Gate password<input id="ne_pass" class="input" type="password" minlength="12" maxlength="200" placeholder="At least 12 characters" autocomplete="new-password"></label></div></div>
       <details class="net-advanced"><summary>Advanced routing</summary><div class="net-checks"><label><input id="ne_ingress" type="checkbox" checked> Add tunnel ingress</label><label><input id="ne_dns" type="checkbox" checked> Create proxied DNS record</label><label><input id="ne_restart" type="checkbox" checked> Restart tunnel after changes</label><label><input id="ne_strip" type="checkbox" checked> Strip the URL prefix before forwarding</label></div></details>
-      <div class="net-callout warn compact">Reserved Strata, Caddy, monitoring and remote-access ports are blocked. Use an app port such as 127.0.0.1:1234.</div>
+      <div class="net-callout warn compact">Reserved Corium, Caddy, monitoring and remote-access ports are blocked. Use an app port such as 127.0.0.1:1234.</div>
       <div class="act-row"><button class="btn btn-primary" data-act="netExposeService" ${D.net.busy ? 'disabled' : ''}>${D.net.busy === 'expose' ? icon('loader-circle', 'sm spin') : icon('plug', 'sm')}Review and expose</button></div>
       ${result}</section>
-      ${netPanel('What this changes', 'A short checklist before publishing the route', `<div class="net-flow"><div><i>1</i><span><b>Strata drive</b><small>Caddy proxies to the local or LAN app; login gate is the default.</small></span></div><div><i>2</i><span><b>Tunnel ingress</b><small>Cloudflared forwards the chosen hostname to this Strata instance.</small></span></div><div><i>3</i><span><b>DNS</b><small>A proxied hostname record points at the tunnel.</small></span></div><div><i>4</i><span><b>Restart</b><small>Cloudflared reloads the validated route; the tunnel blips briefly.</small></span></div></div>
+      ${netPanel('What this changes', 'A short checklist before publishing the route', `<div class="net-flow"><div><i>1</i><span><b>Corium drive</b><small>Caddy proxies to the local or LAN app; login gate is the default.</small></span></div><div><i>2</i><span><b>Tunnel ingress</b><small>Cloudflared forwards the chosen hostname to this Corium instance.</small></span></div><div><i>3</i><span><b>DNS</b><small>A proxied hostname record points at the tunnel.</small></span></div><div><i>4</i><span><b>Restart</b><small>Cloudflared reloads the validated route; the tunnel blips briefly.</small></span></div></div>
         <div class="net-callout info compact">The API rejects public Internet addresses, hostnames, Cloudflare metadata addresses and this host’s reserved ports. Use a private IP or loopback address.</div>
         <button class="pill" data-act="netTab" data-arg="tunnel">Review tunnel configuration ${icon('arrow-right', 'sm')}</button>`, 'shield-check')}
     </div>`;
@@ -321,7 +321,7 @@ Object.assign(ACT, {
     if (!hostname || !service) return note('Enter a hostname and tunnel service', { err: true });
     const direct = service !== (D.net.ingress?.cdn || '');
     const ok = await ask({ kicker: 'Cloudflare Tunnel', title: `Add route for ${hostname}?`, ok: 'Save tunnel route',
-      text: `Requests to ${hostname}${path || ''} will be forwarded to ${service}. The validated config is saved, but this route is not active until the tunnel restarts. ${direct ? 'This direct route bypasses Strata’s login gate and can make the upstream reachable to anyone who can reach this tunnel hostname.' : 'If this hostname already has DNS, visitors may reach the Strata Caddy origin after restart.'}` });
+      text: `Requests to ${hostname}${path || ''} will be forwarded to ${service}. The validated config is saved, but this route is not active until the tunnel restarts. ${direct ? 'This direct route bypasses Corium’s login gate and can make the upstream reachable to anyone who can reach this tunnel hostname.' : 'If this hostname already has DNS, visitors may reach the Corium Caddy origin after restart.'}` });
     if (ok) await netApply('/api/network/ingress/add', { hostname, service, path }, ['ingress', 'status'], 'Validated tunnel route saved. Restart the tunnel to apply it.', { busy: 'ingress', pendingRestart: true });
   },
   async netDeleteIngress(index) {
@@ -377,7 +377,7 @@ Object.assign(ACT, {
       ingress: !!$('#ne_ingress')?.checked, dns: !!$('#ne_dns')?.checked, restart: !!$('#ne_restart')?.checked, strip: !!$('#ne_strip')?.checked };
     const publicMode = mode === 'public';
     const ok = await ask({ kicker: 'Review service exposure', title: `Expose ${hostname}${prefix === '/' ? '' : prefix}?`, danger: publicMode, ok: publicMode ? 'Expose publicly' : 'Expose behind login',
-      text: `${upstream} will be served through this Strata instance${body.ingress ? ' and routed through Cloudflare Tunnel' : ''}${body.dns ? ' with a proxied DNS record' : ''}. ${publicMode ? 'Public access is enabled: anyone with the URL can use this service without signing in.' : `Visitors must sign in as “${user}”. The password is sent once to this Strata server to create the gate.`}${body.restart ? ' The tunnel will briefly disconnect during restart.' : ''}` });
+      text: `${upstream} will be served through this Corium instance${body.ingress ? ' and routed through Cloudflare Tunnel' : ''}${body.dns ? ' with a proxied DNS record' : ''}. ${publicMode ? 'Public access is enabled: anyone with the URL can use this service without signing in.' : `Visitors must sign in as “${user}”. The password is sent once to this Corium server to create the gate.`}${body.restart ? ' The tunnel will briefly disconnect during restart.' : ''}` });
     if (!ok) return;
     const result = await netApply('/api/network/expose', body, ['status', 'ingress', 'listening'], '', { busy: 'expose', onResult: (r) => { D.net.exposure = r; }, pendingRestart: false });
     if (result) {

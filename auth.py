@@ -93,7 +93,7 @@ def totp_verify(secret, code, last_step=0, window=1):
     return None
 
 
-def totp_uri(secret, user, issuer="Strata"):
+def totp_uri(secret, user, issuer="Corium"):
     import urllib.parse
     return "otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30" % (
         urllib.parse.quote(issuer), urllib.parse.quote(user), secret, urllib.parse.quote(issuer))
@@ -284,7 +284,7 @@ if __name__ == "__main__":
         keep = [k for k in CFG["auth"].get("api_keys") or [] if k.get("name") != sys.argv[2]]
         save_config({"auth": {"api_keys": keep + [{"name": sys.argv[2], "hash": token_hash(key), "created": int(time.time())}]}})
         print(key)
-        print("stored as API key %r (replaces any key of that name) - restart Strata to load it" % sys.argv[2])
+        print("stored as API key %r (replaces any key of that name) - restart Corium to load it" % sys.argv[2])
         sys.exit(0)
     if len(sys.argv) == 3 and sys.argv[1] == "--email":
         new_email = sys.argv[2].strip().lower()
@@ -322,7 +322,7 @@ if __name__ == "__main__":
         sys.exit(0)
     if sys.argv[1:] == ["--totp", "off"]:
         save_config({"auth": {"totp_secret": "", "recovery": [], "totp_last": 0}})
-        print("removed the owner's authenticator app. Restart Strata to apply it.")
+        print("removed the owner's authenticator app. Restart Corium to apply it.")
         mail = CFG.get("alerts", {})
         if not alerts.mail_ready(mail):
             print("E-mail isn't set up either, so the owner can't sign in until you run: python auth.py --totp")
@@ -353,7 +353,7 @@ if __name__ == "__main__":
         print("\nThe owner now signs in with a code from this app. If you lose your phone, each of these recovery codes "
               "works once instead:")
         print("\n".join("  " + c for c in codes))
-        print("They are shown only now. Restart Strata to use the app.")
+        print("They are shown only now. Restart Corium to use the app.")
         sys.exit(0)
     if len(sys.argv) != 2:
         sys.exit("usage: python auth.py --home <dir> <username> | --api-key <name> | --email <addr> | --resend <key> <from> | "

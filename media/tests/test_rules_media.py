@@ -1,9 +1,9 @@
-"""Strata Media rules integration: media_rules.py and its hooks in rules.py (DESIGN 4, 4.1-4.3, 5, 6.1, 11-13).
+"""Corium Media rules integration: media_rules.py and its hooks in rules.py (DESIGN 4, 4.1-4.3, 5, 6.1, 11-13).
 
 Never touches production: every render runs against a sqlite backup of a read-only connection to strata.db (a
 temp copy), CFG is only changed in memory, the private Caddy runs on test ports 18380-18382 with admin
 localhost:2098, its own storage and log, and two stubs emulate the upstreams: 18384 = media.py (accel / orig /
-302 / 403 / 503 / lane / 404, /_scan) and 18385 = Strata Transform (/_gate, ?ver=).
+302 / 403 / 503 / lane / 404, /_scan) and 18385 = Corium Transform (/_gate, ?ver=).
 """
 import base64
 import contextlib
@@ -258,12 +258,12 @@ class TestRender(unittest.TestCase):
             self.assertIn(s, text)
             return text.index(s)
         # @neg before @mv: a bare ?w= must be negotiated (302 to ?w=<rung>&_v=...) before @mv could take it
-        order = [at("# access rules"), at("# file policy (Strata Media)"), at("# link modifiers"),
+        order = [at("# access rules"), at("# file policy (Corium Media)"), at("# link modifiers"),
                  at("@neg%d_" % MID), at("@mv%d_" % MID), at("@ver%d_" % MID), at("# scan gate"),
                  at("@gate%d_" % MID), at("@lane%d_" % MID), at("# drives")]
         self.assertEqual(order, sorted(order))
         if "# short links" in text:
-            self.assertLess(at("# short links"), at("# file policy (Strata Media)"))
+            self.assertLess(at("# short links"), at("# file policy (Corium Media)"))
         self.assertNotIn("@tf%d_" % MID, text)                    # old transform block replaced for media mounts
         ver = text[at("@ver%d_" % MID):]
         self.assertIn("reverse_proxy @ver%d_1 %s {" % (MID, core.CFG["transform_listen"]), ver)  # ?ver= on 8083
@@ -499,7 +499,7 @@ GATE_SIG = "good"
 
 
 class Stub(http.server.BaseHTTPRequestHandler):
-    """Answers like media.py (MEDIA_PORT) or Strata Transform (TF_PORT); the behaviour is the last '-part' of the
+    """Answers like media.py (MEDIA_PORT) or Corium Transform (TF_PORT); the behaviour is the last '-part' of the
     file name: a-accel.png -> accel, x-orig.png -> orig, r-redir.png -> 302 ..."""
     accel = "/img/ab/x.avif"
 
@@ -785,7 +785,7 @@ class TestLiveProof(unittest.TestCase):
         self.assertNotIn("cloudflare-cdn-cache-control", h)
         up = self.seen(MEDIA_PORT, "/n.png")[-1][2]
         self.assertEqual(up.get("x-strata-negotiate"), "1")
-        # ?ver= stays on Strata Transform
+        # ?ver= stays on Corium Transform
         st, h, body, raw = self.get("/n.png?ver=2")
         self.assertEqual((st, body), (200, b"VERSION"))
         self.assertTrue(self.seen(TF_PORT, "/n.png?ver=2"))
