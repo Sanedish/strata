@@ -199,7 +199,21 @@ class Sessions:
             return None
         with self.lock:
             s["exp"] = time.time() + s["ttl"]  # sliding expiry
-        return s["user"]
+            return s["user"]
+
+    def fail_attempt(self, token, max_attempts=5):
+        if not token:
+            return True
+        h = token_hash(token)
+        with self.lock:
+            s = self.by_hash.get(h)
+            if not s:
+                return True
+            s["attempts"] = s.get("attempts", 0) + 1
+            if s["attempts"] >= max_attempts:
+                del self.by_hash[h]
+                return True
+            return False
 
     def drop(self, token):
         if token:

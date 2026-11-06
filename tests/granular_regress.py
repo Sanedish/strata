@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 
 BASE, DB, FILES = "http://127.0.0.1:8190", sys.argv[1], sys.argv[2]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor"))
 COOKIE = "dev_strata_session"
 assert "scratchpad" in DB.replace("\\", "/"), "dev databases only"
 results = []

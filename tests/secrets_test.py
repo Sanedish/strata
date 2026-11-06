@@ -3,6 +3,7 @@ start, save_config routes them to data/.env and the file is locked down.
 Fake values only, in a throwaway home."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,9 +62,19 @@ try:
         check("a line break is refused", True)
 
     if os.name == "nt":
-        acl = subprocess.run(["icacls", instance.env_path()], capture_output=True, text=True).stdout
-        check("data/.env: no inherited or broad access", "(I)" not in acl and "Users:" not in acl and "Everyone" not in acl
-              and "SYSTEM:(F)" in acl and "Administrators:(F)" in acl, acl)
+        # SDDL instead of icacls' display names, which are translated ("VORDEFINIERT\Administratoren" on German Windows)
+        acl_file = os.path.join(home, "acl.txt")
+        subprocess.run(["icacls", instance.env_path(), "/save", acl_file], capture_output=True)
+        sddl = open(acl_file, encoding="utf-16-le", errors="ignore").read() if os.path.exists(acl_file) else ""
+        dacl = sddl[sddl.find("D:"):] if "D:" in sddl else ""
+        aces = re.findall(r"\(([^)]*)\)", dacl)  # (type;flags;rights;;;sid)
+        allow = [a.split(";") for a in aces if a.startswith("A;")]
+        broad = {"WD", "BU", "AU", "IU", "AN", "S-1-1-0", "S-1-5-32-545", "S-1-5-11"}  # Everyone, Users, Authenticated...
+        check("data/.env: no inherited or broad access",
+              bool(allow) and not any("ID" in a[1] for a in allow) and not any(a[-1] in broad for a in allow)
+              and any(a[-1] in ("SY", "S-1-5-18") and a[2] == "FA" for a in allow)
+              and any(a[-1] in ("BA", "S-1-5-32-544") and a[2] == "FA" for a in allow) and "P" in dacl[2:dacl.find("(")],
+              dacl)
     else:
         check("data/.env is 0600", oct(os.stat(instance.env_path()).st_mode & 0o777) == "0o600")
 

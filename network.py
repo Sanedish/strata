@@ -388,6 +388,29 @@ def render_rule(hostname, service, path="", indent=2):
 
 
 SERVICE_RE = re.compile(r"^(https?|tcp|ssh|rdp|unix|http_status):\S+$|^hello_world$")
+HTTP_SERVICE_RE = re.compile(r"^(https?)://([^/\s?#]+)/?$", re.I)
+
+
+def check_ingress_service(user, service):
+    """A tunnel route publishes a local service to the internet, past Caddy and every Strata rule. The owner may
+    route anything; other accounts (network.ingress) only this site's Caddy, a fixed status, or an http(s) LAN /
+    loopback service that a service drive could also point at (rules.clean_upstream: never Caddy's admin API, Strata's
+    own ports, remote access or the cloud metadata address). Raw tcp / ssh / rdp / unix routes stay owner-only."""
+    import accounts
+    acct = accounts.get(user) if user and not str(user).startswith("api:") else None
+    if acct and acct.get("role") == "root" or str(user or "").startswith("api:"):
+        return service
+    if service == cdn_service() or service == "hello_world" or service.startswith("http_status:"):
+        return service
+    m = HTTP_SERVICE_RE.match(service)
+    if not m:
+        raise NetError("only the owner can route the tunnel to this service: use http://<LAN or loopback "
+                       "address>:<port>")
+    try:
+        target = rules.clean_upstream(m.group(2))
+    except rules.ServeError as e:
+        raise NetError(str(e))
+    return "%s://%s" % (m.group(1).lower(), target)
 
 
 def ingress():
@@ -445,6 +468,7 @@ def ingress_add(user, hostname, service, path=""):
     service = (service or cdn_service()).strip()
     if not SERVICE_RE.match(service):
         raise NetError("service must look like http://localhost:8080 or http_status:404")
+    service = check_ingress_service(user, service)
     if path and (not path.startswith("/") or re.search(r"\s", path)):
         raise NetError("path must start with /")
 

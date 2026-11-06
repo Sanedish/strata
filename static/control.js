@@ -1153,7 +1153,7 @@ Object.assign(ACT, {
       render(true);
     } catch (e) { note(e.message); }
   },
-  cfPurgeUrls() { openSheet('Cloudflare', 'Purge URLs from the cache', '<div class="form"><label class="wide">One URL per line<textarea id="cf_urls" class="input" rows="8" placeholder="https://${esc(cdnHost())}/file.png"></textarea></label></div>', '<button class="btn btn-primary" data-act="cfPurgeGo">Purge</button>'); },
+  cfPurgeUrls() { openSheet('Cloudflare', 'Purge URLs from the cache', `<div class="form"><label class="wide">One URL per line<textarea id="cf_urls" class="input" rows="8" placeholder="https://${esc(cdnHost())}/file.png"></textarea></label></div>`, '<button class="btn btn-primary" data-act="cfPurgeGo">Purge</button>'); },
   async cfPurgeGo() { try { const r = await post('/api/cloudflare/purge', { urls: $('#cf_urls').value.split(/\s+/).filter(Boolean) }); note('Purged ' + r.purged + ' URL(s)'); closeSheet(); } catch (e) { note(e.message); } },
   async cfPurgeAll() { const ok = await ask({ kicker: 'Cloudflare', title: 'Purge the entire cache of the zone?', danger: true, ok: 'Purge everything', text: 'Every visitor hits the origin until the cache refills.' }); if (ok) { try { await post('/api/cloudflare/purge-all', {}); note('Cache purged'); } catch (e) { note(e.message); } } },
 });

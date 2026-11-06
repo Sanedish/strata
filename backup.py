@@ -59,15 +59,38 @@ def restore(zpath):
     with z:
         if "strata.db" not in z.namelist():
             raise ValueError("not a Strata backup: strata.db is missing")
-        cfg = json.loads(z.read("strata.json")) if "strata.json" in z.namelist() else {}
+        if "strata.json" in z.namelist():
+            with z.open("strata.json") as jf:
+                raw_json = jf.read((4 << 20) + 1)
+            if len(raw_json) > (4 << 20):
+                raise ValueError("strata.json in the backup is too large")
+            cfg = json.loads(raw_json)
+        else:
+            cfg = {}
         if not isinstance(cfg, dict):
             raise ValueError("strata.json in the backup is not a settings object")
+        max_db = shutil.disk_usage(os.path.dirname(core.DB_PATH)).free // 2
         size = z.getinfo("strata.db").file_size
-        if size > shutil.disk_usage(os.path.dirname(core.DB_PATH)).free // 2:
+        if size > max_db:
             raise ValueError("not enough free disk space to unpack the database (%d MB)" % (size >> 20))
         fd, tmp = tempfile.mkstemp(prefix=".strata-restore-", suffix=".db", dir=os.path.dirname(core.DB_PATH))
-        with os.fdopen(fd, "wb") as f, z.open("strata.db") as src:
-            shutil.copyfileobj(src, f, 1 << 20)
+        try:
+            written = 0
+            with os.fdopen(fd, "wb") as f, z.open("strata.db") as src:
+                while True:
+                    buf = src.read(1 << 20)
+                    if not buf:
+                        break
+                    written += len(buf)
+                    if written > max_db:
+                        raise ValueError("not enough free disk space to unpack the database (%d MB)" % (written >> 20))
+                    f.write(buf)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
     try:
         src = sqlite3.connect(tmp)
         try:

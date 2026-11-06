@@ -116,7 +116,9 @@ class Alerts(threading.Thread):
         self.lock = threading.Lock()
         self.login_fails = collections.defaultdict(collections.deque)
         self.state = {}  # last known up/down per component
-        self.sent = collections.deque()
+        self.sent = collections.deque()        # alerts, digests, invites, tests: max_per_hour
+        self.sent_codes = collections.deque()  # sign-in / e-mail-change codes: their own budget, so a burst of
+        self.mail_lock = threading.Lock()      # alerts (which visitors can provoke) never locks anyone out
 
     # -- raising
     def raise_(self, kind, severity, title, detail="", key=None, coalesce_minutes=30):
@@ -204,16 +206,19 @@ class Alerts(threading.Thread):
         a = CFG["alerts"]
         return self.send_to(a["to"], subject, text, body_html)
 
-    def send_to(self, recipients, subject, text, body_html):
+    def send_to(self, recipients, subject, text, body_html, kind="mail"):
         a = CFG["alerts"]
         now = time.time()
-        while self.sent and self.sent[0] < now - 3600:
-            self.sent.popleft()
-        if len(self.sent) >= int(a.get("max_per_hour") or 12):
-            raise RuntimeError("hourly e-mail limit reached")
+        q, limit = ((self.sent_codes, max(30, int(a.get("max_per_hour") or 12))) if kind == "code"
+                    else (self.sent, int(a.get("max_per_hour") or 12)))
+        with self.mail_lock:  # counted before sending: parallel requests cannot all slip under the limit
+            while q and q[0] < now - 3600:
+                q.popleft()
+            if len(q) >= limit:
+                raise RuntimeError("hourly e-mail limit reached")
+            q.append(now)
         if provider(a) == "smtp":
             send_smtp(a["smtp"], a["from"], list(recipients or []), subject, text, body_html)
-            self.sent.append(now)
             return
         req = urllib.request.Request(RESEND, method="POST", data=json.dumps({
             "from": a["from"], "to": list(recipients or []), "subject": subject, "text": text, "html": body_html}).encode(),
@@ -224,7 +229,6 @@ class Alerts(threading.Thread):
                 r.read()
         except urllib.error.HTTPError as e:
             raise RuntimeError("Resend %s: %s" % (e.code, e.read()[:200].decode("utf-8", "replace")))
-        self.sent.append(now)
 
     def hooks(self):
         return [u for u in CFG["alerts"].get("webhooks") or [] if u]

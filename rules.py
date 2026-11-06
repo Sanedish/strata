@@ -144,6 +144,13 @@ def bq(s):
     return "`%s`" % s
 
 
+def bq_text(s):
+    """bq() for literal text in a directive that expands placeholders at request time (respond bodies, header values):
+    every brace is escaped, so `{file./path}` or `{env.NAME}` typed by a user is printed, never evaluated (Caddy's
+    {file.*} placeholder reads any file the Caddy process can open)."""
+    return bq(str(s).replace("{", "\\{").replace("}", "\\}"))
+
+
 def check_regex(p):
     if not p or len(p) > 400 or RE2_BAD.search(p) or "{$" in p or "`" in p:
         raise ServeError("regex not supported (no look-arounds, back-references or possessive quantifiers; max 400 chars)")
@@ -1340,7 +1347,7 @@ def render(db):
             o.add(3, "file_server")
         o.add(2, "}")
     o.add(2, "handle {")
-    o.add(3, "respond %s 404" % bq(S["unknown_host"]))
+    o.add(3, "respond %s 404" % bq_text(S["unknown_host"]))
     o.add(2, "}")
     o.add(1, "}")
 
@@ -1895,6 +1902,8 @@ def save_site(user, d):
                 s[k] = bool(d[k])
         if "unknown_host" in d:
             v = str(d["unknown_host"])[:120]
+            if "{" in v or "}" in v:  # Caddy placeholders ({file.*}, {env.*}) would leak files and the environment
+                raise ServeError("the unknown-host text cannot contain { or }")
             bq(v)
             s["unknown_host"] = v
         for k in ("error_page", "error_page_403", "error_page_502"):

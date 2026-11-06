@@ -92,7 +92,7 @@ LIVE = {"generated": NUM, "rps": NUM, "bps": NUM, "visitors_5m": NUM, "caddy": B
         "storage_online": BOOL, "storage_used_pct": NUM}
 SCHEMA_STATS = {
     "range": STR, "generated": NUM, "k_anon": NUM,
-    "totals": {k: NUM for k in ("reqs", "bytes", "visitors", "e4", "e5", "bots", "probes", "saved", "encoded",
+    "totals": {k: NUM for k in ("reqs", "bytes", "visitors", "e4", "e5", "clean", "suspicious", "bots", "probes", "saved", "encoded",
                                 "p50", "p95", "p99")},
     "series": {"t0": NUM, "step": NUM, "reqs": [NUM], "bytes": [NUM], "visitors": [NUM], "errors": [NUM],
                "saved": [NUM]},
@@ -221,7 +221,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
-        if int(self.headers.get("Content-Length") or 0) or self.headers.get("Transfer-Encoding"):
+        if (self.headers.get("Content-Length") or "0").strip() != "0" or self.headers.get("Transfer-Encoding"):
+            self.close_connection = True  # a body (or a malformed length) on a GET: never parse it as the next request
             return self.send(400, b"", "text/plain", "no-store")
         u = urllib.parse.urlsplit(self.path)
         try:

@@ -642,6 +642,7 @@ class TestLiveProof(unittest.TestCase):
         cls.db_path = os.path.join(cls.dir, "strata.db")
         db = copy_db(cls.db_path)
         cls.password = secrets.token_urlsafe(12)       # synthetic, lives only in memory; the temp DB has its hash
+        rules.CFG["caddy_exe"] = CADDY  # bcrypt_hash runs the configured caddy: the one this test found, not a bare name
         add_test_mount(db, root, logfile("live"), pw_hash=rules.bcrypt_hash(cls.password))
         db.execute("DELETE FROM meta WHERE k='media_negotiation_effective'")
         db.commit()

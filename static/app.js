@@ -141,7 +141,8 @@ async function pullPrefs() {
   try {
     const r = await get('/api/prefs');
     if (r && r.prefs && r.prefs.syncPrefs) {
-      Object.entries(r.prefs).forEach(([k, v]) => { if (k in PREFS) S[k] = v; });
+      Object.entries(r.prefs).forEach(([k, v]) => { if (Object.hasOwn(PREFS, k)) S[k] = v; });
+      cleanWidths();
       const moved = scaleMigrate(r.prefs);
       Object.keys(PREFS).forEach((k) => store.set(k, S[k]));
       if (moved) pushPrefs();
@@ -612,11 +613,27 @@ function table(key, labels, rows, opts = {}) {
     : `<div class="empty">${esc(opts.empty || 'Nothing recorded in this range yet.')}</div>`;
   return `<div class="twrap ${S.zebra ? 'zebra' : ''}" data-scroll="${key}" data-menu="table" data-arg="${key}">${head}${body}</div>`;
 }
+// CSV cell: quoted when needed; a leading = + - @ (or tab / CR) gets a ' so a spreadsheet never runs it as a formula
+// (request paths, user agents and referers in these exports are written by visitors)
+function csvCell(v) {
+  v = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+// column widths come from synced or imported preferences: numbers only, they end up in style= and data- attributes
+function cleanWidths() {
+  const w = {};
+  if (S.widths && typeof S.widths === 'object') for (const [k, v] of Object.entries(S.widths)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) w[String(k).slice(0, 80)] = Math.max(34, Math.min(2000, Math.round(n)));
+  }
+  S.widths = w;
+}
 function tableCsv(key) {
   const t = TABLES[key];
   if (!t) return '';
-  const strip = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent; };
-  const q = (v) => { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const strip = (h) => new DOMParser().parseFromString(h, 'text/html').body.textContent;  // inert: loads no images
+  const q = csvCell;
   return [t.labels.map((l) => q(l.t)).join(',')].concat(t.rows.map((r) => r.cells.map((c) => q(c.title ?? c.t ?? (c.h ? strip(c.h) : ''))).join(','))).join('\n');
 }
 function saveFile(name, text, type = 'text/csv') {
@@ -1811,7 +1828,7 @@ const ACT = {
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     if (kind === 'json') return saveFile(`requests-${stamp}.json`, JSON.stringify(rows, null, 1), 'application/json');
     const cols = ['id', 'ts', 'host', 'method', 'path', 'status', 'bytes', 'dur', 'ip', 'country', 'colo', 'agent', 'kind', 'os', 'ref', 'ctype', 'enc', 'sus', 'ua'];
-    const q = (v) => { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const q = csvCell;
     saveFile(`requests-${stamp}.csv`, [cols.join(',')].concat(rows.map((r) => cols.map((c) => q(c === 'ts' ? new Date(r.ts * 1000).toISOString() : r[c])).join(','))).join('\n'));
   },
   exportTable(key) { const csv = tableCsv(key); if (!csv) return note('Nothing to export'); saveFile(key + '.csv', csv); },
@@ -1860,7 +1877,7 @@ const ACT = {
   prefsImport() {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
     inp.onchange = async () => {
-      try { const o = JSON.parse(await inp.files[0].text()); Object.entries(o).forEach(([k, v]) => { if (k in PREFS) S[k] = v; }); persist(); applyScale(); applyAppearance(); render(true); note('Preferences imported'); } catch (e) { note('Not a Strata preferences file', { err: true }); }
+      try { const o = JSON.parse(await inp.files[0].text()); Object.entries(o).forEach(([k, v]) => { if (Object.hasOwn(PREFS, k)) S[k] = v; }); cleanWidths(); persist(); applyScale(); applyAppearance(); render(true); note('Preferences imported'); } catch (e) { note('Not a Strata preferences file', { err: true }); }
     };
     inp.click();
   },

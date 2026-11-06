@@ -13,6 +13,8 @@ The suites, in the order run_all.py runs them:
   smtp_test.py          SMTP mail delivery against a recorder (no mail server needed)
   sec_regress.py        takeover paths, zones, SSRF, CSRF, headers
   audit_test.py         isolated upload, request-framing, storage-link, credential-race and log-ingestion regressions
+  audit_nov_test.py     November 2026 audit: Caddy placeholders, tunnel routes, sign-in limiter,
+                        trash metadata, disk-root drives, tar preview cards, hot folders, sign-in code mail budget
   caddy_test.py         the generated Caddy config through a real `caddy validate` (skipped without Caddy)
   anubis_test.py        bot protection: config off/on, policy and key files, settings checks, the download (fake archives),
                         then real requests through a real Caddy and a stub Anubis (skipped without Caddy); with STRATA_ANUBIS set (or anubis on the PATH)

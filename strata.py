@@ -952,6 +952,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def get_routes(self, user, path, q):
+        if path == "/api/analyze/folders" and not accounts.has(user, "analytics.read"):
+            # origin traffic per folder is traffic statistics (rollup has no drive, only URL paths of every host)
+            raise files.FileError(403, "folder traffic needs the 'Traffic statistics' capability")
         if path == "/api/avatar":
             return self.send_avatar(user, q)
         if path.startswith("/api/media/"):  # Strata Media admin API (media_bridge, DESIGN 13.2)
@@ -1557,6 +1560,21 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     os.remove(tmp)
                 rules.APPLY_SOON.set()  # Caddy config from the restored drives and rules
+                # sessions come from the restored database: one revoked since the backup must not live on in memory.
+                # The owner doing the restore stays signed in.
+                cv = auth.cookie_value(self.headers.get("Cookie"))
+                keep = dict(App.sessions.get(cv) or {}) if cv else {}
+                with App.sessions.lock:
+                    App.sessions.by_hash.clear()
+                App.sessions.load()
+                with App.pending.lock:
+                    App.pending.by_hash.clear()
+                if keep and accounts.get(keep.get("user")):
+                    h = auth.token_hash(cv)
+                    with App.sessions.lock:
+                        App.sessions.by_hash[h] = keep
+                    App.sessions._write("INSERT OR REPLACE INTO session VALUES(?,?,?,?,?,?)",
+                                        [h, keep["user"], keep["exp"], keep["ip"], keep["created"], keep["ttl"]])
                 core.audit(ip, user, "backup.restore", "")
                 return self.json({"restored": True})
             m = re.fullmatch(r"/api/upload/([0-9a-f]{24})/(complete|abort)", path)
@@ -1969,6 +1987,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reindex(mid, r["path"] + "/x")
             return r
         if path == "/api/files/rename":
+            if b.get("redirect") and not accounts.has(user, "serving.rules"):  # a redirect is a site rule
+                raise files.FileError(403, "leaving a redirect behind needs the 'Access rules' capability")
             r = files.rename(mid, b.get("from", ""), b.get("to", ""))
             A("rename", "%s:%s -> %s" % (mid, r["from"], r["to"]))
             media_bridge.on_rename(mid, r["from"], r["to"])  # verdicts (and queued jobs) follow the file / folder
@@ -1978,7 +1998,9 @@ class Handler(BaseHTTPRequestHandler):
             if b.get("redirect") and r["urls"]:
                 rules.save_rule(user, {"name": "Moved: %s" % r["from"][-60:], "mount": mid, "action": "redirect",
                                        "patterns": [files.url_path(files.get_mount(mid), r["from"])],
-                                       "params": {"to": files.url_path(files.get_mount(mid), r["to"]), "code": 301}})
+                                       "params": {"to": urllib.parse.quote(files.url_path(files.get_mount(mid), r["to"]),
+                                                                           safe=files.URL_SAFE_BROWSER + "/"),
+                                                  "code": 301}})
             return r
         if path == "/api/files/delete":
             paths = b.get("paths") or []
@@ -2092,6 +2114,17 @@ class Handler(BaseHTTPRequestHandler):
             A("link-delete", b.get("code", ""))
             return rules.delete_link(user, b.get("code"))
         if path == "/api/serving/link/alias":
+            if not user.startswith("api:") and not accounts.has(user, "serving.links"):
+                # a new link is a new share: the target must still lie in a zone where this account may share
+                db = core.connect()
+                try:
+                    src = db.execute("SELECT mount, path, url FROM link WHERE code=?", [str(b.get("code") or "")]).fetchone()
+                finally:
+                    db.close()
+                acct = accounts.get(user)
+                if not src or src[2] or not self.authorize_zone(user, acct, "/api/serving/link", "POST", {},
+                                                                {"mount": src[0], "path": src[1]}, "files.share"):
+                    raise files.FileError(403, "you can no longer share this file")
             A("link-alias", b.get("code", ""))
             return rules.alias_link(user, b.get("code"))
         if path == "/api/serving/site":
@@ -2596,10 +2629,13 @@ class Handler(BaseHTTPRequestHandler):
         code = form.get("code") or ""
         if not self.second_factor_ok(code):
             App.limiter.fail(ip)
+            spent = App.pending.fail_attempt(ptok)  # 5 wrong codes end this sign-in, whatever addresses they came from
             core.audit(ip, pend["user"], "login-2fa", "", ok=False)
             App.alerts.raise_("login", "warning", "Wrong 2FA code for %s from %s" % (pend["user"], ip),
                               "The password was correct - if this was not you, change it.", "2fa:%s" % ip)
             time.sleep(0.5)
+            if spent:
+                return self.redirect("/login?e=expired", [self.cookie(auth.PENDING_COOKIE, "", 0)])
             return self.redirect("/login/2fa?e=1")
         App.pending.drop(ptok)
         cookies = [self.cookie(auth.PENDING_COOKIE, "", 0)]
@@ -2610,7 +2646,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.finish_login(ip, pend["user"], cookies)
 
     def finish_login(self, ip, user, cookies):
-        App.limiter.ok(ip)
+        # failures are NOT cleared by a success (as in gate.py): signing in to one's own account must not reset the
+        # guessing budget an address has for other accounts, invite tokens and API keys
         ttl = accounts.session_seconds(accounts.get(user), CFG["auth"]["session_hours"])
         tok = App.sessions.create(user, ip, ttl)
         core.audit(ip, user, "login", "")

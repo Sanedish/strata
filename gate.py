@@ -115,7 +115,9 @@ def safe_next(n, pre):
     if (not n.startswith("/") or n.startswith("//") or "\\" in n or len(n) > 2000
             or any(c in n for c in "\r\n\t\x00")):
         return home
-    p = urllib.parse.urlsplit(n).path.lower()
+    p = urllib.parse.unquote(urllib.parse.urlsplit(n).path).lower()
+    if not p.startswith("/") or p.startswith("//") or "\\" in p or "/../" in p + "/" or any(c in p for c in "\r\n\t\x00"):
+        return home
     if pre and not (p == pre.lower() or p.startswith(pre.lower() + "/")):
         return home
     if p.startswith(pre.lower() + PATH.lower()):

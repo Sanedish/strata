@@ -1033,7 +1033,7 @@ const TYPE_DIRS = new Set(['assets', 'asset', 'static', 'img', 'imgs', 'image', 
   'gif', 'gifs', 'data', 'json', 'res', 'resources']);
 S.smartSort = store.get('smartSort', true);
 const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
-const sortCat = (name) => EXT_CAT[extOf(name)] || 'other';
+const sortCat = (name) => (Object.hasOwn(EXT_CAT, extOf(name)) && EXT_CAT[extOf(name)]) || 'other';
 const smartCfg = () => (D.me && D.me.smartsort) || { folders: {}, assets: 'assets', root_to_home: true, home: null };
 const typeFolder = (cat) => (smartCfg().folders || {})[cat] || cat;
 

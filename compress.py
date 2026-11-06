@@ -17,6 +17,7 @@ import os
 import queue
 import secrets
 import shutil
+import stat
 import threading
 import time
 import traceback
@@ -89,9 +90,20 @@ def mount_roots():
 def url_for(full):
     """Public URL path of an absolute file path (drive prefix included), or None."""
     for m, root in mount_roots():
-        if full.lower().startswith(root.lower() + os.sep):
-            rel = "/" + full[len(root) + 1:].replace(os.sep, "/")
+        rel = rel_under(full, root)
+        if rel and rel != "/":
             return rel if m["prefix"] == "/" else m["prefix"] + rel
+    return None
+
+
+def rel_under(full, root):
+    """'/a/b' of full inside root, '/' for root itself, None outside. A drive at a disk root (all of D:) already ends in
+    a separator, so root + os.sep never matched there and nothing on such a drive was indexed."""
+    base = root if root.endswith(os.sep) else root + os.sep
+    if os.path.normcase(full) == os.path.normcase(root):
+        return "/"
+    if os.path.normcase(full).startswith(os.path.normcase(base)):
+        return "/" + full[len(base):].replace(os.sep, "/")
     return None
 
 
@@ -310,7 +322,7 @@ class Compressor(threading.Thread):
 
     def mount_of(self, full):
         for m, root in mount_roots():
-            if full.lower().startswith(root.lower() + os.sep):
+            if rel_under(full, root) not in (None, "/"):
                 return m, root
         return None, None
 
@@ -326,7 +338,7 @@ class Compressor(threading.Thread):
                 continue
             stats["scanned"] += 1
             if m:
-                touched.add((m["id"], "/" + os.path.dirname(full)[len(root) + 1:].replace(os.sep, "/")))
+                touched.add((m["id"], rel_under(os.path.dirname(full), root) or "/"))
                 if self.candidate(m, full, st.st_size):
                     self.process(db, full, st, recs, None, stats)
         self.finish(db, trigger, stats, "%d uploaded file(s)" % len(files))
@@ -344,7 +356,7 @@ class Compressor(threading.Thread):
         variants = [0, 0]
         for dirpath, dirnames, filenames in os.walk(start):
             dirnames[:] = [d for d in dirnames if not d.startswith(".") and d.lower() not in SKIP_DIRS]
-            relroot = "/" + dirpath[len(root) + 1:].replace(os.sep, "/") if dirpath != root else "/"
+            relroot = rel_under(dirpath, root) or "/"
             dirs.add(relroot)
             names = set(filenames)
             for name in filenames:
@@ -353,8 +365,10 @@ class Compressor(threading.Thread):
                 full = os.path.join(dirpath, name)
                 is_side = name.endswith(SIDE_SUFFIXES) and os.path.splitext(name)[0] in names
                 try:
-                    st = os.stat(full)
+                    st = os.lstat(full)  # a link is not indexed or precompressed: its target may be outside the drive
                 except OSError:
+                    continue
+                if not stat.S_ISREG(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:
                     continue
                 if is_side:
                     variants[0] += 1

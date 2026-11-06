@@ -695,8 +695,8 @@
     const n = rows.length, off = S.md.off, total = H ? H.total : null;
     const more = total !== null && total !== undefined ? off + n < total : n >= HOLD_LIMIT;
     const range = n ? `${fmt.n(off + 1)}–${fmt.n(off + n)}${total !== null && total !== undefined ? ' of ' + fmt.n(total) : ''}` : '';
-    const paging = off || more ? `<button class="pill" data-act="mdPage" data-arg="-1" ${off ? '' : 'disabled'}>‹</button>` +
-      `<button class="pill" data-act="mdPage" data-arg="1" ${more ? '' : 'disabled'}>›</button>` : '';
+    const paging = off || more ? `<button class="pill" data-act="mdHoldPage" data-arg="-1" ${off ? '' : 'disabled'}>‹</button>` +
+      `<button class="pill" data-act="mdHoldPage" data-arg="1" ${more ? '' : 'disabled'}>›</button>` : '';
     let body;
     if (!H) body = loading('Loading holds…');
     else if (H.err) body = `<div class="empty hot">${esc(H.err)}</div>`;
@@ -1085,7 +1085,7 @@
       S.md.hf = k; S.md.off = 0; S.md.sel = null; saveUi();
       reloadList('holdsBusy', loadHolds);
     },
-    mdPage(d) { S.md.off = Math.max(0, S.md.off + (+d || 0) * HOLD_LIMIT); S.md.sel = null; reloadList('holdsBusy', loadHolds); },
+    mdHoldPage(d) { S.md.off = Math.max(0, S.md.off + (+d || 0) * HOLD_LIMIT); S.md.sel = null; reloadList('holdsBusy', loadHolds); },
     mdSel(key) { S.md.sel = S.md.sel === key ? null : key; render(true); },
     mdSelClose() { S.md.sel = null; render(true); },
     mdRelease(key) { holdAction('release', key); },

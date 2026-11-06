@@ -37,6 +37,7 @@ except ImportError:
 TRASH = ".strata-trash"
 VERS = ".strata-versions"
 PART_PREFIX = ".strata-up-"
+TRASH_META = (".manifest.json", ".versions")  # inside a trash batch: its record and the parked version histories
 SIDE = {".br": "br", ".zst": "zstd", ".gz": "gzip"}
 BAD_CHARS = re.compile(r'[\x00-\x1f<>:"|?*\\/]')
 RESERVED = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
@@ -1056,6 +1057,8 @@ def restore(mid, batch, rel):
     if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}", batch or ""):
         raise FileError(400, "bad batch")
     parts = parts_of(rel)
+    if parts and parts[0].lower() in TRASH_META:
+        raise FileError(403, "that is the trash's own record, not a deleted item")
     bdir = os.path.join(root_of(m), TRASH, batch)
     src = os.path.join(bdir, *parts)
     dst, _ = resolve(m, rel)
@@ -1620,13 +1623,14 @@ def trash_delete(mid, entries):
         if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{4}", batch):
             raise FileError(400, "bad batch")
         parts = parts_of(rel)
-        if not parts:
+        if not parts or parts[0].lower() in TRASH_META:  # the batch's manifest and parked versions are not items
             continue
         bdir = os.path.join(root, batch)
         full = os.path.normpath(os.path.join(bdir, *parts))
         if os.path.commonpath([full.lower(), bdir.lower()]) != bdir.lower() or not os.path.exists(full):
             continue
-        if os.path.isdir(full):
+        was_dir = os.path.isdir(full)
+        if was_dir:
             freed += dir_bytes(full)
             shutil.rmtree(full)
         else:
@@ -1635,7 +1639,7 @@ def trash_delete(mid, entries):
             for suf in SIDE:
                 if os.path.exists(full + suf):
                     os.remove(full + suf)
-        done.append({"path": rel_of(parts), "dir": False})
+        done.append({"path": rel_of(parts), "dir": was_dir})  # a folder purges its whole URL prefix at Cloudflare
         try:  # an empty batch (only the manifest left) goes away entirely
             left = [x for x in os.listdir(bdir) if x not in (".manifest.json", ".versions")]
             if not left:

@@ -36,7 +36,7 @@ import urllib.request
 import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, TESTS)
+sys.path[:0] = [TESTS, os.path.join(os.path.dirname(TESTS), "vendor")]
 import run_all as ra  # noqa: E402
 
 DEV = "--dev" in sys.argv

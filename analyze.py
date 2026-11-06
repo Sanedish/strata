@@ -376,8 +376,12 @@ def hot_folders(q):
     days = int(_num(q.get("days"), 30))
     depth = max(1, min(4, int(_num(q.get("depth"), 2))))
     hits = origin_hits(days)
+    # paths carry no drive: keep those under the selected drives' prefixes (a drive at / matches every path)
+    pres = [m["prefix"].rstrip("/") + "/" for m in ms]
     agg = collections.defaultdict(lambda: [0, 0, 0])
     for p, (c, b, last) in hits.items():
+        if not any(p.startswith(pre) for pre in pres):
+            continue
         segs = [s for s in p.split("/") if s][:-1][:depth]
         if not segs:
             continue

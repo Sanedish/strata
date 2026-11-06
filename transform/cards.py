@@ -112,6 +112,50 @@ def listing(path):
     return files, sorted(dirs, key=str.lower)
 
 
+TAR_SCAN_BYTES = 256 << 20
+
+
+def _decompressor(raw):
+    """A file object over the uncompressed tar stream (gzip / bzip2 / xz by magic bytes, else the file itself)."""
+    head = raw.read(6)
+    raw.seek(0)
+    if head[:2] == b"\x1f\x8b":
+        import gzip
+        return gzip.GzipFile(fileobj=raw)
+    if head[:3] == b"BZh":
+        import bz2
+        return bz2.BZ2File(raw)
+    if head[:6] == b"\xfd7zXZ\x00":
+        import lzma
+        return lzma.LZMAFile(raw)
+    return raw
+
+
+class _Capped:
+    """Read/seek view of a stream that refuses to go past `cap` bytes (forward seeks on a compressed stream
+    decompress everything they skip, so they are checked before they happen)."""
+
+    class Exhausted(Exception):
+        pass
+
+    def __init__(self, f, cap):
+        self.f, self.cap = f, cap
+
+    def read(self, n=-1):
+        if n is None or n < 0 or self.f.tell() + n > self.cap:
+            raise _Capped.Exhausted()
+        return self.f.read(n)
+
+    def seek(self, pos, whence=0):
+        target = pos if whence == 0 else self.f.tell() + pos if whence == 1 else None
+        if target is None or target > self.cap:
+            raise _Capped.Exhausted()
+        return self.f.seek(target)
+
+    def tell(self):
+        return self.f.tell()
+
+
 def archive_info(path, ext):
     """{files, unpacked, top, second, exts, encrypted} - None when the archive can't be read here (7z, rar)."""
     top, second, exts, files, unpacked, encrypted = {}, {}, {}, 0, 0, False
@@ -144,11 +188,20 @@ def archive_info(path, ext):
                 add(i.filename, i.file_size, i.is_dir())
                 encrypted = encrypted or bool(i.flag_bits & 1)
     elif ext in (".tar", ".tgz", ".tbz2", ".txz"):
-        with tarfile.open(path, "r:*") as t:
-            for n, m in enumerate(t):
-                if n > 50000:  # a huge tarball: count what was read, don't walk the rest of the drive
-                    break
-                add(m.name, m.size, m.isdir())
+        # A compressed tarball has no index: reaching member n+1 means decompressing member n. A small .txz holding
+        # one 50 GB member of zeros would keep this (unauthenticated, ?card=1) request decompressing for minutes, so
+        # the walk stops after TAR_SCAN_BYTES of uncompressed stream and the card lists what it saw.
+        with open(path, "rb") as raw:
+            dec = _decompressor(raw)
+            stream = raw if dec is raw else _Capped(dec, TAR_SCAN_BYTES)  # a plain .tar seeks on disk: cheap
+            try:
+                with tarfile.open(fileobj=stream, mode="r:") as t:
+                    for n, m in enumerate(t):
+                        if n > 50000:  # a huge tarball: count what was read, don't walk the rest of the drive
+                            break
+                        add(m.name, m.size, m.isdir())
+            except _Capped.Exhausted:
+                pass
     else:
         return None
     order = lambda x: (not x[2], x[0].lower())  # noqa: E731  folders first

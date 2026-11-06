@@ -462,6 +462,13 @@ def get_prefs(user):
 def set_prefs(user, prefs):
     if not isinstance(prefs, dict):
         raise ValueError("preferences must be an object")
+    prefs = {str(k): v for k, v in prefs.items() if str(k) not in ("__proto__", "constructor", "prototype")}
+    if "widths" in prefs:
+        if not isinstance(prefs["widths"], dict):
+            raise ValueError("widths must be an object")
+        prefs["widths"] = {str(k)[:80]: max(36, min(2000, int(v)))
+                           for k, v in prefs["widths"].items()
+                           if isinstance(v, (int, float)) and not isinstance(v, bool)}
     raw = json.dumps(prefs, separators=(",", ":"))
     if len(raw) > 64 << 10:
         raise ValueError("preferences are too large")
@@ -559,7 +566,7 @@ def send_code(user, email, sender, ip="", purpose="login"):
     # Alerts owns rate limiting and provider details; send only to the account's address.
     if sender is None:
         raise ValueError("E-mail sender is not ready")
-    sender.send_to([email], subject, body, html_body)
+    sender.send_to([email], subject, body, html_body, kind="code")
     core.audit_event(ip, user, "email-otp.send", purpose)
     return expiry
 
