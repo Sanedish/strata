@@ -1,9 +1,9 @@
-# Anubis (bot protection) for one Corium instance. A hardened sample: Corium's "Register" button writes a plainer unit
-# of the same name when it runs as root. To use this one, copy it to /etc/systemd/system/strata-anubis.service, then:
-#     systemctl daemon-reload && systemctl enable --now strata-anubis
-# One unit per Corium instance: change the port, the paths and the host names. Corium writes the policy and the key
-# (Blocklist > Bot protection, or the first Register); Anubis only reads them. --target is a single space on purpose:
-# Anubis answers Caddy's forward_auth check and never proxies your files.
+# Anubis (bot protection) for a single Corium instance. A hardened sample: If Corium is running as root, its “Register” button will write a plainer unit with the same name. 
+# Copy this one to /etc/systemd/system/strata-anubis.service and then:
+# systemctl daemon-reload && systemctl enable --now strata-anubis
+# One unit per Corium instance: change port, the paths and host names. The policy and key are written by corium.
+# (Blocklist > Bot protection, or the first Register); Only Anubis can read them. --target is a single space on purpose:
+# Anubis does not proxy your files, and responds to Caddy's forward_auth check.
 [Unit]
 Description=Anubis bot protection for Corium
 After=network-online.target
