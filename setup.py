@@ -5,6 +5,7 @@
     python setup.py --home <dir>    set up another site in its own instance folder
     python setup.py --check         report what is installed and running, change nothing
     python setup.py --no-service    configure everything but don't register or start the service
+    python setup.py --caddy <exe>   use this Caddy instead of looking for one (scripted installs, tests)
     python setup.py --uninstall     remove the service (configuration and data stay)
 
 Steps: Python packages into vendor/, the site (domain, files folder, ports), Caddy (Caddyfile backup + import of the
@@ -326,9 +327,11 @@ def ports_for(raw, caddyfile_text):
     return pick_ports(caddyfile_text)
 
 
-def step_caddy(cfg, raw, home):
+def step_caddy(cfg, raw, home, given=""):
     extra = win_candidates("caddy.exe", "Caddy") + [r"C:\caddy\caddy.exe"] if WIN else ["/usr/bin/caddy", "/usr/local/bin/caddy"]
-    exe = find_exe("caddy", raw.get("caddy_exe", ""), extra)
+    if given and not os.path.isfile(given):
+        sys.exit("  --caddy: %s is not a file" % given)
+    exe = os.path.abspath(given) if given else find_exe("caddy", raw.get("caddy_exe", ""), extra)
     if not exe:
         say("  Caddy was not found.")
         if WIN and yes("Install it with winget?"):
@@ -341,7 +344,14 @@ def step_caddy(cfg, raw, home):
     say("  found %s (%s)" % (exe, run([exe, "version"])[1].split("\n")[0][:60]))
 
     default_cf = raw.get("caddyfile") or (os.path.join(os.path.dirname(exe), "Caddyfile") if WIN else "/etc/caddy/Caddyfile")
-    caddyfile = os.path.abspath(ask("Caddyfile", default_cf))
+    for _ in range(3):
+        caddyfile = os.path.abspath(ask("Caddyfile", default_cf))
+        # a new Caddyfile never belongs in Strata's code folder: that is a stray answer (a relative "n" lands there)
+        if os.path.exists(caddyfile) or not os.path.normcase(caddyfile).startswith(os.path.normcase(CODE) + os.sep):
+            break
+        say("  %s would be a new file in Strata's code folder. Give the Caddyfile Caddy uses, e.g. %s" % (caddyfile, default_cf))
+    else:
+        sys.exit("  No usable Caddyfile path given.")
     text = open(caddyfile, encoding="utf-8-sig").read() if os.path.exists(caddyfile) else ""
     ports = ports_for(raw, text)
     cfg["ports"] = ports
@@ -709,6 +719,7 @@ def main():
     ap.add_argument("--check", action="store_true", help="report the current state and exit")
     ap.add_argument("--no-service", action="store_true", help="don't register or start the background service")
     ap.add_argument("--uninstall", action="store_true", help="remove the background service")
+    ap.add_argument("--caddy", default="", help="Caddy executable to use instead of looking for one")
     ap.add_argument("--elevated", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     home = os.path.abspath(a.home)
@@ -739,7 +750,7 @@ def main():
     step(2, total, "Site")
     step_site(cfg, raw, home)
     step(3, total, "Caddy")
-    step_caddy(cfg, raw, home)
+    step_caddy(cfg, raw, home, a.caddy)
     step(4, total, "Cloudflare Tunnel")
     step_tunnel(cfg, raw, not a.no_service)
     step(5, total, "Keys and owner account")

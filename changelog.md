@@ -1,5 +1,10 @@
 # Changelog
 
+11/06/2026 - Fixes on top of (v0.4.1).
+
+- **Setup:** `setup.py --caddy <exe>` uses that Caddy instead of looking for one, and setup no longer creates a new Caddyfile inside Strata's code folder (a stray answer such as `n` used to become a file named `n` there).
+- **Tests:** the installer test passes `--caddy` with its stub. Before, a Caddy installed on the test machine was found instead, shifted the piped answers and could be reloaded with the test's throwaway Caddyfile, which takes every site of a Caddy running on that machine offline. Don't run older copies of `tests/installer_test.py` on a machine that serves sites.
+
 10/17/2026 - From: (v0.4.0.1), To: (v0.4.1).
 
 ## Security

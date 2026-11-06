@@ -25,6 +25,18 @@ def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else "  -> %s" % (detail,)))
 
 
+def live_caddy_config():
+    """The config of a Caddy already running on this machine (its admin API on localhost:2019), or None.
+    setup.py reloads whatever Caddy answers there, so the test must leave it exactly as it found it."""
+    try:
+        return urllib.request.urlopen("http://localhost:2019/config/", timeout=3).read()
+    except OSError:
+        return None
+
+
+LIVE_CADDY = live_caddy_config()
+
+
 def config(home):
     """strata.json with the secrets of data/.env put back, as Strata reads it - and strata.json itself must hold none."""
     sys.path.insert(0, ra.CODE)
@@ -52,10 +64,10 @@ caddyfile = os.path.join(root, "caddy", "Caddyfile")
 os.makedirs(os.path.dirname(caddyfile))
 with open(caddyfile, "w") as f:
     f.write("{\n\tadmin localhost:2019\n}\n\nsomething.example.org {\n\trespond hi\n}\n")
-WINGET = ["n"] if os.name == "nt" else []      # "Install it with winget?" is only asked on Windows
+# setup.py gets the stub Caddy with --caddy, so a Caddy installed on this machine never changes the questions
 answers = [
     "example.org", "", "",                      # domain, CDN host (default cdn.example.org), files folder (default)
-    *WINGET, caddy, caddyfile, "y",             # caddy path, Caddyfile, LAN dashboard: yes
+    caddyfile, "y",                             # Caddyfile, LAN dashboard: yes
     "n",                                        # no tunnel
     "", "", "", "",                             # no Cloudflare token, default sender, no SMTP server, no Resend key
     "owner", "a long enough passphrase", "a long enough passphrase",
@@ -66,14 +78,15 @@ env.pop("STRATA_HOME", None)
 
 
 def install(lines, where=None):
-    return subprocess.run([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where or home, "--no-service"],
+    return subprocess.run([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where or home, "--no-service",
+                           "--caddy", caddy],
                           input="\n".join(lines) + "\n", capture_output=True, text=True, env=env, timeout=120)
 
 
 def install_with_app(lines, where):
     """Answers `lines`, then reads the key setup.py shows and answers with the app's current code."""
     import auth  # noqa: E402  (the TOTP the installer and the server use)
-    p = subprocess.Popen([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where, "--no-service"],
+    p = subprocess.Popen([sys.executable, os.path.join(ra.CODE, "setup.py"), "--home", where, "--no-service", "--caddy", caddy],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     p.stdin.write("\n".join(lines) + "\n")
     p.stdin.flush()
@@ -116,7 +129,14 @@ try:
           open(os.path.join(root, "caddy", "backups", backups[0])).read(), backups)
     check("placeholder for the generated config", os.path.exists(os.path.join(home, "generated", "cdn.caddy")))
 
-    # second run: Enter everywhere keeps what is there (caddy found from strata.json this time, so no winget question)
+    # a stray answer for the Caddyfile (a relative "n") must not create a file in the code folder
+    stray = os.path.join(ra.CODE, "n")
+    had = os.path.exists(stray)
+    r3 = install(["example.com", "", "", "n", "n", "n"], os.path.join(root, "home3"))
+    check("a new Caddyfile in the code folder is refused", r3.returncode != 0 and (had or not os.path.exists(stray))
+          and "Strata's code folder" in r3.stdout, (r3.returncode, r3.stdout[-600:]))
+
+    # second run: Enter everywhere keeps what is there
     r2 = install(["", "", "", "", "n", "", "", "", "", "y"])
     cfg2 = config(home)
     check("re-run exits cleanly", r2.returncode == 0, (r2.stdout + r2.stderr)[-1500:])
@@ -130,7 +150,7 @@ try:
     os.makedirs(os.path.dirname(caddyfile2))
     with open(caddyfile2, "w") as f:
         f.write("{\n\tadmin localhost:2019\n}\n")
-    code, out, key = install_with_app(["example.net", "", "", *WINGET, caddy, caddyfile2, "n", "n", "", "", "", "",
+    code, out, key = install_with_app(["example.net", "", "", caddyfile2, "n", "n", "", "", "", "",
                                        "owner2", "another long passphrase", "another long passphrase", ""], home2)
     check("app setup exits cleanly", code == 0 and key, out[-1500:])
     cfg3 = config(home2)
@@ -161,4 +181,7 @@ finally:
         proc.terminate()
         proc.wait(10)
     shutil.rmtree(root, ignore_errors=True)
+    if LIVE_CADDY is not None:
+        check("a Caddy running on this machine was left alone", live_caddy_config() == LIVE_CADDY,
+              "its config changed while the test ran - check that its sites still answer")
 sys.exit(0 if ok else 1)
